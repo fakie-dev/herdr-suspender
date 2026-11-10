@@ -1,3 +1,5 @@
 {
-  "place": "none"
+  "place": "none",
+  "title": "Sessions",
+  "overlay": { "kind": "window", "key": "suspender", "width": 400, "height": 560 }
 }

@@ -10,6 +10,7 @@ import { closeOverlay, settings, theme } from "herdr";
 import { badgeText, fitSegments, SEPARATOR } from "../core/fit.js";
 import { t } from "../i18n/index.js";
 import { measureAt, screenLines, stripActions, stripSegments, stripStatus, wakeSteps } from "./format.js";
+import { anchorRect, factsFor, hoverPopup } from "./popup.js";
 const ICONS = "mods/suspender/icons";
 const STRIP_TEXT = 12.5;
 const STATUS_TEXT = 12;
@@ -218,8 +219,15 @@ export class SleepPane {
             .on_click((_e, cx) => this.press(a.action, cx)))
             .when(i === 0 && a.action === "resume", (el) => el.child(svg(`${ICONS}/play.svg`).size(11)))
             .child(a.label));
-        return v_flex()
+        return (v_flex()
             .id("strip")
+            // Hovering the strip opens the session's popup (popup.ts decides when).
+            .on_mouse_move((e, cx) => hoverPopup.enter({ key: this.key, kind: "strip", rect: anchorRect(e), usedMb: null }, () => factsFor(this.engine, this.ports, this.key, null), cx))
+            .on_hover((over, cx) => {
+            if (!over) {
+                hoverPopup.leave(cx);
+            }
+        })
             .flex_none()
             .bg(color("chrome"))
             .border_t(1)
@@ -246,7 +254,7 @@ export class SleepPane {
             .text_color(color("muted"))
             .children(items))
             .children(buttons))
-            .child(h_flex().pl(24).text_size(STATUS_TEXT).child(status));
+            .child(h_flex().pl(24).text_size(STATUS_TEXT).child(status)));
     }
 }
 /** "{agent} is still answering": Sleep when done / Interrupt and sleep / Cancel. Closing it any other way is Cancel. */

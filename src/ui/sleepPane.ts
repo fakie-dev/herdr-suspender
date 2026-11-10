@@ -15,6 +15,7 @@ import type { Ports } from "../platform/ports.ts";
 import type { Choice, Engine } from "../runtime/engine.ts";
 import type { Host } from "../runtime/host.ts";
 import { measureAt, screenLines, stripActions, stripSegments, stripStatus, wakeSteps } from "./format.ts";
+import { anchorRect, factsFor, hoverPopup } from "./popup.ts";
 
 const ICONS = "mods/suspender/icons";
 const STRIP_TEXT = 12.5;
@@ -264,41 +265,56 @@ export class SleepPane {
         .child(a.label),
     );
 
-    return v_flex()
-      .id("strip")
-      .flex_none()
-      .bg(color("chrome"))
-      .border_t(1)
-      .border_color(color("border"))
-      .pl(12)
-      .pr(10)
-      .py(8)
-      .gap(3)
-      .child(
-        h_flex()
-          .gap(10)
-          .items_center()
-          .child(
-            svg(`${ICONS}/moon.svg`)
-              .size(14)
-              .flex_none()
-              .text_color(color(rec.state === "interrupted" ? "working" : "accent")),
-          )
-          .child(
-            h_flex()
-              .flex_1()
-              .min_w(0)
-              .gap(8)
-              .items_center()
-              .overflow_hidden()
-              .whitespace_nowrap()
-              .text_size(STRIP_TEXT)
-              .text_color(color("muted"))
-              .children(items),
-          )
-          .children(buttons),
-      )
-      .child(h_flex().pl(24).text_size(STATUS_TEXT).child(status));
+    return (
+      v_flex()
+        .id("strip")
+        // Hovering the strip opens the session's popup (popup.ts decides when).
+        .on_mouse_move((e, cx) =>
+          hoverPopup.enter(
+            { key: this.key, kind: "strip", rect: anchorRect(e), usedMb: null },
+            () => factsFor(this.engine, this.ports, this.key, null),
+            cx,
+          ),
+        )
+        .on_hover((over, cx) => {
+          if (!over) {
+            hoverPopup.leave(cx);
+          }
+        })
+        .flex_none()
+        .bg(color("chrome"))
+        .border_t(1)
+        .border_color(color("border"))
+        .pl(12)
+        .pr(10)
+        .py(8)
+        .gap(3)
+        .child(
+          h_flex()
+            .gap(10)
+            .items_center()
+            .child(
+              svg(`${ICONS}/moon.svg`)
+                .size(14)
+                .flex_none()
+                .text_color(color(rec.state === "interrupted" ? "working" : "accent")),
+            )
+            .child(
+              h_flex()
+                .flex_1()
+                .min_w(0)
+                .gap(8)
+                .items_center()
+                .overflow_hidden()
+                .whitespace_nowrap()
+                .text_size(STRIP_TEXT)
+                .text_color(color("muted"))
+                .children(items),
+            )
+            .children(buttons),
+        )
+        .child(h_flex().pl(24).text_size(STATUS_TEXT).child(status))
+    );
   }
 }
 
