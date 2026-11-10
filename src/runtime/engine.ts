@@ -62,6 +62,10 @@ export const STALE_FLOW_MS = 60_000;
 export const BIND_RETRY_MS = 10_000;
 /** A started agent that is up but silent this long counts as up. */
 export const SETTLE_MS = 4_000;
+/** How long a new shell may take to show its prompt before the command is typed anyway. */
+export const PROMPT_WAIT_MS = 10_000;
+/** Process snapshots while waiting for a started agent: at most this often. */
+export const SNAPSHOT_EVERY_MS = 5_000;
 /** How long the copy that asked waits for the answer; a later one is the leader's to carry out. */
 export const QUESTION_WAIT_MS = 120_000;
 const POLL_MS = 250;
@@ -75,6 +79,16 @@ export interface Freshness {
   added: number;
 }
 export type Choice = "sleepWhenDone" | "interruptAndSleep" | "cancel";
+
+/** An agent's process found under a terminal's shell. */
+export interface AgentProcess {
+  /** The shell it runs under (the terminal's own pid when it was found). */
+  shell: number;
+  pid: number;
+  name: string;
+  /** Herdr has seen it report (status/app) since; until then a silent agent is not a gone one. */
+  reported: boolean;
+}
 
 /**
  * What the copies of one window share (they run in one module instance): the
@@ -90,6 +104,10 @@ export interface Coordinator {
   fresh: Map<SessionKey, Freshness>;
   /** Answers to the question for a working agent, not carried out yet. */
   answers: Map<SessionKey, Choice>;
+  /** The agent's own process under a terminal's shell, found once (by terminal address). */
+  agents: Map<string, AgentProcess>;
+  /** When each terminal's session was last looked up (by terminal address). */
+  checkedAt: Map<string, number>;
   /** When each mod command was last carried out. */
   commands: Map<string, number>;
 }
@@ -103,6 +121,8 @@ export function newCoordinator(): Coordinator {
     progress: new Map(),
     fresh: new Map(),
     answers: new Map(),
+    agents: new Map(),
+    checkedAt: new Map(),
     commands: new Map(),
   };
 }
@@ -128,12 +148,18 @@ function agentOwnsTerminal(term: HostTerminal): boolean {
   return first !== undefined && !SHELLS.test(program(first));
 }
 
-/** The argv Herdr ran is the one asked for (same program, same arguments). */
-export function sameArgv(got: readonly string[], want: readonly string[]): boolean {
-  if (got.length !== want.length || got.length === 0) {
-    return false;
-  }
-  return got.every((arg, i) => (i === 0 ? program(arg) === program(want[0] ?? "") : arg === want[i]));
+/**
+ * How a terminal's session is looked up again, per agent (every agent must
+ * answer). "process": with the agent's own process in front: Claude rewrites
+ * `sessions/<pid>.json` on /clear and /resume. "newer": without a process,
+ * sessions started since the last look: Codex's lookup would otherwise take a
+ * PowerShell snapshot (and walk it per process) to choose between sessions.
+ */
+const RECHECK: Readonly<Record<AgentId, "process" | "newer">> = { claude: "process", codex: "newer" };
+
+/** A command line to type into a shell: plain words as they are, anything else in single quotes. */
+export function commandLine(argv: readonly string[]): string {
+  return argv.map((a) => (/^[\w@%+=:,./\\-]+$/.test(a) ? a : `'${a.replace(/'/g, "''")}'`)).join(" ");
 }
 
 interface Leader {
@@ -314,7 +340,7 @@ export class Engine {
         await this.follow(term, cls.key);
         return;
       case "interrupted":
-        if (agentOwnsTerminal(term)) {
+        if (agentOwnsTerminal(term) || this.silentAgent(term)) {
           // Silent (at its own prompt, or not reporting at all), not gone.
           this.absentSince.delete(term.address);
           await this.follow(term, cls.key);
@@ -366,6 +392,8 @@ export class Engine {
       return true;
     });
     this.bindTried.delete(term.address);
+    this.co.checkedAt.set(term.address, this.ports.now());
+    await this.noteAgent(term, adapter);
     return key;
   }
 
@@ -399,12 +427,18 @@ export class Engine {
         r.terminal = term.address;
       });
     }
+    const known = this.co.agents.get(term.address);
+    if (known !== undefined && term.status !== null) {
+      known.reported = true;
+    }
     const working = isWorking(term.status);
     const idle = term.status !== null && !working;
     if (rec.state === "running" && working) {
       await this.dispatch(key, { t: "agentWorking" });
     } else if (rec.state === "working" && idle) {
       await this.dispatch(key, { t: "agentIdle" });
+      // A turn just ended: the session may be another one now (/clear, /resume, Codex /new).
+      await this.verifySession(key);
     } else if (rec.state === "confirming" && idle && this.co.whenDone.has(key)) {
       await this.act(key, () => this.dispatch(key, { t: "interruptAndSleep" }));
     } else if (rec.state === "confirming" && this.co.answers.has(key)) {
@@ -500,11 +534,151 @@ export class Engine {
     }
   }
 
+  // ---- which session a terminal runs now
+
+  /** A terminal whose agent was found under its shell and has not reported yet: silent, not gone. */
+  private silentAgent(term: HostTerminal): boolean {
+    const known = this.co.agents.get(term.address);
+    return known !== undefined && known.shell === term.pid && !known.reported;
+  }
+
+  /**
+   * The agent's process under this terminal's shell, from one process
+   * snapshot (PowerShell on Windows: seconds), never per process. With
+   * `args`, it must also run with them (somewhere in its process chain).
+   */
+  private async findAgent(
+    term: HostTerminal,
+    adapter: AgentAdapter,
+    args: readonly string[] | null,
+  ): Promise<AgentProcess | null> {
+    if (term.pid === null) {
+      return null;
+    }
+    const shell = term.pid;
+    const tree = await processDetails(this.ports).catch(() => []);
+    const below = new Set(subtree(tree, shell));
+    below.delete(shell);
+    const under = tree.filter((d) => below.has(d.pid));
+    const view = toTerminalView(term);
+    const agent = under.find((d) =>
+      adapter.matches({ ...view, app: null, foreground: { pid: d.pid, argv: [d.name], name: d.name } }),
+    );
+    if (agent === undefined) {
+      return null;
+    }
+    if (args !== null && !args.every((arg) => under.some((d) => (d.commandLine ?? "").includes(arg)))) {
+      return null;
+    }
+    return { shell, pid: agent.pid, name: agent.name, reported: false };
+  }
+
+  /**
+   * Once per terminal (not on a timer): the agent's own process under its
+   * shell, for agents looked up by it. One snapshot; none when the foreground
+   * already is the agent or it is known.
+   */
+  private async noteAgent(term: HostTerminal, adapter: AgentAdapter): Promise<void> {
+    if (RECHECK[adapter.id] !== "process" || this.co.agents.get(term.address)?.shell === term.pid) {
+      return;
+    }
+    if (term.foreground !== null && adapter.matches({ ...toTerminalView(term), app: null })) {
+      return;
+    }
+    const found = await this.findAgent(term, adapter, null);
+    if (found !== null) {
+      this.co.agents.set(term.address, { ...found, reported: true });
+    }
+  }
+
+  /** The terminal as the adapter should see it to look its session up again (see RECHECK). */
+  private recheckView(term: HostTerminal, adapter: AgentAdapter): TerminalView {
+    const view = toTerminalView(term);
+    if (RECHECK[adapter.id] === "newer") {
+      const since = this.co.checkedAt.get(term.address) ?? term.createdMs;
+      return { ...view, foreground: null, createdMs: Math.max(since, term.createdMs) };
+    }
+    const known = this.co.agents.get(term.address);
+    return known === undefined || known.shell !== term.pid
+      ? view
+      : { ...view, foreground: { pid: known.pid, argv: [], name: known.name } };
+  }
+
+  /**
+   * Asks the adapter again which session the terminal runs. Only at Sleep and
+   * when a turn ends (never on a timer): a changed id moves the record and the
+   * labels to the new key. Returns the key the session has now.
+   */
+  private async verifySession(key: SessionKey): Promise<SessionKey> {
+    const rec = this.record(key);
+    const term = rec?.terminal ? this.term(rec.terminal) : null;
+    if (rec === null || term === null || term.state !== "live" || !RUNNING.includes(rec.state)) {
+      return key;
+    }
+    const adapter = this.adapter(rec.agent);
+    const view = this.recheckView(term, adapter);
+    const lookedAt = this.ports.now();
+    let sessionId: string | null = null;
+    try {
+      sessionId = await adapter.discoverSession(view, this.ports);
+    } catch {
+      sessionId = null;
+    }
+    this.co.checkedAt.set(term.address, lookedAt);
+    if (sessionId === null || sessionId === rec.sessionId) {
+      return key;
+    }
+    // Another live terminal already runs it (two agents in one folder): not ours.
+    const other = this.record(sessionKey(rec.agent, sessionId));
+    if (other !== null && other.terminal !== null && other.terminal !== term.address && this.alive(other.terminal)) {
+      return key;
+    }
+    return this.rekey(rec, term, sessionId);
+  }
+
+  /** The terminal now runs `sessionId`: its record and labels move there; the old id is let go. */
+  private async rekey(rec: SessionRecord, term: HostTerminal, sessionId: string): Promise<SessionKey> {
+    const key = sessionKey(rec.agent, sessionId);
+    await this.label(term, rec.agent, sessionId);
+    await this.mutate((file) => {
+      const old = file.sessions[rec.key] ?? rec;
+      delete file.sessions[rec.key];
+      const there = file.sessions[key];
+      // A session that sleeps in another tab keeps its record there (that tab shows "open elsewhere").
+      if (there === undefined || RUNNING.includes(there.state) || there.terminal === term.address) {
+        file.sessions[key] = {
+          ...old,
+          key,
+          sessionId,
+          terminal: term.address,
+          pane: null,
+          info: emptyInfo(sessionId, old.cwd),
+          lastScreen: null,
+          memFreedMb: null,
+        };
+      }
+      return true;
+    });
+    for (const set of [this.co.whenDone]) {
+      if (set.delete(rec.key)) {
+        set.add(key);
+      }
+    }
+    const answer = this.co.answers.get(rec.key);
+    if (answer !== undefined) {
+      this.co.answers.delete(rec.key);
+      this.co.answers.set(key, answer);
+    }
+    return key;
+  }
+
   // ---- what a person asks for
 
   /** Sleep: stops an idle agent at once; a working one is asked first. */
-  async sleep(key: SessionKey): Promise<void> {
+  async sleep(asked: SessionKey): Promise<void> {
     await this.load();
+    // The agent may have moved to another session since it was bound (/clear, /resume, Codex /new).
+    const key = this.co.busy.has(asked) ? asked : await this.verifySession(asked);
     await this.act(key, async () => {
       const rec = this.record(key);
       const term = rec?.terminal ? this.term(rec.terminal) : null;
@@ -1018,11 +1192,13 @@ export class Engine {
   }
 
   /**
-   * Starts the agent in the session's folder as a terminal of the same tab
-   * (`hc run` with Herdr's labels: Herdr adopts it), checks with `hc get` that
-   * the command is the one asked for, waits until the agent reports, then puts
-   * it in our pane's slot and closes our pane. Our pane stays until then, so a
-   * failure leaves it with the error and "Retry".
+   * Starts the agent as a new tab would (D02): Herdr's default shell in the
+   * session's folder (`hc run` without a program, with Herdr's labels so it
+   * adopts it into the tab), the resume command typed into it at its prompt.
+   * `hc get` must show that shell; the agent must then run under it with the
+   * command's arguments (one process snapshot per check, at most every 5 s).
+   * After /exit the shell stays, like any tab. Our pane stays until the agent
+   * is up, so a failure leaves it with the error and "Retry".
    */
   private async start(key: SessionKey, adapter: AgentAdapter, argv: string[], fresh: boolean): Promise<Outcome> {
     const rec = this.record(key);
@@ -1052,8 +1228,6 @@ export class Engine {
       "--label",
       `herdr.tab=${rec.tabId}`,
       ...Object.entries(labels).flatMap(([k, v]) => ["--label", `${k}=${v}`]),
-      "--",
-      ...argv,
     ];
     this.setProgress(key, "starting");
     const out = await this.ports.hc(args).catch(() => null);
@@ -1062,35 +1236,52 @@ export class Engine {
       return failed("reason.spawn", null);
     }
     const got = await this.ports.hc(["get", address, "--json"]).catch(() => null);
-    const started = got === null ? null : normalizeTerminal(parseJson(got.stdout));
-    if (started === null || !sameArgv(started.argv, argv)) {
+    const shell = got === null ? null : normalizeTerminal(parseJson(got.stdout));
+    if (shell === null || !SHELLS.test(program(shell.argv[0] ?? ""))) {
       return failed("reason.wrongCommand", address);
     }
-    if (started.pid !== null) {
-      await this.ports.hc(["label", address, `${LABEL_PID}=${started.pid}`]);
+    if (shell.pid !== null) {
+      await this.ports.hc(["label", address, `${LABEL_PID}=${shell.pid}`]);
     }
-    // Herdr lists a terminal started this way only once it adopts it: not
-    // listed yet is "still starting", not "gone". Up and reporting is ready;
-    // so is up and silent for a few seconds (an agent at its own prompt,
-    // like Codex's update question, reports nothing to Herdr).
-    let ended = false;
-    let listedAt: number | null = null;
-    const ready = await this.waitUntil(() => {
-      const term = this.term(address);
-      ended = term !== null && term.state !== "live";
-      if (term === null || ended) {
-        return ended;
-      }
-      listedAt ??= this.ports.now();
-      const reporting = adapter.matches(toTerminalView(term)) && term.status !== null;
-      return reporting || this.ports.now() - listedAt >= SETTLE_MS;
-    }, START_TIMEOUT_MS);
-    if (ended) {
+
+    // Its prompt first: a command typed before the shell reads input may be lost.
+    await this.waitForPrompt(address);
+    if (!this.alive(address) && this.term(address) !== null) {
       return failed("reason.exited", address);
     }
-    if (!ready) {
+    await this.ports.hc(["keys", address, ...typedKeys(commandLine(argv)), "enter"]);
+    const typedAt = this.ports.now();
+
+    // Up when the agent runs under the shell with the command's arguments.
+    // Herdr lists the terminal only once it adopts it; an agent at its own
+    // prompt (Codex's update question) may report nothing to Herdr.
+    let found: AgentProcess | null = null;
+    let lastSnapshot = Number.NEGATIVE_INFINITY;
+    const end = typedAt + START_TIMEOUT_MS;
+    while (this.ports.now() < end) {
+      const term = this.term(address);
+      if (term !== null && term.state !== "live") {
+        return failed("reason.exited", address);
+      }
+      const now = this.ports.now();
+      if (term !== null) {
+        const reporting = adapter.matches(toTerminalView(term)) && term.status !== null;
+        if ((reporting || now - typedAt >= SETTLE_MS) && now - lastSnapshot >= SNAPSHOT_EVERY_MS) {
+          lastSnapshot = now;
+          found = await this.findAgent(term, adapter, argv.slice(1));
+          if (found !== null) {
+            found.reported = reporting;
+            break;
+          }
+        }
+      }
+      await this.host.sleep(POLL_MS);
+    }
+    if (found === null) {
       return failed("reason.timeout", address);
     }
+    this.co.agents.set(address, found);
+    this.co.checkedAt.set(address, this.ports.now());
     const pane = await this.waitFor(() => this.paneOf(address), PANE_WAIT_MS);
     if (pane === null) {
       return failed("reason.noPane", address);
@@ -1129,6 +1320,24 @@ export class Engine {
         }
       },
     };
+  }
+
+  /** Until the new shell shows something (its prompt), at most PROMPT_WAIT_MS. */
+  private async waitForPrompt(address: string): Promise<void> {
+    const end = this.ports.now() + PROMPT_WAIT_MS;
+    while (this.ports.now() < end) {
+      const term = this.term(address);
+      if (term !== null && term.state !== "live") {
+        return;
+      }
+      if (term !== null) {
+        const screen = await this.ports.hc(["read", address]).catch(() => null);
+        if (screen !== null && screen.code === 0 && screen.stdout.trim() !== "") {
+          return;
+        }
+      }
+      await this.host.sleep(POLL_MS);
+    }
   }
 
   /** Ends a terminal we started that did not come up right (through the core: Herdr may not list it yet). */

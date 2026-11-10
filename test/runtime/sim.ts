@@ -25,6 +25,10 @@ interface SimTerminal extends HostTerminal {
   /** The agent process is the terminal's own (started by argv, not from a shell). */
   direct: boolean;
   screen: string;
+  /** The agent's own process under the shell, while it runs there. */
+  agentPid: number | null;
+  /** What was typed to start the agent in the shell ("claude --resume s1"). */
+  ran: string | null;
 }
 
 interface SimPane extends HostPane {
@@ -63,6 +67,14 @@ export class Sim implements Host {
   runStartsShell = false;
   /** Herdr adopts terminals started with `hc run` (lists them, gives them a pane). */
   adopts = true;
+  /** A command typed into a shell starts nothing (a typo, a missing program). */
+  typedStartsNothing = false;
+  /** What the shell really runs for a typed line (a mangled line, an alias). */
+  shellRewrites: ((line: string) => string) | null = null;
+  /** Every command typed into a shell, in order. */
+  typed: { address: string; line: string }[] = [];
+  /** Process listings asked for (PowerShell on Windows). */
+  execCalls: { cmd: string; args: string[] }[] = [];
 
   private seq = 0;
   private pidSeq = 1000;
@@ -105,6 +117,8 @@ export class Sim implements Host {
       direct: opts.direct ?? false,
       screen: `screen of ${address}`,
       listed: true,
+      agentPid: agent !== null && !opts.direct ? this.pidSeq++ : null,
+      ran: null,
     };
     this.terms.set(address, term);
     const pane = this.newPane(tab, address, null, null);
@@ -165,7 +179,7 @@ export class Sim implements Host {
   terminals(): HostTerminal[] {
     return [...this.terms.values()]
       .filter((t) => t.listed)
-      .map(({ agent: _a, direct: _d, screen: _s, listed: _l, ...t }) => ({
+      .map(({ agent: _a, direct: _d, screen: _s, listed: _l, agentPid: _p, ran: _r, ...t }) => ({
         ...t,
         labels: { ...t.labels },
         argv: [...t.argv],
@@ -306,9 +320,19 @@ export class Sim implements Host {
           });
         }
         // A command typed key by key, then Enter.
-        const typed = keys.at(-1) === "enter" ? keys.slice(0, -1).join("") : "";
+        const typed =
+          keys.at(-1) === "enter"
+            ? keys
+                .slice(0, -1)
+                .map((k) => (k === "space" ? " " : k))
+                .join("")
+            : "";
         if (t?.agent && /^\/(exit|quit)$/.test(typed) && this.exitsOnStop) {
           this.later(300, () => this.agentLeaves(t.address));
+        } else if (t && t.state === "live" && t.agent === null && typed !== "" && t.screen !== "") {
+          // (A shell that has not shown its prompt yet loses what is typed.)
+          this.typed.push({ address: t.address, line: typed });
+          this.shellRuns(t, typed);
         }
         return t ? ok("{}") : fail("no such terminal");
       }
@@ -365,10 +389,51 @@ export class Sim implements Host {
   ports(base: FakePorts = fakePorts({ sep: "\\", home: "C:\\Users\\tester" })): FakePorts {
     base.hc = (args) => this.hc(args);
     base.now = () => this.now;
+    base.exec = async (cmd, args) => {
+      this.execCalls.push({ cmd, args });
+      return /powershell/i.test(cmd) ? ok(this.processTable()) : { code: 127, stdout: "", stderr: "sim: no such tool" };
+    };
     return base;
   }
 
   // ---- internals
+
+  /** Every process as `processDetails` reads PowerShell: pid, ppid, start, name, command line. */
+  private processTable(): string {
+    const lines: string[] = [];
+    for (const t of this.terms.values()) {
+      if (t.state !== "live" || t.pid === null) {
+        continue;
+      }
+      lines.push(`${t.pid}\t1\t\t${t.direct ? `${t.argv[0]}.exe` : "pwsh.exe"}\t${t.argv.join(" ")}`);
+      if (t.agent !== null && t.agentPid !== null) {
+        const name = `${t.agent}.exe`;
+        lines.push(
+          `${t.agentPid}\t${t.pid}\t\t${name}\t"C:\\bin\\${name}" ${(t.ran ?? t.agent).split(" ").slice(1).join(" ")}`,
+        );
+      }
+    }
+    return lines.join("\r\n");
+  }
+
+  /** A shell runs a typed line: `claude …` / `codex …` start that agent in it. */
+  private shellRuns(t: SimTerminal, line: string): void {
+    const agent: AgentId | null = /^claude\b/.test(line) ? "claude" : /^codex\b/.test(line) ? "codex" : null;
+    if (agent === null || this.typedStartsNothing) {
+      return;
+    }
+    t.agent = agent;
+    t.agentPid = this.pidSeq++;
+    t.ran = this.shellRewrites?.(line) ?? line;
+    if (this.reportAfterMs !== null) {
+      this.later(this.reportAfterMs, () => {
+        if (t.state === "live" && t.agent === agent) {
+          t.status = "idle";
+          t.app = appOf(agent);
+        }
+      });
+    }
+  }
 
   private hcRun(args: string[]): ExecResult {
     const dash = args.indexOf("--");
@@ -391,7 +456,8 @@ export class Sim implements Host {
         ? "codex"
         : null;
     const address = `t${++this.seq}`;
-    const shell = this.runStartsShell;
+    // No command: the machine's own shell, as a new tab gets.
+    const shell = this.runStartsShell || argv.length === 0;
     const term: SimTerminal = {
       address,
       state: "live",
@@ -408,6 +474,8 @@ export class Sim implements Host {
       direct: !shell,
       screen: "",
       listed: false,
+      agentPid: null,
+      ran: null,
     };
     this.terms.set(address, term);
     const tab = labels["herdr.tab"] ?? TAB;
@@ -417,6 +485,9 @@ export class Sim implements Host {
         return;
       }
       term.listed = true;
+      if (term.agent === null) {
+        term.screen = "PS C:\\work\\repo>";
+      }
       if (term.state === "live") {
         let last = -1;
         this.paneList.forEach((p, i) => {
@@ -453,6 +524,7 @@ export class Sim implements Host {
     t.agent = null;
     t.app = null;
     t.status = null;
+    t.agentPid = null;
     this.onLeave?.(address);
     if (t.direct) {
       // A program exiting closes its pane.
@@ -541,6 +613,10 @@ export interface FakeAdapterState {
   info: Map<string, Partial<SessionInfo>>;
   snapshots: string[];
   openChecks: string[];
+  /** Terminal addresses `discoverSession` was asked about, in order. */
+  discovers: string[];
+  /** The views it was given, in order. */
+  views: TerminalView[];
 }
 
 export function fakeAdapter(
@@ -552,6 +628,8 @@ export function fakeAdapter(
     info: new Map(),
     snapshots: [],
     openChecks: [],
+    discovers: [],
+    views: [],
   },
 ): AgentAdapter & { state: FakeAdapterState } {
   const app = appOf(id);
@@ -559,8 +637,13 @@ export function fakeAdapter(
     state,
     id,
     displayName: id === "claude" ? "Claude Code" : "Codex",
-    matches: (t: TerminalView) => t.app === app,
-    discoverSession: async (t: TerminalView, _p: Ports) => state.sessions.get(t.address) ?? null,
+    // As the real adapters: by what the agent reported, or by its process.
+    matches: (t: TerminalView) => t.app === app || new RegExp(`^${id}(.exe)?$`, "i").test(t.foreground?.name ?? ""),
+    discoverSession: async (t: TerminalView, _p: Ports) => {
+      state.discovers.push(t.address);
+      state.views.push(t);
+      return state.sessions.get(t.address) ?? null;
+    },
     snapshot: async (sessionId: string, cwd: string, _p: Ports, prev?: SessionInfo) => {
       state.snapshots.push(sessionId);
       return {

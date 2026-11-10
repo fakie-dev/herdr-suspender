@@ -5,7 +5,7 @@ import type { AgentId, SessionKey, SessionRecord } from "../../src/core/model.ts
 import { defaultStorePath, parseStore } from "../../src/core/store.ts";
 import { Engine, LEADER_KEY, newCoordinator, subtree } from "../../src/runtime/engine.ts";
 import { type FakePorts, fakePorts } from "../fakePorts.ts";
-import { fakeAdapter, Sim, SPACE, TAB } from "./sim.ts";
+import { fakeAdapter, SHELL_ARGV, Sim, SPACE, TAB } from "./sim.ts";
 
 const KEY: SessionKey = "claude:s1";
 
@@ -274,16 +274,27 @@ describe("waking up", () => {
       }
     };
 
+    const listedBefore = sim.execCalls.length;
     await engine.resume(KEY);
 
+    // Herdr's default shell in the session's folder, as a new tab gets (no command of its own)…
     const run = hcOf(sim, "run")[0] ?? [];
-    assert.deepEqual(run.slice(run.indexOf("--") + 1), ["claude", "--resume", "s1"]);
+    assert.equal(run.includes("--"), false, "no program: the machine's own shell");
     assert.equal(run[run.indexOf("--cwd") + 1], "C:\\work\\repo");
     assert.ok(run.includes("herdr.tab=tb1") && run.includes("herdr.space=sp1"));
     const address = engine.record(KEY)?.terminal ?? "";
+    assert.deepEqual(sim.term(address).argv, SHELL_ARGV);
+    // …the resume command typed into it, and the agent found running under it.
+    assert.deepEqual(sim.typed, [{ address, line: "claude --resume s1" }]);
+    assert.equal(sim.term(address).ran, "claude --resume s1");
     assert.ok(
       hcOf(sim, "get").some((c) => c[1] === address),
-      "the started command is checked with hc get",
+      "the started shell is checked with hc get",
+    );
+    assert.equal(
+      sim.execCalls.slice(listedBefore).filter((c) => /powershell/i.test(c.cmd)).length,
+      1,
+      "one process snapshot",
     );
 
     const rec = stored(ports)[KEY];
@@ -302,6 +313,24 @@ describe("waking up", () => {
       steps.filter((s) => s !== null),
       ["found", "starting", "ready"],
     );
+  });
+
+  it("after /exit in a woken agent the tab keeps its shell, and the session is let go", async () => {
+    const { sim, engine } = await asleep();
+    await engine.resume(KEY);
+    const address = engine.record(KEY)?.terminal ?? "";
+    await sim.hc(["keys", address, "/", "e", "x", "i", "t", "enter"]);
+    await sim.advance(1_000);
+    await engine.tick();
+    await sim.advance(3_000);
+    await engine.tick();
+    assert.equal(sim.term(address).state, "live", "the shell stays");
+    assert.ok(
+      sim.paneList.some((p) => p.terminal === address),
+      "and so does its pane",
+    );
+    assert.equal(engine.record(KEY), null);
+    assert.equal(sim.term(address).labels["suspender.state"], "exited");
   });
 
   it("an agent silent at its own prompt (Codex's update question) is up, not failed", async () => {
@@ -339,12 +368,23 @@ describe("waking up", () => {
     assert.equal(hcOf(sim, "run").length, 1, "no automatic retry");
   });
 
-  it("a start that runs something else (the --argv trap) is caught by hc get and undone", async () => {
+  it("an agent that runs another session than the one typed is not taken for it", async () => {
     const { sim, engine } = await asleep();
-    sim.runStartsShell = true;
+    sim.shellRewrites = (line) => line.replace("s1", "s7");
     await engine.resume(KEY);
     assert.equal(engine.record(KEY)?.state, "error");
-    assert.equal(engine.record(KEY)?.error, "reason.wrongCommand");
+  });
+
+  it("a typed command that starts no agent fails after 30 s with its reason and keeps the pane", async () => {
+    const { sim, engine } = await asleep();
+    sim.typedStartsNothing = true;
+    const pane = engine.record(KEY)?.pane ?? "";
+    const count = sim.row().length;
+    await engine.resume(KEY);
+    assert.equal(engine.record(KEY)?.state, "error");
+    assert.equal(engine.record(KEY)?.error, "reason.timeout");
+    assert.equal(engine.record(KEY)?.pane, pane);
+    assert.equal(sim.row().length, count, "the shell that ran nothing is gone again");
   });
 
   it("a session open elsewhere: nothing starts; resume works again once it is closed there", async () => {
@@ -368,8 +408,10 @@ describe("waking up", () => {
     assert.equal(engine.record(KEY)?.state, "missing");
 
     await engine.startNew(KEY);
-    const run = hcOf(sim, "run")[0] ?? [];
-    assert.deepEqual(run.slice(run.indexOf("--") + 1), ["claude"]);
+    assert.deepEqual(
+      sim.typed.map((x) => x.line),
+      ["claude"],
+    );
     assert.equal(engine.record(KEY), null);
   });
 
@@ -415,9 +457,88 @@ describe("waking up", () => {
 
     const result = await engine.resumeAll(SPACE);
     assert.deepEqual(result, { woken: [KEY, "claude:s3"], skipped: ["claude:s2"] });
-    const runs = hcOf(sim, "run").map((c) => c.at(-1));
-    assert.deepEqual(runs, ["s1", "s3"]);
+    assert.deepEqual(
+      sim.typed.map((x) => x.line),
+      ["claude --resume s1", "claude --resume s3"],
+    );
     assert.ok(sim.notices.some((n) => /open elsewhere/.test(n.text)));
+  });
+});
+
+describe("a session that changes inside the agent (/clear, /resume, Codex /new)", () => {
+  it("Sleep follows the terminal to its new session, and Resume starts that one", async () => {
+    const { sim, ports, engine, claude, agent } = world();
+    await engine.tick();
+    claude.state.sessions.set(agent.address, "s9"); // the person ran /clear
+    await engine.sleep(KEY);
+    assert.equal(stored(ports)[KEY], undefined, "nothing left on the old id");
+    assert.equal(engine.record("claude:s9")?.state, "asleep");
+    assert.ok(
+      hcOf(sim, "label").some((c) => c[1] === agent.address && c.includes("suspender.session=s9")),
+      "the terminal's labels moved too",
+    );
+    await engine.resume("claude:s9");
+    assert.deepEqual(
+      sim.typed.map((x) => x.line),
+      ["claude --resume s9"],
+    );
+  });
+
+  it("the leader moves the record when a turn ends on another session", async () => {
+    const { sim, engine, claude, agent } = world({ status: "working" });
+    await engine.tick();
+    claude.state.sessions.set(agent.address, "s9"); // /resume of another conversation
+    sim.setStatus(agent.address, "idle");
+    await engine.tick();
+    assert.equal(engine.record(KEY), null);
+    assert.equal(engine.record("claude:s9")?.state, "running");
+    assert.equal(sim.term(agent.address).labels["suspender.session"], "s9");
+    // Claude is asked with its own process in front (it reads sessions/<pid>.json),
+    // found once when the terminal was bound.
+    assert.equal(claude.state.views.at(-1)?.foreground?.pid, sim.term(agent.address).agentPid);
+  });
+
+  it("Codex /new takes the same path, and nothing is asked or started while it idles", async () => {
+    const { sim, engine, codex } = world();
+    const term = sim.addTerminal({ agent: "codex", status: "working" });
+    codex.state.sessions.set(term.address, "c1");
+    await engine.tick();
+    assert.equal(engine.record("codex:c1")?.state, "working");
+    codex.state.sessions.set(term.address, "c2");
+    const asked = codex.state.discovers.length;
+    const listed = sim.execCalls.length; // binding looked once for the Claude terminal's process
+    for (let i = 0; i < 4; i++) {
+      await sim.advance(5_000);
+      await engine.tick();
+    }
+    assert.equal(codex.state.discovers.length, asked, "no lookups while nothing happens");
+    assert.equal(sim.execCalls.length, listed, "no PowerShell (no process at all) while idle");
+    const checkedFrom = sim.now;
+    sim.setStatus(term.address, "idle"); // the turn after /new ends
+    await engine.tick();
+    assert.equal(engine.record("codex:c1"), null);
+    assert.equal(engine.record("codex:c2")?.state, "running");
+    // Codex is asked without a process in front (its lookup would take a PowerShell
+    // snapshot to choose between sessions), for sessions started since the last look.
+    const view = codex.state.views.at(-1);
+    assert.equal(view?.foreground, null);
+    assert.ok(
+      (view?.createdMs ?? 0) >= checkedFrom - 30_000 && (view?.createdMs ?? 0) > sim.term(term.address).createdMs,
+    );
+  });
+
+  it("a Codex session another terminal already has is not taken over", async () => {
+    const { sim, engine, codex } = world();
+    const a = sim.addTerminal({ agent: "codex", status: "idle" });
+    const b = sim.addTerminal({ agent: "codex", status: "working" });
+    codex.state.sessions.set(a.address, "cA");
+    codex.state.sessions.set(b.address, "cB");
+    await engine.tick();
+    codex.state.sessions.set(b.address, "cA"); // B's look finds A's newer session in the same folder
+    sim.setStatus(b.address, "idle");
+    await engine.tick();
+    assert.equal(engine.record("codex:cA")?.terminal, a.address);
+    assert.equal(engine.record("codex:cB")?.terminal, b.address);
   });
 });
 
