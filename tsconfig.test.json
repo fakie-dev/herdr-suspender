@@ -1,0 +1,14 @@
+{
+  // Type checks the tests and scripts, which run in Node (`node --test`), on
+  // top of the sources. Never emits: the build is `tsconfig.json` alone.
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "noEmit": true,
+    "rootDir": ".",
+    "types": ["node"],
+    // Tests poke at parsed JSON (`layout.cloned_from`); bracket access there
+    // would only add noise.
+    "noPropertyAccessFromIndexSignature": false
+  },
+  "include": ["src/**/*.ts", "test/**/*.ts", "scripts/**/*.ts", "types/gpui-kit.d.ts"]
+}

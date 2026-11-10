@@ -15,6 +15,7 @@ describe("t", () => {
   });
 
   it("makes a missing key visible instead of printing nothing", () => {
+    // @ts-expect-error: the point is a key that does not exist.
     assert.equal(t("strip.no-such-key"), "⟦strip.no-such-key⟧");
     assert.equal(hasMessage("strip.no-such-key"), false);
     assert.equal(hasMessage("strip.resume"), true);

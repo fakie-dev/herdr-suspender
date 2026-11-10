@@ -7,6 +7,7 @@ import { Buffer } from "buffer";
 import * as fs from "fs/promises";
 import { exec as herdrExec, hc as herdrHc, home as herdrHome, window as herdrWindow, readTextFile, watchFolder, writeTextFile, } from "herdr";
 import * as os from "os";
+import { statFile } from "./proc.js";
 function detectPlatform() {
     try {
         return herdrWindow().platform;
@@ -33,56 +34,18 @@ async function readBytes(path) {
     }
 }
 const decode = (bytes) => Buffer.from(bytes).toString("utf8");
-/** Quotes a path for a PowerShell single-quoted string. */
-const psQuote = (text) => `'${text.replace(/'/g, "''")}'`;
-/**
- * Herdr's "fs/promises" has no stat and no partial reads, so the size comes
- * from reading the file and the modification time from the system's own tool.
- */
-async function statFile(path, platform) {
-    const bytes = await readBytes(path);
-    if (bytes === null) {
-        return null;
-    }
-    const command = platform === "windows"
-        ? [
-            "powershell.exe",
-            [
-                "-NoProfile",
-                "-NonInteractive",
-                "-Command",
-                `([DateTimeOffset](Get-Item -LiteralPath ${psQuote(path)}).LastWriteTimeUtc).ToUnixTimeMilliseconds()`,
-            ],
-        ]
-        : platform === "macos"
-            ? ["stat", ["-f", "%m", path]]
-            : ["stat", ["-c", "%Y", path]];
-    try {
-        const out = await herdrExec(command[0], command[1], { timeout: 10_000 });
-        const value = Number(out.stdout.trim());
-        if (out.code === 0 && Number.isFinite(value)) {
-            return { mtimeMs: platform === "windows" ? value : value * 1000, size: bytes.length };
-        }
-    }
-    catch {
-        // Fall through: the size is still right.
-    }
-    return { mtimeMs: Number.NaN, size: bytes.length };
-}
 export function herdrPorts() {
     const platform = detectPlatform();
     return {
         home: () => herdrHome(),
         sep: platform === "windows" ? "\\" : "/",
         platform,
+        wholeReads: true,
         now: () => Date.now(),
+        // Not `readTextFile`: it stops at 1 MiB, and transcripts run to 50+ MB.
         readText: async (path) => {
-            try {
-                return await readTextFile(path);
-            }
-            catch {
-                return null;
-            }
+            const all = await readBytes(path);
+            return all === null ? null : decode(all);
         },
         readHead: async (path, bytes) => {
             const all = await readBytes(path);
@@ -92,7 +55,7 @@ export function herdrPorts() {
             const all = await readBytes(path);
             return all === null ? null : decode(all.subarray(Math.max(0, all.length - bytes)));
         },
-        stat: (path) => statFile(path, platform),
+        stat: (path) => statFile(path, platform, herdrExec),
         list: async (dir) => {
             try {
                 return await fs.readdir(dir);

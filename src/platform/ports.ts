@@ -16,6 +16,7 @@ import {
   writeTextFile,
 } from "herdr";
 import * as os from "os";
+import { statFile } from "./proc.ts";
 
 export type Platform = "windows" | "macos" | "linux";
 
@@ -30,12 +31,23 @@ export interface Ports {
   sep: "\\" | "/";
   platform: Platform;
   now(): number;
-  /** UTF-8 text, or null if absent or unreadable. */
+  /**
+   * True when `readHead`/`readTail` read the whole file anyway (Herdr, D01):
+   * then a whole read costs no more than a partial one, and callers may take
+   * everything in one `readTail(path, size)`. Absent: partial reads are cheap.
+   */
+  wholeReads?: boolean;
+  /** UTF-8 text of the whole file (no size cap), or null if absent or unreadable. */
   readText(path: string): Promise<string | null>;
-  /** The first `bytes` bytes as text, or null if absent. */
+  /** The first `bytes` bytes as text, or null if absent. In Herdr this still reads the whole file (D01). */
   readHead(path: string, bytes: number): Promise<string | null>;
-  /** The last `bytes` bytes as text, or null if absent. */
+  /** The last `bytes` bytes as text, or null if absent. In Herdr this still reads the whole file (D01). */
   readTail(path: string, bytes: number): Promise<string | null>;
+  /**
+   * Size and modification time, or null if absent. Starts a process in Herdr
+   * (D01: no stat in its "fs/promises"); never reads the file. The time is
+   * whole seconds on Windows.
+   */
   stat(path: string): Promise<{ mtimeMs: number; size: number } | null>;
   /** Names in a folder; empty if it does not exist. */
   list(dir: string): Promise<string[]>;
@@ -79,57 +91,18 @@ async function readBytes(path: string): Promise<Uint8Array | null> {
 
 const decode = (bytes: Uint8Array): string => Buffer.from(bytes).toString("utf8");
 
-/** Quotes a path for a PowerShell single-quoted string. */
-const psQuote = (text: string): string => `'${text.replace(/'/g, "''")}'`;
-
-/**
- * Herdr's "fs/promises" has no stat and no partial reads, so the size comes
- * from reading the file and the modification time from the system's own tool.
- */
-async function statFile(path: string, platform: Platform): Promise<{ mtimeMs: number; size: number } | null> {
-  const bytes = await readBytes(path);
-  if (bytes === null) {
-    return null;
-  }
-  const command: [string, string[]] =
-    platform === "windows"
-      ? [
-          "powershell.exe",
-          [
-            "-NoProfile",
-            "-NonInteractive",
-            "-Command",
-            `([DateTimeOffset](Get-Item -LiteralPath ${psQuote(path)}).LastWriteTimeUtc).ToUnixTimeMilliseconds()`,
-          ],
-        ]
-      : platform === "macos"
-        ? ["stat", ["-f", "%m", path]]
-        : ["stat", ["-c", "%Y", path]];
-  try {
-    const out = await herdrExec(command[0], command[1], { timeout: 10_000 });
-    const value = Number(out.stdout.trim());
-    if (out.code === 0 && Number.isFinite(value)) {
-      return { mtimeMs: platform === "windows" ? value : value * 1000, size: bytes.length };
-    }
-  } catch {
-    // Fall through: the size is still right.
-  }
-  return { mtimeMs: Number.NaN, size: bytes.length };
-}
-
 export function herdrPorts(): Ports {
   const platform = detectPlatform();
   return {
     home: () => herdrHome(),
     sep: platform === "windows" ? "\\" : "/",
     platform,
+    wholeReads: true,
     now: () => Date.now(),
+    // Not `readTextFile`: it stops at 1 MiB, and transcripts run to 50+ MB.
     readText: async (path) => {
-      try {
-        return await readTextFile(path);
-      } catch {
-        return null;
-      }
+      const all = await readBytes(path);
+      return all === null ? null : decode(all);
     },
     readHead: async (path, bytes) => {
       const all = await readBytes(path);
@@ -139,7 +112,7 @@ export function herdrPorts(): Ports {
       const all = await readBytes(path);
       return all === null ? null : decode(all.subarray(Math.max(0, all.length - bytes)));
     },
-    stat: (path) => statFile(path, platform),
+    stat: (path) => statFile(path, platform, herdrExec),
     list: async (dir) => {
       try {
         return await fs.readdir(dir);
