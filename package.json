@@ -1,6 +1,6 @@
 {
   "name": "herdr-suspender",
-  "version": "0.0.0",
+  "version": "0.1.0",
   "private": true,
   "description": "Herdr App mod: put idle Claude Code and Codex sessions to sleep and resume them in the same tab, even after a restart",
   "keywords": [
@@ -15,12 +15,14 @@
   "author": "fakie-dev",
   "type": "module",
   "scripts": {
-    "build": "node scripts/clean-build.ts && tsc -p tsconfig.json",
-    "build:check": "tsc -p tsconfig.json --outDir .build-check && node scripts/compare-build.ts .build-check mods/suspender",
-    "check": "biome check . && tsc -p tsconfig.json --noEmit && tsc -p tsconfig.test.json && node --test \"test/**/*.test.ts\" && pnpm run build:check",
+    "build": "node scripts/clean-build.ts && tsc -p tsconfig.json && node scripts/build-layout.ts",
+    "build:check": "tsc -p tsconfig.json --outDir .build-check && node scripts/compare-build.ts .build-check mods/suspender && node scripts/build-layout.ts --check",
+    "check": "biome check . && tsc -p tsconfig.json --noEmit && tsc -p tsconfig.test.json && node --test \"test/**/*.test.ts\" && pnpm run build:check && pnpm run privacy",
     "format": "biome check --write .",
     "sync-types": "node scripts/sync-types.ts",
-    "test": "node --test \"test/**/*.test.ts\""
+    "test": "node --test \"test/**/*.test.ts\"",
+    "privacy": "node scripts/check-privacy.ts",
+    "privacy:history": "node scripts/check-privacy.ts --history"
   },
   "engines": {
     "node": ">=22.18.0"

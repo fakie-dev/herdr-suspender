@@ -24,6 +24,20 @@ jobs:
           node-version: lts/*
           cache: pnpm
       - run: pnpm install --frozen-lockfile
-      # Biome, tsc --noEmit, node --test, and the committed build in
-      # mods/suspender/ must equal a fresh build of src/.
+      # Biome, tsc --noEmit, node --test, the committed build in mods/suspender/
+      # (and its copy in layout/) must equal a fresh build of src/, and the
+      # privacy scan of the tree.
       - run: pnpm check
+
+  privacy-history:
+    name: privacy scan of the whole history
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v5
+        with:
+          node-version: lts/*
+      # Every commit: diffs, authors, committers and messages. `pnpm check` scans only the tree.
+      - run: node scripts/check-privacy.ts --history
