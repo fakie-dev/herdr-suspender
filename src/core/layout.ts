@@ -3,7 +3,8 @@
 // Herdr update reaches the person without cloning or editing anything shipped.
 //
 //  - `suspender-toggle`: the "Sessions · N" button, in a row beside the tabs
-//    block (left of it: the tab bar draws the window buttons at its right edge);
+//    block (right of it: the tab bar draws the window buttons at its right edge,
+//    so the button ends the strip, after them);
 //  - `suspender-panel`: a hidden Sessions column, rightmost in the work row;
 //  - `suspender-pill`: a floating "Sleep" drawer over the tab block.
 //
@@ -15,7 +16,7 @@ import { sha256Hex } from "./sha256.ts";
 
 export const LAYOUT_NAME = "suspender";
 /** Bumped when the insertions change, so existing living layouts are rebuilt. */
-export const GENERATOR_VERSION = 1;
+export const GENERATOR_VERSION = 2;
 
 export const TOGGLE_ID = "suspender-toggle";
 export const TOPBAR_ID = "suspender-topbar";
@@ -105,7 +106,7 @@ function insertToggle(root: LayoutNode): string | null {
   const siblings = parent.children as unknown[];
   const at = siblings.indexOf(tabs);
   if (parent.type === "row") {
-    siblings.splice(at, 0, toggle);
+    siblings.splice(at + 1, 0, toggle);
     return null;
   }
   // In a column: wrap the tabs block in a row that takes its place and size.
@@ -117,7 +118,7 @@ function insertToggle(root: LayoutNode): string | null {
     }
   }
   tabs.size = { weight: 1 };
-  topbar.children = [toggle, tabs];
+  topbar.children = [tabs, toggle];
   siblings[at] = topbar;
   return null;
 }

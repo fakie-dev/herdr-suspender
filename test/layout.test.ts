@@ -52,6 +52,16 @@ describe("buildLivingLayout from the real main.json", () => {
     assert.equal(Math.abs(siblings.indexOf(toggle) - siblings.indexOf(tabs)), 1);
   });
 
+  it("puts the Sessions button after the tabs block, past the window buttons the tab bar draws", () => {
+    const layout = build();
+    const toggle = byId(layout, "suspender-toggle");
+    const tabs = byId(layout, "tabs");
+    assert.ok(toggle && tabs);
+    const siblings = parentOf(layout, toggle)?.children ?? [];
+    assert.equal(siblings.indexOf(toggle), siblings.indexOf(tabs) + 1);
+    assert.equal(siblings.at(-1), toggle);
+  });
+
   it("keeps the shipped tabs block as it was, only sized to share the row", () => {
     const tabs = byId(build(), "tabs");
     assert.deepEqual(tabs?.content, { mod: "tabs" });
@@ -211,6 +221,12 @@ describe("needsRebuild", () => {
   it("is true for a suspender layout that has no generator record", () => {
     const current = build();
     delete current.suspender_generated;
+    assert.equal(needsRebuild(main(), "0.1.14", current), true);
+  });
+
+  it("is true for a layout made by generator 1, which put the button left of the tabs", () => {
+    const current = build();
+    (current.suspender_generated as { generator: number }).generator = 1;
     assert.equal(needsRebuild(main(), "0.1.14", current), true);
   });
 
