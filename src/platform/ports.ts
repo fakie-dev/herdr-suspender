@@ -4,7 +4,6 @@
 // `herdrPorts()` is the implementation on Herdr's runtime ("herdr" and its
 // "fs/promises"); it is never loaded by the tests.
 
-import { Buffer } from "buffer";
 import * as fs from "fs/promises";
 import {
   exec as herdrExec,
@@ -16,6 +15,7 @@ import {
   writeTextFile,
 } from "herdr";
 import * as os from "os";
+import { utf8Head, utf8Tail } from "../runtime/utf8.ts";
 import { statFile } from "./proc.ts";
 
 export type Platform = "windows" | "macos" | "linux";
@@ -81,15 +81,18 @@ function parentDir(path: string): string {
   return cut > 0 ? path.slice(0, cut) : path;
 }
 
-async function readBytes(path: string): Promise<Uint8Array | null> {
+/**
+ * The whole file as UTF-8 text. Herdr's runtime has no TextDecoder and its
+ * Buffer does not decode (toString gives ""), so files are read as text and
+ * cut by bytes with `utf8Head` / `utf8Tail`.
+ */
+async function readUtf8(path: string): Promise<string | null> {
   try {
-    return await fs.readFile(path);
+    return await fs.readFile(path, "utf8");
   } catch {
     return null;
   }
 }
-
-const decode = (bytes: Uint8Array): string => Buffer.from(bytes).toString("utf8");
 
 export function herdrPorts(): Ports {
   const platform = detectPlatform();
@@ -100,17 +103,14 @@ export function herdrPorts(): Ports {
     wholeReads: true,
     now: () => Date.now(),
     // Not `readTextFile`: it stops at 1 MiB, and transcripts run to 50+ MB.
-    readText: async (path) => {
-      const all = await readBytes(path);
-      return all === null ? null : decode(all);
-    },
+    readText: (path) => readUtf8(path),
     readHead: async (path, bytes) => {
-      const all = await readBytes(path);
-      return all === null ? null : decode(all.subarray(0, bytes));
+      const all = await readUtf8(path);
+      return all === null ? null : utf8Head(all, bytes);
     },
     readTail: async (path, bytes) => {
-      const all = await readBytes(path);
-      return all === null ? null : decode(all.subarray(Math.max(0, all.length - bytes)));
+      const all = await readUtf8(path);
+      return all === null ? null : utf8Tail(all, bytes);
     },
     stat: (path) => statFile(path, platform, herdrExec),
     list: async (dir) => {

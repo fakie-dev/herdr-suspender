@@ -3,5 +3,5 @@ node_modules/
 .build-check/
 # Herdr writes these next to a mod it loads
 jsconfig.json
-mods/suspender/*.d.ts
+mods/suspender/**/*.d.ts
 *.log

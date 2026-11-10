@@ -43,7 +43,8 @@ export type Effect =
   | { e: "checkTranscript" }
   | { e: "startAgent"; argv: string[] }
   | { e: "removeRecord" }
-  | { e: "notify"; key: string };
+  /** `params` fill the text's placeholders the engine does not know itself (`{agent}` it does). */
+  | { e: "notify"; key: string; params?: Record<string, string> };
 
 export interface Step {
   state: SessionState;
@@ -86,6 +87,8 @@ const to =
 /** Snapshot first: the stop steps may change what the transcript says last. */
 const goToSleep = to("stopping", { e: "snapshot" }, { e: "sendStop" });
 const placePane = (state: SessionState) => to(state, { e: "placeSleepPane" });
+/** Into interrupted: a snapshot first, so its strip has something to show. */
+const interrupt = to("interrupted", { e: "snapshot" }, { e: "placeSleepPane" });
 const forget = (state: SessionState) => to(state, { e: "removeRecord" });
 const wake = (ev: { argv: string[] }): Step => ({
   state: "waking",
@@ -95,7 +98,7 @@ const wake = (ev: { argv: string[] }): Step => ({
 const exitedOnItsOwn =
   (state: SessionState) =>
   (ev: { byUser: boolean }): Step =>
-    ev.byUser ? forget(state)() : placePane("interrupted")();
+    ev.byUser ? forget(state)() : interrupt();
 
 export const TRANSITIONS: Readonly<Record<SessionState, Row>> = {
   running: {
@@ -115,7 +118,7 @@ export const TRANSITIONS: Readonly<Record<SessionState, Row>> = {
     openElsewhere: IGNORE,
     closedElsewhere: IGNORE,
     transcriptMissing: IGNORE,
-    lostOnRestart: placePane("interrupted"),
+    lostOnRestart: interrupt,
     forget: IGNORE,
     startNew: IGNORE,
   },
@@ -136,18 +139,20 @@ export const TRANSITIONS: Readonly<Record<SessionState, Row>> = {
     openElsewhere: IGNORE,
     closedElsewhere: IGNORE,
     transcriptMissing: IGNORE,
-    lostOnRestart: placePane("interrupted"),
+    lostOnRestart: interrupt,
     forget: IGNORE,
     startNew: IGNORE,
   },
   // The person pressed Sleep while the agent was answering. Choosing "sleep
-  // when done" only closes the question: once the agent is idle, it sleeps.
+  // when done" only closes the question; the engine remembers the choice and
+  // dispatches interruptAndSleep once the agent is idle. An idle report alone
+  // never puts it to sleep: the question (or a Cancel) must not be lost.
   confirming: {
     sleep: IGNORE,
     sleepWhenDone: to("confirming"),
     interruptAndSleep: goToSleep,
     cancel: to("working"),
-    agentIdle: goToSleep,
+    agentIdle: IGNORE,
     agentWorking: IGNORE,
     agentExited: exitedOnItsOwn("confirming"),
     stopped: IGNORE,
@@ -159,7 +164,7 @@ export const TRANSITIONS: Readonly<Record<SessionState, Row>> = {
     openElsewhere: IGNORE,
     closedElsewhere: IGNORE,
     transcriptMissing: IGNORE,
-    lostOnRestart: placePane("interrupted"),
+    lostOnRestart: interrupt,
     forget: IGNORE,
     startNew: IGNORE,
   },
@@ -180,7 +185,7 @@ export const TRANSITIONS: Readonly<Record<SessionState, Row>> = {
     openElsewhere: IGNORE,
     closedElsewhere: IGNORE,
     transcriptMissing: IGNORE,
-    lostOnRestart: placePane("interrupted"),
+    lostOnRestart: interrupt,
     forget: IGNORE,
     startNew: IGNORE,
   },
@@ -239,11 +244,14 @@ export const TRANSITIONS: Readonly<Record<SessionState, Row>> = {
     resume: IGNORE,
     resumeAll: IGNORE,
     started: to("running"),
-    startFailed: to("error", { e: "notify", key: "error.startFailed" }),
+    startFailed: (ev) => ({
+      state: "error",
+      effects: [{ e: "notify", key: "error.startFailed", params: { reason: ev.reason } }],
+    }),
     openElsewhere: to("elsewhere"),
     closedElsewhere: IGNORE,
     transcriptMissing: to("missing"),
-    lostOnRestart: placePane("interrupted"),
+    lostOnRestart: interrupt,
     forget: IGNORE,
     startNew: IGNORE,
   },

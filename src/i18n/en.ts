@@ -28,6 +28,8 @@ export const en = {
   "strip.waking.found": "Found session",
   "strip.waking.starting": "Starting",
   "strip.waking.ready": "Ready",
+  "strip.stopping": "Stopping…",
+  "strip.sleepingWhenDone": "Will sleep when {agent} is done",
 
   // The Sessions panel.
   "panel.title": "Sessions",
@@ -39,6 +41,13 @@ export const en = {
   // Errors and notices (session `error` fields hold these keys).
   "error.startFailed": "Couldn't start {agent}: {reason}",
   "error.startTimeout": "{agent} didn't start within 30 seconds",
+  // Why a start failed: the {reason} of error.startFailed (a session's `error` holds one of these keys).
+  "reason.timeout": "no answer within 30 seconds",
+  "reason.wrongCommand": "Herdr started a different command",
+  "reason.exited": "it exited right away",
+  "reason.spawn": "it could not be started",
+  "reason.noPane": "its tab is gone",
+  "reason.interrupted": "the start was interrupted",
   "notice.skippedElsewhere": "Some sessions are open elsewhere and were skipped",
   "notice.layoutOutdated": "Suspender couldn't update its layout for Herdr {version}",
 } as const;

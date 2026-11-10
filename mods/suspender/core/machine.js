@@ -34,13 +34,15 @@ const to = (state, ...effects) => () => ({ state, effects: effects.map((effect) 
 /** Snapshot first: the stop steps may change what the transcript says last. */
 const goToSleep = to("stopping", { e: "snapshot" }, { e: "sendStop" });
 const placePane = (state) => to(state, { e: "placeSleepPane" });
+/** Into interrupted: a snapshot first, so its strip has something to show. */
+const interrupt = to("interrupted", { e: "snapshot" }, { e: "placeSleepPane" });
 const forget = (state) => to(state, { e: "removeRecord" });
 const wake = (ev) => ({
     state: "waking",
     effects: [{ e: "checkTranscript" }, { e: "checkElsewhere" }, { e: "startAgent", argv: [...ev.argv] }],
 });
 /** The person left the agent (`/exit`): forget it rather than keep a sleeping tab. A crash keeps it, interrupted. */
-const exitedOnItsOwn = (state) => (ev) => ev.byUser ? forget(state)() : placePane("interrupted")();
+const exitedOnItsOwn = (state) => (ev) => ev.byUser ? forget(state)() : interrupt();
 export const TRANSITIONS = {
     running: {
         sleep: goToSleep,
@@ -59,7 +61,7 @@ export const TRANSITIONS = {
         openElsewhere: IGNORE,
         closedElsewhere: IGNORE,
         transcriptMissing: IGNORE,
-        lostOnRestart: placePane("interrupted"),
+        lostOnRestart: interrupt,
         forget: IGNORE,
         startNew: IGNORE,
     },
@@ -80,18 +82,20 @@ export const TRANSITIONS = {
         openElsewhere: IGNORE,
         closedElsewhere: IGNORE,
         transcriptMissing: IGNORE,
-        lostOnRestart: placePane("interrupted"),
+        lostOnRestart: interrupt,
         forget: IGNORE,
         startNew: IGNORE,
     },
     // The person pressed Sleep while the agent was answering. Choosing "sleep
-    // when done" only closes the question: once the agent is idle, it sleeps.
+    // when done" only closes the question; the engine remembers the choice and
+    // dispatches interruptAndSleep once the agent is idle. An idle report alone
+    // never puts it to sleep: the question (or a Cancel) must not be lost.
     confirming: {
         sleep: IGNORE,
         sleepWhenDone: to("confirming"),
         interruptAndSleep: goToSleep,
         cancel: to("working"),
-        agentIdle: goToSleep,
+        agentIdle: IGNORE,
         agentWorking: IGNORE,
         agentExited: exitedOnItsOwn("confirming"),
         stopped: IGNORE,
@@ -103,7 +107,7 @@ export const TRANSITIONS = {
         openElsewhere: IGNORE,
         closedElsewhere: IGNORE,
         transcriptMissing: IGNORE,
-        lostOnRestart: placePane("interrupted"),
+        lostOnRestart: interrupt,
         forget: IGNORE,
         startNew: IGNORE,
     },
@@ -124,7 +128,7 @@ export const TRANSITIONS = {
         openElsewhere: IGNORE,
         closedElsewhere: IGNORE,
         transcriptMissing: IGNORE,
-        lostOnRestart: placePane("interrupted"),
+        lostOnRestart: interrupt,
         forget: IGNORE,
         startNew: IGNORE,
     },
@@ -183,11 +187,14 @@ export const TRANSITIONS = {
         resume: IGNORE,
         resumeAll: IGNORE,
         started: to("running"),
-        startFailed: to("error", { e: "notify", key: "error.startFailed" }),
+        startFailed: (ev) => ({
+            state: "error",
+            effects: [{ e: "notify", key: "error.startFailed", params: { reason: ev.reason } }],
+        }),
         openElsewhere: to("elsewhere"),
         closedElsewhere: IGNORE,
         transcriptMissing: to("missing"),
-        lostOnRestart: placePane("interrupted"),
+        lostOnRestart: interrupt,
         forget: IGNORE,
         startNew: IGNORE,
     },

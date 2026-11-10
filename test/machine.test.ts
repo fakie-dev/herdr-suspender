@@ -143,15 +143,28 @@ describe("going to sleep", () => {
     assert.deepEqual(transition("working", { t: "sleep" }), { state: "confirming", effects: [] });
   });
 
-  it("sleep when done: waits for idle, then stops", () => {
+  it("sleep when done: the question closes, the agent keeps working until the engine stops it", () => {
+    // The choice itself is the engine's to remember: once it sees the agent
+    // idle it dispatches interruptAndSleep, which stops at once.
     const { state, steps } = walk("working", [
       { t: "sleep" },
       { t: "sleepWhenDone" },
       { t: "agentWorking" },
       { t: "agentIdle" },
+      { t: "interruptAndSleep" },
     ]);
     assert.equal(state, "stopping");
-    assert.deepEqual(steps, [[], [], [], [{ e: "snapshot" }, { e: "sendStop" }]]);
+    assert.deepEqual(steps, [[], [], [], [], [{ e: "snapshot" }, { e: "sendStop" }]]);
+  });
+
+  it("an agent that goes idle while the question is open is not put to sleep", () => {
+    assert.deepEqual(transition("confirming", { t: "agentIdle" }), { state: "confirming", effects: [] });
+  });
+
+  it("cancel is not lost when the agent goes idle afterwards", () => {
+    const { state, steps } = walk("working", [{ t: "sleep" }, { t: "cancel" }, { t: "agentIdle" }]);
+    assert.equal(state, "running");
+    assert.deepEqual(steps, [[], [], []]);
   });
 
   it("interrupt and sleep: stops at once", () => {
@@ -231,7 +244,8 @@ describe("waking up", () => {
   it("a start that fails shows the error, and resume retries it", () => {
     const failed = transition("waking", { t: "startFailed", reason: "not installed" });
     assert.equal(failed.state, "error");
-    assert.deepEqual(failed.effects, [{ e: "notify", key: "error.startFailed" }]);
+    // The reason reaches the text: the notice is not "Couldn't start {agent}: {reason}".
+    assert.deepEqual(failed.effects, [{ e: "notify", key: "error.startFailed", params: { reason: "not installed" } }]);
     assert.equal(transition("error", { t: "resume", argv: RESUME_ARGV }).state, "waking");
   });
 
@@ -251,14 +265,27 @@ describe("restart and forgetting", () => {
       assert.deepEqual(
         transition(from, { t: "lostOnRestart" }),
         {
+          // A snapshot first: the strip of an interrupted tab has something to show.
           state: "interrupted",
-          effects: [{ e: "placeSleepPane" }],
+          effects: [{ e: "snapshot" }, { e: "placeSleepPane" }],
         },
         from,
       );
     }
     const back = walk("interrupted", [{ t: "resume", argv: RESUME_ARGV }, { t: "started" }]);
     assert.equal(back.state, "running");
+  });
+
+  it("every way into interrupted takes a snapshot before placing the pane", () => {
+    for (const state of SESSION_STATES) {
+      for (const ev of SAMPLE_EVENTS) {
+        const out = transition(state, ev);
+        if (out.state === "interrupted" && state !== "interrupted") {
+          assert.deepEqual(out.effects.slice(0, 2), [{ e: "snapshot" }, { e: "placeSleepPane" }], `${state} × ${ev.t}`);
+        }
+      }
+    }
+    assert.equal(transition("running", { t: "agentExited", byUser: false }).state, "interrupted");
   });
 
   it("nothing starts by itself after a restart", () => {
