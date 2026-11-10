@@ -1,0 +1,5 @@
+# LF everywhere: the committed build in mods/suspender/ is compared byte for
+# byte with a fresh one, and Biome checks line endings, on every OS.
+* text=auto eol=lf
+*.png binary
+*.svg text eol=lf

@@ -1,0 +1,33 @@
+{
+  "name": "herdr-suspender",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Herdr App mod: put idle Claude Code and Codex sessions to sleep and resume them in the same tab, even after a restart",
+  "keywords": [
+    "herdr-mod",
+    "herdr",
+    "claude-code",
+    "codex",
+    "sleep",
+    "resume"
+  ],
+  "license": "MIT",
+  "author": "fakie-dev",
+  "type": "module",
+  "scripts": {
+    "build": "node scripts/clean-build.ts && tsc -p tsconfig.json",
+    "build:check": "tsc -p tsconfig.json --outDir .build-check && node scripts/compare-build.ts .build-check mods/suspender",
+    "check": "biome check . && tsc -p tsconfig.json --noEmit && node --test \"test/*.test.ts\" && pnpm run build:check",
+    "format": "biome check --write .",
+    "sync-types": "node scripts/sync-types.ts",
+    "test": "node --test \"test/*.test.ts\""
+  },
+  "engines": {
+    "node": ">=22.18.0"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "^2.6.6",
+    "typescript": "^7.0.2"
+  },
+  "packageManager": "pnpm@12.10.1"
+}

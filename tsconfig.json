@@ -1,0 +1,43 @@
+{
+  // One config for type checking and for the build: `src/` compiles to plain
+  // JavaScript in `mods/suspender/`, the folder Herdr loads. Sources use only
+  // erasable syntax and `.ts` import specifiers, so `node --test` runs them
+  // directly without a build step.
+  "compilerOptions": {
+    "target": "es2024",
+    "lib": ["es2024"],
+    "module": "nodenext",
+    "moduleResolution": "nodenext",
+    "types": [],
+    "rootDir": "src",
+    "outDir": "mods/suspender",
+    "newLine": "lf",
+    "removeComments": false,
+
+    "allowImportingTsExtensions": true,
+    "rewriteRelativeImportExtensions": true,
+    "erasableSyntaxOnly": true,
+    "verbatimModuleSyntax": true,
+    "isolatedModules": true,
+
+    // Herdr's own modules ("herdr", "gpui-kit", "fs/promises", ...) are
+    // provided by the app at run time; their declarations are synced copies.
+    "paths": {
+      "herdr": ["./types/herdr.d.ts"]
+    },
+
+    "strict": true,
+    "noUncheckedIndexedAccess": true,
+    "exactOptionalPropertyTypes": true,
+    "noImplicitOverride": true,
+    "noImplicitReturns": true,
+    "noFallthroughCasesInSwitch": true,
+    "noPropertyAccessFromIndexSignature": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "useUnknownInCatchVariables": true,
+    "forceConsistentCasingInFileNames": true,
+    "skipLibCheck": true
+  },
+  "include": ["src/**/*.ts", "types/gpui-kit.d.ts"]
+}
