@@ -32,7 +32,7 @@ const DAY_MS = 86_400_000;
 const START_SLACK_MS = 2_000;
 /** A rollout written this recently is taken as open somewhere. */
 const FRESH_MS = 15_000;
-/** How often a terminal may cost a process listing on Windows (PowerShell) while its id is unknown. */
+/** How often a terminal may cost a process listing on Windows (PowerShell) while its id is unknown and it changes. */
 const DETAILS_EVERY_MS = 60_000;
 /** How many days back discovery looks for a terminal opened long ago. */
 const MAX_DAYS_BACK = 7;
@@ -114,7 +114,15 @@ function metaCwd(head: string | null): string | null {
 
 // ---- finding the session
 
-const detailsTried = new Map<string, number>();
+/**
+ * Per terminal (address and creation time): how it looked when the process
+ * table last could not tell its session, and when that was. The table is
+ * asked again only once something changed (its foreground, title or status,
+ * or the rollouts in its folder), and on Windows, where it is PowerShell,
+ * at most once a minute: a Codex idle at its prompt with no rollout yet
+ * costs no process at all.
+ */
+const undecided = new Map<string, { look: string; at: number }>();
 
 const isCodex = (d: ProcessDetail): boolean =>
   /codex/i.test(`${d.name} ${d.commandLine ?? ""}`) && !/app-server/i.test(d.commandLine ?? "");
@@ -182,17 +190,30 @@ async function discoverSession(t: TerminalView, p: Ports): Promise<string | null
   if (fg === null) {
     return null;
   }
-  // Zero (resumed from the shell, or not written yet) or several: ask the process tree,
-  // which on Windows is PowerShell, so at most once a minute per terminal.
-  if (p.platform === "windows") {
-    const key = `${t.address}@${t.createdMs}`;
-    if (now - (detailsTried.get(key) ?? Number.NEGATIVE_INFINITY) < DETAILS_EVERY_MS) {
-      return null;
-    }
-    detailsTried.set(key, now);
+  // Zero (resumed from the shell, or not written yet) or several: ask the process
+  // tree, unless it already could not tell and nothing changed since (see `undecided`).
+  const key = `${t.address}@${t.createdMs}`;
+  const look = JSON.stringify([fg.pid, t.title ?? null, t.status, candidates.map((c) => c.id).sort()]);
+  const last = undecided.get(key);
+  if (last !== undefined && (last.look === look || (p.platform === "windows" && now - last.at < DETAILS_EVERY_MS))) {
+    return null;
   }
-  const tree = await processDetails(p);
-  const ours = codexProcesses(tree, fg.pid);
+  const id = fromProcesses(await processDetails(p), fg.pid, candidates);
+  if (id === null) {
+    undecided.set(key, { look, at: now });
+  } else {
+    undecided.delete(key);
+  }
+  return id;
+}
+
+/** The session of the codex under shell `shellPid`: its `resume <id>`, else the newest rollout it made. */
+function fromProcesses(
+  tree: ProcessDetail[],
+  shellPid: number,
+  candidates: { id: string; born: number }[],
+): string | null {
+  const ours = codexProcesses(tree, shellPid);
   for (const proc of ours) {
     const id = uuidIn(proc.commandLine?.split(/\s+/) ?? []);
     if (id !== null && /\bresume\b/.test(proc.commandLine ?? "")) {
@@ -401,7 +422,8 @@ async function openElsewhere(
   return { open: false };
 }
 
-const STOP_STEPS: StopStep[] = [{ send: "/quit" }, { waitExitMs: 10_000 }];
+// Ctrl+C empties the prompt first, so a half-typed message does not go out with "/quit" appended.
+const STOP_STEPS: StopStep[] = [{ key: "ctrl+c" }, { send: "/quit" }, { waitExitMs: 10_000 }];
 
 export const codexAdapter: AgentAdapter = {
   id: "codex",

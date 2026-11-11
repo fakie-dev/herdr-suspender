@@ -164,6 +164,7 @@ describe("2: open elsewhere", () => {
   });
 });
 
+// While the strip stays on screen nothing watches the conversation (F1): see test/ui/sleepPane.test.ts.
 describe("5: updated after sleep, while the strip stays on screen", () => {
   it("is read again when the other copy closes", async () => {
     const { engine, claude } = world();
@@ -177,24 +178,6 @@ describe("5: updated after sleep, while the strip stays on screen", () => {
     claude.state.elsewhere.delete("s1");
     await engine.recheckElsewhere(KEY);
     assert.deepEqual(engine.freshness(KEY), { atMs: 1_700_000_900_000, added: 6 });
-  });
-
-  it("is read again when the transcript changes, without showing the tab again", async () => {
-    const { engine, claude } = world();
-    await engine.tick();
-    await engine.sleep(KEY);
-    await engine.refreshOnShow(KEY);
-    assert.equal(engine.freshness(KEY), null);
-    let changed: () => void = () => undefined;
-    claude.watchTranscript = () =>
-      new Promise<void>((resolve) => {
-        changed = resolve;
-      });
-    const following = engine.followTranscript(KEY);
-    claude.state.info.set("s1", { messages: 12, transcriptMtimeMs: 1_700_000_500_000, transcriptSize: 1500 });
-    changed();
-    assert.equal(await following, true);
-    assert.deepEqual(engine.freshness(KEY), { atMs: 1_700_000_500_000, added: 2 });
   });
 });
 

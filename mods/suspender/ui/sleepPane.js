@@ -9,7 +9,6 @@ import { div, svg } from "gpui-kit";
 import { closeOverlay, settings, theme } from "herdr";
 import { badgeText, fitSegments, SEPARATOR } from "../core/fit.js";
 import { t } from "../i18n/index.js";
-import { TICK_MS } from "../runtime/engine.js";
 import { measureAt, screenLines, stripActions, stripSegments, stripStatus, wakeSteps } from "./format.js";
 import { anchorRect, factsFor, hoverPopup } from "./popup.js";
 const ICONS = "mods/suspender/icons";
@@ -30,7 +29,6 @@ export class SleepPane {
     size = { width: 0, height: 0 };
     shown = false;
     watching = false;
-    following = false;
     engine;
     host;
     ports;
@@ -50,7 +48,12 @@ export class SleepPane {
         const tab = this.host.panes().find((p) => p.pane === pane)?.tab;
         return this.host.tabs().some((x) => x.id === tab && x.active && x.spaceActive);
     }
-    /** Every TICK_MS: once per show, re-read what changed; while open elsewhere, look again. */
+    /**
+     * Every TICK_MS: once per show, re-read what changed ("+N"); while open
+     * elsewhere, look again. Nothing watches the conversation while the strip
+     * stays on screen: a session open in another window writes all the time,
+     * and every read starts a process on Windows.
+     */
     tick(cx) {
         const rec = this.rec();
         if (rec === null) {
@@ -64,22 +67,6 @@ export class SleepPane {
             });
         }
         this.shown = visible;
-        if (visible && !this.following && rec.state !== "elsewhere" && rec.state !== "waking") {
-            // While it stays on screen: work on the conversation elsewhere shows up ("updated after sleep · +N").
-            this.following = true;
-            cx.spawn(async (cx) => {
-                try {
-                    while (this.visible() && (await this.engine.followTranscript(this.key))) {
-                        cx.notify();
-                        // At most one read per round, however busy the folder is.
-                        await cx.sleep(TICK_MS);
-                    }
-                }
-                finally {
-                    this.following = false;
-                }
-            });
-        }
         if (rec.state !== "elsewhere") {
             return;
         }

@@ -4,7 +4,7 @@
 // conversation is `~/.claude/projects/<cwd, non-alphanumerics as ->/<id>.jsonl`,
 // one JSON record per line (user, assistant, ai-title, custom-title, …).
 import { descendsFrom, liveProcessesOrNull, processDetails } from "../platform/proc.js";
-import { contextFields, emptyInfo, gitInfo, isRecord, join, jsonLines, num, oneLine, readTranscript, sameDir, str, terminalPids, tokensText, uuidIn, } from "./common.js";
+import { contextFields, emptyInfo, gitInfo, isRecord, isSessionId, join, jsonLines, num, oneLine, readTranscript, sameDir, str, terminalPids, tokensText, uuidIn, } from "./common.js";
 /** Claude's context windows are 200k or 1M tokens; more than 200k in use means 1M. */
 const SMALL_WINDOW = 200_000;
 const LARGE_WINDOW = 1_000_000;
@@ -29,7 +29,8 @@ function parseLive(text) {
         const pid = num(value["pid"]);
         const sessionId = str(value["sessionId"]);
         const cwd = str(value["cwd"]);
-        if (pid === null || sessionId === null || cwd === null) {
+        // The id is typed into a shell at Resume: a file that holds anything else is not a session.
+        if (pid === null || sessionId === null || cwd === null || !isSessionId(sessionId)) {
             return null;
         }
         return { pid, sessionId, cwd, startedAt: num(value["startedAt"]) ?? 0, name: str(value["name"]) };
@@ -278,7 +279,15 @@ async function openElsewhere(sessionId, p, exceptTerminal) {
     const first = alive[0];
     return first === undefined ? { open: false } : { open: true, where: `pid ${first.pid}` };
 }
-const STOP_STEPS = [{ key: "escape" }, { waitIdleMs: 10_000 }, { send: "/exit" }, { waitExitMs: 10_000 }];
+// Esc stops a turn. Ctrl+C on an idle prompt empties it, so a half-typed message does not go out
+// with "/exit" appended. The draft is dropped: it is not in the conversation, so Resume cannot bring it back.
+const STOP_STEPS = [
+    { key: "esc" },
+    { waitIdleMs: 10_000 },
+    { key: "ctrl+c" },
+    { send: "/exit" },
+    { waitExitMs: 10_000 },
+];
 export const claudeAdapter = {
     id: "claude",
     displayName: "Claude Code",
@@ -292,12 +301,6 @@ export const claudeAdapter = {
     openElsewhere,
     watchOpenness: async (p) => {
         await p.watch(sessionsDir(p));
-    },
-    // The transcript's own project folder: no process, and only that project's files wake it.
-    watchTranscript: async (sessionId, cwd, p) => {
-        const path = await findTranscript(sessionId, cwd, p);
-        const cut = path === null ? -1 : Math.max(path.lastIndexOf("/"), path.lastIndexOf("\\"));
-        await p.watch(path !== null && cut > 0 ? path.slice(0, cut) : join(p, projectsDir(p), projectName(cwd)));
     },
     stopSteps: () => STOP_STEPS.map((step) => ({ ...step })),
     resumeArgv: (sessionId) => ["claude", "--resume", sessionId],

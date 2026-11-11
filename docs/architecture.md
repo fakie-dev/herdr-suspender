@@ -47,9 +47,10 @@ touches Herdr.
    the swap left out, the closed pane's share of the space goes to a neighbour unless the pane was first in
    its parent along the parent's axis. With it, the new panel has exactly the old slot and the same size,
    which was measured in several positions.
-3. Stop steps from the adapter: Claude Code sends Escape, waits up to 10 seconds for the idle status, types
-   `/exit`; Codex types `/quit`. If the process is still alive 10 seconds after the last step the terminal is
-   killed and the record says `forced`.
+3. Stop steps from the adapter: Claude Code sends Escape, waits up to 10 seconds for the idle status, presses
+   Ctrl+C and types `/exit`; Codex presses Ctrl+C and types `/quit`. Ctrl+C on an idle prompt empties it, so a
+   draft is not sent together with the exit command. If the process is still alive 10 seconds after the last
+   step the terminal is killed and the record says `forced`.
 4. The terminal is closed and the record becomes `asleep` with the memory that was freed.
 
 Stop commands are typed with `hc keys`, not `hc send`: `send` wraps text in a tag when `HC_TERMINAL_ID` is
@@ -60,8 +61,11 @@ inherited, and the agent would receive the tag.
 1. Checks: the adapter says whether the transcript still exists (otherwise `missing`) and whether another live
    process holds the session (otherwise `elsewhere`, and the button is disabled).
 2. A terminal is started next to the sleeping panel in Herdr's default shell, and the resume command goes into
-   it (`claude --resume <id>`, `codex resume <id>`) in the recorded folder. `hc run` with the agent as the
-   program was tried first and closed the pane when the agent exited; a shell keeps the tab.
+   it (`claude --resume <id>`, `codex resume <id>`) in the recorded folder. Quoting differs between shells
+   (single quotes mean nothing to cmd.exe), so a command with any word a shell would act on is not typed at
+   all and the wake fails with `reason.badId`; the adapters already take only UUIDs as session ids. `hc run`
+   with the agent as the program was tried first and closed the pane when the agent exited; a shell keeps the
+   tab.
 3. The engine verifies with `hc get` that the command that is running is the one it asked for. Passing
    arguments through some shells changes them silently, so this is checked every time.
 4. Labels are set, the new terminal is swapped into the slot and the sleeping panel is closed. A new pane's id
@@ -80,6 +84,11 @@ from the adapter. After a restart a terminal that says `running` and no longer h
 differs, there is no agent status) is `interrupted`. The check errs on the side of doing nothing: with any
 doubt the strip is drawn and no agent starts. When the engine sees an agent exit by itself the state label
 becomes `exited`, so leaving an agent with `/exit` does not make a sleeping tab.
+
+An agent killed hard (`taskkill /F`, a crash) leaves Herdr showing its last status. The engine looks at the
+processes when a bound terminal's title or processes change: if the agent is gone and its status is still on
+display `ABSENT_GRACE_MS` (3 seconds) later, the session is `interrupted`. After `/exit` the title comes back
+first and the status goes out a moment later, so the grace keeps that from being taken for a kill.
 
 The store is `~/.config/herdr-app/suspender/sessions.json`, outside `mods/` so reinstalling the mod keeps it.
 It is written with `writeTextFile(path, text, expected)`: the write succeeds only if the file is still what was
@@ -111,12 +120,17 @@ The mod is meant to cost almost nothing while nobody touches it.
 - No timers for animation. Animations are Herdr's native `.transition`, `.loop`, `.frames` and `.spin`.
   `cx.timer` runs only the 5-second data round and the leader's 10-second stamp.
 - Process memory is read only while the panel is open and at most every 30 seconds.
-- A transcript is read when a session goes to sleep and when a strip is first shown, and only if the file
-  changed (size and modification time are compared first). Herdr's `fs/promises` has no partial read or `stat`,
-  so a read is the whole file; `stat` is a spawned process (`robocopy /L` on Windows, which starts in about
-  20 ms, `stat` elsewhere), never PowerShell on a frequent path.
+- A transcript is read when a session goes to sleep, when its strip is shown, and right after the session is
+  closed in another window, each time only if the file changed (size and modification time are compared
+  first). Nothing watches it while the strip stays on screen: a session open elsewhere writes all the time,
+  and each read would cost a `stat` process, so `+N` waits for the next show. Herdr's `fs/promises` has no
+  partial read or `stat`, so a read is the whole file; `stat` is a spawned process (`robocopy /L` on Windows,
+  which starts in about 20 ms, `stat` elsewhere), never PowerShell on a frequent path.
 - Whether a Codex session is open elsewhere costs a `tasklist` call, made at most every 5 seconds and only
   while a strip that needs it is on screen. Claude Code is watched through its `sessions` folder instead.
+- A Codex whose session is not known yet (no rollout written) is looked up in the process tree only when its
+  terminal changes (foreground, title, status) or a new rollout appears in its folder, and on Windows at most
+  once a minute. Idle at its prompt, it costs nothing.
 - The snapshot of a sleeping session is taken once, at sleep.
 
 ## Platforms

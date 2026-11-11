@@ -100,9 +100,19 @@ function agentOwnsTerminal(term) {
  * PowerShell snapshot (and walk it per process) to choose between sessions.
  */
 const RECHECK = { claude: "process", codex: "newer" };
-/** A command line to type into a shell: plain words as they are, anything else in single quotes. */
+/**
+ * A word every shell reads as itself: no quotes, spaces, `&`, `|`, `%`, `$`
+ * or anything else cmd.exe, PowerShell or a POSIX shell would act on.
+ */
+const PLAIN_WORD = /^[\w./\\:-]+$/;
+/**
+ * The command line typed into a new shell, or null when a word is not plain.
+ * Quoting differs per shell (single quotes mean nothing to cmd.exe), so a
+ * word that would need it is not typed at all: session ids are UUIDs, and
+ * one that is not came from a file another program could write.
+ */
 export function commandLine(argv) {
-    return argv.map((a) => (/^[\w@%+=:,./\\-]+$/.test(a) ? a : `'${a.replace(/'/g, "''")}'`)).join(" ");
+    return argv.length > 0 && argv.every((a) => PLAIN_WORD.test(a)) ? argv.join(" ") : null;
 }
 const asLeader = (value) => typeof value === "object" &&
     value !== null &&
@@ -121,6 +131,8 @@ export class Engine {
     absentSince = new Map();
     bindTried = new Map();
     flowSince = new Map();
+    /** When a bound agent's process was found gone while Herdr still showed its status (by terminal address). */
+    goneUnderReport = new Map();
     constructor(o) {
         this.host = o.host;
         this.ports = o.ports;
@@ -249,6 +261,8 @@ export class Engine {
                 await this.follow(term, cls.key);
                 return;
             case "interrupted":
+                // Its status went out: an agent found gone a moment ago left by itself.
+                this.goneUnderReport.delete(term.address);
                 if (agentOwnsTerminal(term) || (own !== null && (await this.silentAgent(term, own)))) {
                     // Silent (at its own prompt, or not reporting at all), not gone.
                     this.absentSince.delete(term.address);
@@ -505,14 +519,26 @@ export class Engine {
      * (taskkill /F, a crash): "claude-code idle" stays with nothing behind it.
      * When a bound terminal changes while its agent is not working (its title,
      * its processes: the shell's title comes back when the agent ends), one
-     * process list says whether the agent is still there; gone, the session is
-     * interrupted (Resume), as after a crash. Nothing is looked at while
-     * nothing changes, and a list that failed proves nothing.
+     * process list says whether the agent is still there. Gone is not yet
+     * killed: after /exit the title comes back first and the status goes out a
+     * moment later. Only a status still shown ABSENT_GRACE_MS later means
+     * killed: the session is interrupted (Resume), as after a crash. Nothing is
+     * looked at while nothing changes, and a list that failed proves nothing.
      */
     async killedUnderReport(term, key, adapter) {
         const rec = this.record(key);
         if (rec === null || this.busy(key) || !RUNNING.includes(rec.state) || isWorking(term.status)) {
+            this.goneUnderReport.delete(term.address);
             return false;
+        }
+        const goneAt = this.goneUnderReport.get(term.address);
+        if (goneAt !== undefined) {
+            if (this.ports.now() - goneAt < ABSENT_GRACE_MS) {
+                return true;
+            }
+            this.goneUnderReport.delete(term.address);
+            await this.act(key, () => this.dispatch(key, { t: "agentExited", byUser: false }));
+            return true;
         }
         const now = signature(term);
         const before = this.co.seen.get(term.address);
@@ -522,7 +548,7 @@ export class Engine {
         }
         this.co.agents.delete(term.address);
         this.co.seen.delete(term.address);
-        await this.act(key, () => this.dispatch(key, { t: "agentExited", byUser: false }));
+        this.goneUnderReport.set(term.address, this.ports.now());
         return true;
     }
     /**
@@ -827,26 +853,15 @@ export class Engine {
         }
         return { woken, skipped };
     }
-    /** The strip is shown: is the conversation still there, and did it change while asleep? Once per show. */
+    /**
+     * The strip is shown: is the conversation still there, and did it change
+     * while asleep? Once per show; nothing watches it while the strip stays on
+     * screen (a write elsewhere would cost a read each time). The other read is
+     * right after the session is closed in another window (`recheckElsewhere`).
+     */
     async refreshOnShow(key) {
         await this.load();
         await this.reread(key);
-    }
-    /**
-     * While the strip stays on screen: waits for the adapter to see the
-     * conversation change on disk (a folder watch, no process), then reads
-     * what changed. False when the adapter cannot watch (then only a show reads).
-     */
-    async followTranscript(key) {
-        const rec = this.record(key);
-        const adapter = rec === null ? null : this.adapter(rec.agent);
-        if (rec === null || adapter?.watchTranscript === undefined) {
-            return false;
-        }
-        await adapter.watchTranscript(rec.sessionId, rec.cwd, this.ports);
-        await this.load();
-        await this.reread(key);
-        return true;
     }
     /** Is the conversation still there, and what changed in it since the sleep ("updated after sleep · +N"). */
     async reread(key) {
@@ -894,29 +909,35 @@ export class Engine {
         await this.act(key, () => this.dispatch(key, { t: "closedElsewhere" }));
         await this.reread(key);
     }
-    /** Every shown copy gets a mod command: one press is one action. */
-    firstOf(command) {
+    /**
+     * Every shown copy gets a mod command: one press is one action. A press is
+     * the command and where it was pressed (the pane in focus, the space shown),
+     * so presses on two tabs within a second are two actions.
+     */
+    firstOf(command, where) {
+        const press = `${command}@${where ?? ""}`;
         const now = this.ports.now();
-        if (now - (this.co.commands.get(command) ?? Number.NEGATIVE_INFINITY) < 1_000) {
+        if (now - (this.co.commands.get(press) ?? Number.NEGATIVE_INFINITY) < 1_000) {
             return false;
         }
-        this.co.commands.set(command, now);
+        this.co.commands.set(press, now);
         return true;
     }
     /** The command `suspender.resume-all`: Resume all in the shown space. */
     async resumeAllShown() {
         const space = this.host.tabs().find((x) => x.spaceActive)?.space;
-        if (space !== undefined && this.firstOf("resume-all")) {
+        if (space !== undefined && this.firstOf("resume-all", space)) {
             await this.resumeAll(space);
         }
     }
     /** The command `suspender.toggle-focused`: Sleep the focused agent, or Resume the focused sleeping tab. */
     async toggleFocused() {
-        if (!this.firstOf("toggle-focused")) {
+        // Where it was pressed: the focus may move on while this press is carried out.
+        const f = this.host.focused();
+        if (!this.firstOf("toggle-focused", f?.pane ?? f?.terminal)) {
             return;
         }
         await this.load();
-        const f = this.host.focused();
         if (f?.terminal) {
             await this.sleepTerminal(f.terminal);
             return;
@@ -935,7 +956,7 @@ export class Engine {
     async forgetFocused() {
         await this.load();
         const rec = this.focusedSleeper();
-        if (rec !== null && this.firstOf("forget")) {
+        if (rec !== null && this.firstOf("forget", rec.pane)) {
             await this.forget(rec.key);
         }
     }
@@ -943,7 +964,7 @@ export class Engine {
     async startNewFocused() {
         await this.load();
         const rec = this.focusedSleeper();
-        if (rec?.state === "missing" && this.firstOf("start-new")) {
+        if (rec?.state === "missing" && this.firstOf("start-new", rec.pane)) {
             await this.startNew(rec.key);
         }
     }
@@ -1097,7 +1118,7 @@ export class Engine {
                 break;
             }
             if ("key" in step) {
-                await this.ports.hc(["keys", address, "esc"]);
+                await this.ports.hc(["keys", address, step.key]);
             }
             else if ("send" in step) {
                 // Typed key by key: `hc send` pastes, and wraps the text in an <hc from=…>
@@ -1216,6 +1237,10 @@ export class Engine {
             this.setProgress(key, null);
             return { next: { t: "startFailed", reason } };
         };
+        const line = commandLine(argv);
+        if (line === null) {
+            return failed("reason.badId", null);
+        }
         this.setProgress(key, "found");
         const labels = fresh ? {} : sessionLabels(rec.agent, rec.sessionId, "running");
         const args = [
@@ -1252,7 +1277,7 @@ export class Engine {
         if (!this.alive(address) && this.term(address) !== null) {
             return failed("reason.exited", address);
         }
-        await this.ports.hc(["keys", address, ...typedKeys(commandLine(argv)), "enter"]);
+        await this.ports.hc(["keys", address, ...typedKeys(line), "enter"]);
         const typedAt = this.ports.now();
         // Up when the agent runs under the shell with the command's arguments.
         // Herdr lists the terminal only once it adopts it; an agent at its own

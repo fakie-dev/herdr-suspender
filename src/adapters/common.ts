@@ -211,6 +211,10 @@ export async function readTranscript(path: string, p: Ports, prev?: SessionInfo)
   return { kind: "ends", head, mtimeMs: st.mtimeMs, ...settled(text) };
 }
 
+/** Claude Code and Codex name sessions by UUID; anything else is not a session id. */
+export const isSessionId = (id: string): boolean =>
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id);
+
 /** A uuid anywhere in `args` (e.g. `codex resume <id>`, `claude --resume <id>`). */
 export function uuidIn(args: readonly string[]): string | null {
   for (const arg of args) {

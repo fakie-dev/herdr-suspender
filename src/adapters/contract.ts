@@ -14,14 +14,19 @@ export interface TerminalView {
   status: string | null;
   /** What the agent reported as its app (`claude-code`, `codex`), or null. */
   app: string | null;
+  /** The terminal's title (an agent sets its own; the shell's comes back when it ends). */
+  title?: string | null;
   /** The terminal's foreground process (on Windows: its shell). */
   foreground: { pid: number; argv: string[]; name: string } | null;
   createdMs: number;
   state: string;
 }
 
-/** One step of a graceful stop, run in order by the engine. */
-export type StopStep = { send: string } | { key: "escape" } | { waitIdleMs: number } | { waitExitMs: number };
+/**
+ * One step of a graceful stop, run in order by the engine. `key` is pressed
+ * as `hc keys` names it ("esc", "ctrl+c"); `send` is typed, then Enter.
+ */
+export type StopStep = { send: string } | { key: string } | { waitIdleMs: number } | { waitExitMs: number };
 
 export interface AgentAdapter {
   id: AgentId;
@@ -51,9 +56,11 @@ export interface AgentAdapter {
   ): Promise<{ open: boolean; where?: string; unsure?: boolean }>;
   /** Resolves when something that `openElsewhere` looks at may have changed (Claude: its sessions folder). */
   watchOpenness?(p: Ports): Promise<void>;
-  /** Resolves when the session's conversation may have changed on disk (a folder watch: no process). */
-  watchTranscript?(sessionId: string, cwd: string, p: Ports): Promise<void>;
-  /** Claude: Esc, wait idle, "/exit"; Codex: "/quit". */
+  /**
+   * Claude: Esc, wait idle, Ctrl+C, "/exit"; Codex: Ctrl+C, "/quit". A key
+   * that empties the prompt comes before the exit command, so a draft left
+   * in it is not sent along with it.
+   */
   stopSteps(): StopStep[];
   /** ["claude","--resume",id] | ["codex","resume",id] */
   resumeArgv(sessionId: string, cwd: string): string[];

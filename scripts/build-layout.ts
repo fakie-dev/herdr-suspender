@@ -1,7 +1,8 @@
 // Keeps `layout/`, the second catalog card, in step with the mod. The card is
 // a ready-made window: `layouts/suspender.json` is what the mod's own generator
 // writes for Herdr 0.1.14's shipped main.json (the fixture the tests use), and
-// `mods/suspender/` is a copy of the committed build.
+// `mods/suspender/` is a copy of the committed build, and `keys.json` a copy of
+// the mod's key snippet (the card's recipe relies on its Ctrl+Shift+S).
 //
 //   node scripts/build-layout.ts           write layout/layouts and layout/mods
 //   node scripts/build-layout.ts --check   fail when they differ from what a write would produce
@@ -19,6 +20,8 @@ const MOD_DST = join(root, "layout", "mods", "suspender");
 const LAYOUT_DST = join(root, "layout", "layouts", `${LAYOUT_NAME}.json`);
 const MAIN_FIXTURE = join(root, "test", "fixtures", "main-0.1.14.json");
 const MAIN_VERSION = "0.1.14";
+const KEYS_SRC = join(root, "keys.json");
+const KEYS_DST = join(root, "layout", "keys.json");
 
 /** Files of the mod Herdr loads. Herdr also writes `*.d.ts` and `*.error` next to a mod it checks. */
 function modFiles(dir: string): string[] {
@@ -61,7 +64,8 @@ function write(): void {
   }
   mkdirSync(join(LAYOUT_DST, ".."), { recursive: true });
   writeFileSync(LAYOUT_DST, `${JSON.stringify(generatedLayout(), null, 2)}\n`);
-  console.log(`layout/ written (${modFiles(MOD_DST).length} mod files, 1 layout)`);
+  cpSync(KEYS_SRC, KEYS_DST);
+  console.log(`layout/ written (${modFiles(MOD_DST).length} mod files, 1 layout, keys.json)`);
 }
 
 function check(): number {
@@ -85,6 +89,11 @@ function check(): number {
   } else if (JSON.stringify(JSON.parse(text(LAYOUT_DST))) !== JSON.stringify(generatedLayout())) {
     problems.push(`stale    layout/layouts/${LAYOUT_NAME}.json`);
   }
+  if (!existsSync(KEYS_DST)) {
+    problems.push("missing  layout/keys.json");
+  } else if (text(KEYS_DST) !== text(KEYS_SRC)) {
+    problems.push("stale    layout/keys.json");
+  }
   if (problems.length > 0) {
     console.error("layout/ is not what the build produces (run `pnpm build`):");
     for (const line of problems) {
@@ -92,7 +101,7 @@ function check(): number {
     }
     return 1;
   }
-  console.log(`layout/ matches the build (${want.length} mod files, 1 layout)`);
+  console.log(`layout/ matches the build (${want.length} mod files, 1 layout, keys.json)`);
   return 0;
 }
 

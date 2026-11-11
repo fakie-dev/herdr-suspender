@@ -63,6 +63,28 @@ export async function loadMod(options: { readsHang: boolean; main?: string }): P
     join(appHome, "layouts", "main.json"),
     options.main ?? readFileSync(new URL("./fixtures/main-0.1.14.json", import.meta.url), "utf8"),
   );
+  useStandIns({ appHome, home, readsHang: options.readsHang });
+  await import(new URL("main.ts", SRC).href);
+  return {
+    appHome,
+    appears: async (path, ms) => {
+      const end = Date.now() + ms;
+      while (Date.now() < end && !existsSync(path)) {
+        await new Promise((resolve) => setTimeout(resolve, 20));
+      }
+      return existsSync(path);
+    },
+    cleanup: () => rmSync(home, { recursive: true, force: true }),
+  };
+}
+
+/**
+ * Makes "herdr", "gpui-kit", "gpui-base" and "fs/promises" stand-ins over
+ * `appHome` for every module imported after this call (with `await import()`).
+ * A name the stand-ins do not define does nothing, whatever is done with it.
+ */
+export function useStandIns(options: { appHome: string; home: string; readsHang: boolean }): void {
+  const { appHome, home } = options;
   const hang = "new Promise(() => undefined)";
   const bodies: Record<string, string> = {
     herdr: `
@@ -111,16 +133,4 @@ ${options.readsHang ? `export const readFile = () => ${hang};\nexport const read
         : next(url, context);
     },
   });
-  await import(new URL("main.ts", SRC).href);
-  return {
-    appHome,
-    appears: async (path, ms) => {
-      const end = Date.now() + ms;
-      while (Date.now() < end && !existsSync(path)) {
-        await new Promise((resolve) => setTimeout(resolve, 20));
-      }
-      return existsSync(path);
-    },
-    cleanup: () => rmSync(home, { recursive: true, force: true }),
-  };
 }

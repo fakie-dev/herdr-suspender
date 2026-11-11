@@ -114,10 +114,12 @@ describe("going to sleep", () => {
     assert.deepEqual(sim.pane(rec.pane)?.props, { role: "sleep", key: KEY });
     assert.equal(sim.terms.has(agent.address), false, "the finished terminal is removed (hc rm)");
 
-    // Claude's steps: Esc, then /exit typed as keys (`hc send` would wrap it in an
-    // <hc from=…> tag when Herdr runs inside a terminal, and the agent would read a message); no kill.
+    // Claude's steps: Esc, Ctrl+C (empties the prompt), then /exit typed as keys (`hc send` would
+    // wrap it in an <hc from=…> tag when Herdr runs inside a terminal, and the agent would read a
+    // message); no kill.
     assert.deepEqual(hcOf(sim, "keys")[0], ["keys", agent.address, "esc"]);
-    assert.deepEqual(hcOf(sim, "keys")[1], ["keys", agent.address, "/", "e", "x", "i", "t", "enter"]);
+    assert.deepEqual(hcOf(sim, "keys")[1], ["keys", agent.address, "ctrl+c"]);
+    assert.deepEqual(hcOf(sim, "keys")[2], ["keys", agent.address, "/", "e", "x", "i", "t", "enter"]);
     assert.equal(hcOf(sim, "send").length, 0);
     assert.equal(commandsOf(sim, "terminal.kill").length, 0);
   });

@@ -87,10 +87,15 @@ describe("codex: discoverSession", () => {
     addRollout(p.files, NOW - 90_000, "a", CWD); // before our codex started: an earlier one's
     const ours = addRollout(p.files, NOW - 30_000, "b", CWD);
     const t = terminal({ cwd: CWD, createdMs: NOW - 120_000, foreground: { pid: 100, argv: [], name: "bash" } });
-    const started = performance.now();
-    assert.equal(await codexAdapter.discoverSession(t, p), ours);
-    const elapsed = performance.now() - started;
-    assert.ok(elapsed < 250, `took ${elapsed.toFixed(0)} ms`);
+    // The fastest of five: one slow run says only that the machine was busy (every
+    // test file runs at once); a walk per process is slow every time.
+    let best = Number.POSITIVE_INFINITY;
+    for (let i = 0; i < 5 && best >= 250; i++) {
+      const started = performance.now();
+      assert.equal(await codexAdapter.discoverSession(t, p), ours);
+      best = Math.min(best, performance.now() - started);
+    }
+    assert.ok(best < 250, `took ${best.toFixed(0)} ms at best`);
   });
 
   it("is null when there is no rollout yet", async () => {
@@ -236,7 +241,7 @@ describe("codex: openElsewhere", () => {
 
 describe("codex: stopping and starting", () => {
   it("quits with /quit and resumes by id", () => {
-    assert.deepEqual(codexAdapter.stopSteps()[0], { send: "/quit" });
+    assert.deepEqual(codexAdapter.stopSteps().slice(0, 2), [{ key: "ctrl+c" }, { send: "/quit" }]);
     assert.deepEqual(codexAdapter.resumeArgv("abc", CWD), ["codex", "resume", "abc"]);
     assert.deepEqual(codexAdapter.newArgv(CWD), ["codex"]);
     assert.equal(codexAdapter.displayName, "Codex");

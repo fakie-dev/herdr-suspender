@@ -178,6 +178,8 @@ export async function readTranscript(path, p, prev) {
     const text = (await p.readTail(path, TAIL_BYTES)) ?? "";
     return { kind: "ends", head, mtimeMs: st.mtimeMs, ...settled(text) };
 }
+/** Claude Code and Codex name sessions by UUID; anything else is not a session id. */
+export const isSessionId = (id) => /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id);
 /** A uuid anywhere in `args` (e.g. `codex resume <id>`, `claude --resume <id>`). */
 export function uuidIn(args) {
     for (const arg of args) {

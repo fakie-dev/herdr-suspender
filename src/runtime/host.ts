@@ -125,6 +125,7 @@ export function toTerminalView(t: HostTerminal): TerminalView {
     labels: { ...t.labels },
     status: t.status,
     app: t.app,
+    title: t.title,
     foreground: t.foreground,
     createdMs: t.createdMs,
     state: t.state,

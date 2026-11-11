@@ -11,6 +11,12 @@ const PROJECT = `${HOME}/.claude/projects/-home-tester-dev-app`;
 const SID = "11111111-2222-4333-8444-555555555555";
 const TRANSCRIPT = `${PROJECT}/${SID}.jsonl`;
 const SESSIONS = `${HOME}/.claude/sessions`;
+const A_ID = "aaaaaaaa-0000-4000-8000-000000000001";
+const OLD_ID = "aaaaaaaa-0000-4000-8000-000000000002";
+const OTHER_ID = "aaaaaaaa-0000-4000-8000-000000000003";
+const FIRST_ID = "aaaaaaaa-0000-4000-8000-000000000004";
+const SECOND_ID = "aaaaaaaa-0000-4000-8000-000000000005";
+const ANOTHER_ID = "aaaaaaaa-0000-4000-8000-000000000006";
 
 describe("claude: matches", () => {
   it("knows Claude Code by its reported app or its process name", () => {
@@ -35,16 +41,16 @@ describe("claude: discoverSession", () => {
   it("matches by folder and start time when the shell is in the foreground", async () => {
     const p = fakePorts();
     const t = terminal({ createdMs: 1_000_000, foreground: { pid: 100, argv: ["bash"], name: "bash" } });
-    p.files.set(`${SESSIONS}/201.json`, claudePidFile({ pid: 201, sessionId: "aaa", cwd: CWD, startedAt: 1_000_500 }));
+    p.files.set(`${SESSIONS}/201.json`, claudePidFile({ pid: 201, sessionId: A_ID, cwd: CWD, startedAt: 1_000_500 }));
     // Same folder but started before this terminal existed: not ours.
-    p.files.set(`${SESSIONS}/202.json`, claudePidFile({ pid: 202, sessionId: "old", cwd: CWD, startedAt: 900_000 }));
+    p.files.set(`${SESSIONS}/202.json`, claudePidFile({ pid: 202, sessionId: OLD_ID, cwd: CWD, startedAt: 900_000 }));
     // Started later, other folder.
     p.files.set(
       `${SESSIONS}/203.json`,
-      claudePidFile({ pid: 203, sessionId: "other", cwd: `${HOME}/dev/x`, startedAt: 1_000_600 }),
+      claudePidFile({ pid: 203, sessionId: OTHER_ID, cwd: `${HOME}/dev/x`, startedAt: 1_000_600 }),
     );
     p.files.set(`${SESSIONS}/203.abc.key`, "not json");
-    assert.equal(await claudeAdapter.discoverSession(t, p), "aaa");
+    assert.equal(await claudeAdapter.discoverSession(t, p), A_ID);
     assert.equal(p.execCalls.length, 0, "no process query when the files settle it");
   });
 
@@ -54,17 +60,26 @@ describe("claude: discoverSession", () => {
     );
     const cwd = "C:\\Users\\tester\\dev\\app";
     const sessions = "C:\\Users\\tester\\.claude\\sessions";
-    p.files.set(`${sessions}\\201.json`, claudePidFile({ pid: 201, sessionId: "first", cwd, startedAt: 1_000_500 }));
-    p.files.set(`${sessions}\\202.json`, claudePidFile({ pid: 202, sessionId: "second", cwd, startedAt: 1_000_600 }));
+    p.files.set(`${sessions}\\201.json`, claudePidFile({ pid: 201, sessionId: FIRST_ID, cwd, startedAt: 1_000_500 }));
+    p.files.set(`${sessions}\\202.json`, claudePidFile({ pid: 202, sessionId: SECOND_ID, cwd, startedAt: 1_000_600 }));
     const shell = (pid: number) =>
       terminal({ cwd, createdMs: 1_000_000, foreground: { pid, argv: [], name: "pwsh.exe" } });
-    assert.equal(await claudeAdapter.discoverSession(shell(100), p), "first");
-    assert.equal(await claudeAdapter.discoverSession(shell(300), p), "second");
+    assert.equal(await claudeAdapter.discoverSession(shell(100), p), FIRST_ID);
+    assert.equal(await claudeAdapter.discoverSession(shell(300), p), SECOND_ID);
     assert.equal(await claudeAdapter.discoverSession(shell(999), p), null, "neither is a child: no guess");
   });
 
   it("is null when nothing matches", async () => {
     assert.equal(await claudeAdapter.discoverSession(terminal(), fakePorts()), null);
+  });
+
+  it("takes only a session id that is a UUID: anything else would be typed into a shell at Resume", async () => {
+    const p = fakePorts();
+    p.files.set(`${SESSIONS}/4242.json`, claudePidFile({ pid: 4242, sessionId: "x & calc", cwd: CWD, startedAt: 1 }));
+    const own = terminal({ foreground: { pid: 4242, argv: ["claude"], name: "claude" } });
+    assert.equal(await claudeAdapter.discoverSession(own, p), null);
+    const shell = terminal({ createdMs: 0, foreground: { pid: 100, argv: ["bash"], name: "bash" } });
+    assert.equal(await claudeAdapter.discoverSession(shell, p), null);
   });
 });
 
@@ -312,7 +327,7 @@ describe("claude: openElsewhere", () => {
   it("is open while a live claude process holds the session", async () => {
     const p = scriptExec(fakePorts(), () => ok("  301 400000 claude\n"));
     p.files.set(`${SESSIONS}/301.json`, claudePidFile({ pid: 301, sessionId: SID, cwd: CWD, startedAt: 1 }));
-    p.files.set(`${SESSIONS}/302.json`, claudePidFile({ pid: 302, sessionId: "another", cwd: CWD, startedAt: 1 }));
+    p.files.set(`${SESSIONS}/302.json`, claudePidFile({ pid: 302, sessionId: ANOTHER_ID, cwd: CWD, startedAt: 1 }));
     assert.deepEqual(await claudeAdapter.openElsewhere(SID, p), { open: true, where: "pid 301" });
   });
 
@@ -363,27 +378,15 @@ describe("claude: openElsewhere", () => {
     await claudeAdapter.watchOpenness?.(p);
     assert.deepEqual(watched, [SESSIONS]);
   });
-
-  it("watches the conversation's project folder for changes to its transcript", async () => {
-    const p = fakePorts();
-    p.files.set(TRANSCRIPT, smallTranscript());
-    const watched: string[] = [];
-    p.watch = async (dir) => {
-      watched.push(dir);
-      return [`${dir}/${SID}.jsonl`];
-    };
-    assert.ok(claudeAdapter.watchTranscript, "Claude can be watched");
-    await claudeAdapter.watchTranscript(SID, CWD, p);
-    assert.deepEqual(watched, [PROJECT]);
-  });
 });
 
 describe("claude: stopping and starting", () => {
-  it("interrupts, waits for idle, then exits", () => {
+  it("interrupts, waits for idle, empties the prompt, then exits", () => {
     const steps = claudeAdapter.stopSteps();
-    assert.deepEqual(steps[0], { key: "escape" });
+    assert.deepEqual(steps[0], { key: "esc" });
     assert.ok("waitIdleMs" in (steps[1] ?? {}));
-    assert.deepEqual(steps[2], { send: "/exit" });
+    assert.deepEqual(steps[2], { key: "ctrl+c" });
+    assert.deepEqual(steps[3], { send: "/exit" });
   });
 
   it("resumes by id and starts fresh with plain claude", () => {

@@ -57,6 +57,7 @@ export function toTerminalView(t) {
         labels: { ...t.labels },
         status: t.status,
         app: t.app,
+        title: t.title,
         foreground: t.foreground,
         createdMs: t.createdMs,
         state: t.state,

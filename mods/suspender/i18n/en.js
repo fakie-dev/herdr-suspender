@@ -75,6 +75,7 @@ export const en = {
     "reason.spawn": "it could not be started",
     "reason.noPane": "its tab is gone",
     "reason.interrupted": "the start was interrupted",
+    "reason.badId": "its session id is not one a shell can be given safely",
     "notice.skippedElsewhere": "Some sessions are open elsewhere and were skipped",
     "notice.layoutOutdated": "Suspender couldn't update its layout for Herdr {version}",
 };

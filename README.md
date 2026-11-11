@@ -6,30 +6,32 @@ in the same tab, even after Herdr or the whole computer has restarted.
 ![A sleeping tab: the last screen of the agent, dimmed, with a strip under it](preview.png)
 
 An idle Claude Code session holds somewhere between 0.6 and 0.9 GB of memory. With seven projects open that
-adds up, but closing the agent means losing track of where the conversation stood. Suspender takes a middle
-road. You press Sleep, the agent exits cleanly, and its tab stays where it was: the last screen is still
-there, dimmed, with a strip at the bottom that says what the session was (title, branch, model, folder) and a
-Resume button. Press it and the same conversation continues in the same tab.
+adds up, but closing the agent means losing track of where the conversation stood. Suspender stops the agent
+but keeps its tab. You press Sleep, the agent exits cleanly, and the tab stays where it was: the last screen
+is still there, dimmed, with a strip at the bottom that says what the session was (title, branch, model,
+folder) and a Resume button. Press it and the same conversation continues in the same tab.
 
 It also remembers across restarts. After Herdr or the PC comes back, tabs that had an agent show a strip and
 wait for you. Nothing starts by itself.
 
 ## What you get
 
-- **Sleep** from three places: a small pill that slides out over the tab, the button in the Sessions list, or
-  a key. If the agent is in the middle of an answer, you get a choice: sleep when it is done, interrupt and
-  sleep, or cancel.
-- **Resume** on the strip of a sleeping tab. The strip shows each step (found session, starting, ready) and,
-  if it fails, why, with a Retry button. Nothing retries by itself.
-- **Sessions panel** on the right, like Files and Changes: every session of every project, grouped by space,
-  with the memory each one freed or uses. "Resume all in project" wakes a whole space, one session at a time.
-- **A popup on hover** over a strip or a row: first prompt, last reply, message count, context use, tokens,
-  branch, model, folder and session id (both copyable).
-- **Safe against double opening.** If the session is open somewhere else (another terminal, another program),
-  Resume is disabled until it is closed there. Suspender never forks a conversation.
-- **Honest about missing data.** If the conversation was deleted or expired, the strip says so and offers
-  "Start new session" or "Forget". A field the agent does not store (tokens, context) is left out, not shown
-  as zero.
+You can put an agent to sleep from three places: a small pill that slides out over its tab, a button in the
+Sessions list, or `Alt+Shift+S`. If the agent is in the middle of an answer, you choose: sleep when it is done,
+interrupt it and sleep, or cancel.
+
+The strip of a sleeping tab has Resume. While the agent starts, the strip shows each step (found session,
+starting, ready); if the start fails, it says why and offers Retry. Nothing retries by itself.
+
+The Sessions panel sits on the right, like Files and Changes. It lists every session of every project, grouped
+by space, with the memory each one freed or is using, and "Resume all in project" wakes a whole space one
+session at a time. Hovering over a strip or a row opens a popup with the first prompt, the last reply, the
+message count, context use, tokens, branch, model, folder and session id; the folder and the id can be copied.
+
+A conversation is never opened twice. If the session is open somewhere else (another terminal, another
+program), Resume stays disabled until it is closed there. If the conversation was deleted or has expired, the
+strip says so and offers "Start new session" or "Forget". A field the agent does not store, such as tokens or
+context, is left out rather than shown as zero.
 
 It looks like part of Herdr because it only uses the theme's colors, Herdr's own fonts and native animations.
 There are no redraw timers: in the idle state the mod starts no processes (measured over 60 seconds).
@@ -76,16 +78,18 @@ transcript is never touched.
 
 ## How it works
 
-The short version: the agent is stopped politely (Claude Code: Esc, wait until idle, `/exit`; Codex: `/quit`;
-after ten seconds the terminal is killed and the strip says so). A panel of the mod takes the terminal's place
-in the layout, pixel for pixel, and shows the last screen that was saved. To wake it, Suspender checks that
-the transcript still exists and that nobody else has the session open, starts a shell in the tab, types the
-resume command into it (`claude --resume <id>` or `codex resume <id>`), and swaps the terminal in. After you
-leave the agent, you are in a normal shell.
+Sleep stops the agent: Claude Code gets Esc, then Ctrl+C once it is idle, then `/exit`; Codex gets Ctrl+C and
+`/quit`. Ctrl+C empties the prompt, so a half-typed message is dropped instead of going out with the exit
+command. If the agent is still running ten seconds later, the terminal is killed and the strip says so. A panel
+of the mod takes the terminal's place in the layout, pixel for pixel, and shows the last screen that was saved.
+To wake it, Suspender checks that the transcript still exists and that nobody else has the session open, starts
+a shell in the tab, types the resume command into it (`claude --resume <id>` or `codex resume <id>`), and
+swaps the terminal in. After you leave the agent, you are in a normal shell.
 
 The session id is found without hooks: for Claude Code from `~/.claude/sessions/<pid>.json`, for Codex from
-the first line of the newest rollout file for that folder. Terminals carry labels (`suspender.agent`,
-`suspender.session`, `suspender.state`) so they survive a lost terminal, and the store keeps everything else.
+the first line of the newest rollout file for that folder. Only a UUID is accepted as an id, because Resume
+types it into a shell. Terminals carry labels (`suspender.agent`, `suspender.session`, `suspender.state`)
+so they survive a lost terminal, and the store keeps everything else.
 
 [`docs/architecture.md`](docs/architecture.md) has the details and [`docs/adr/`](docs/adr) the reasons behind
 the four decisions that shaped it.
@@ -111,16 +115,25 @@ Tested on Windows. macOS and Linux should work, as nothing in the core is Window
 path code sits in one module, but they have not been tried: testers are welcome, and CI runs the tests on all
 three systems.
 
-Both agents have been run by hand on Windows through sleep, resume, a session open elsewhere, a missing
-transcript, Start new session, Forget, Resume all, leaving the agent with `/exit` or `/quit`, and an agent killed
-from outside (the tab becomes "interrupted"). Recovery after a real reboot is covered by tests and has not been
-tried on a real restart yet.
+What has been tried by hand on Windows, with both agents in a throwaway folder:
+
+- Claude Code: sleep and resume into the same conversation, the question for an agent that is answering, a
+  session open elsewhere, a missing conversation with Start new session, Forget, Resume all, leaving with
+  `/exit` (the shell stays), `claude.exe` killed from outside (the tab turns "interrupted" within about ten
+  seconds, and Resume brings the conversation back), a draft left in the prompt at Sleep (the agent got only
+  `/exit`), and Sleep pressed on two tabs within a second (both went to sleep).
+- Codex: sleep and resume into the same conversation, "sleep when done", a session open elsewhere, a missing
+  conversation with Start new session, Forget, Resume all skipping a session that is open elsewhere, `/quit`
+  (no sleeping tab is made), and `codex.exe` killed from outside (interrupted).
+
+Not tried by hand yet, covered by tests only: "updated after sleep" with Codex, a draft left in Codex's prompt,
+and a real reboot of the PC.
 
 One thing the mod cannot do: if an agent shows its own dialog when it starts (Codex asks about updates and about
 trusting a new folder), the resumed agent waits behind that dialog until you answer it.
 
-Known limits: the strip cannot warn about unsent text in the prompt (neither adapter can see the prompt yet), and Codex has
-no event for "closed elsewhere", so its check runs every five seconds while the strip is on screen.
+Known limits: Sleep does not warn about a draft in the prompt, it empties the prompt before the exit command.
+Codex has no event for "closed elsewhere", so while its strip is on screen it is checked every five seconds.
 
 ## Developing
 

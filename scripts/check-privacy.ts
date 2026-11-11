@@ -32,9 +32,21 @@ interface Rule {
   hide?: boolean;
 }
 
-// Names that stand in for a person in docs and tests. The maintainer's own
-// handle is allowed too: it is the name of the repository's author.
-const STAND_IN_NAMES = new Set(["tester", "t", "user", "you", "me", "name", "username", "runner", "example", "fakie"]);
+// Names that stand in for a person in docs and tests. A real home folder,
+// the maintainer's own included, is never one of them.
+const STAND_IN_NAMES = new Set(["tester", "t", "user", "you", "me", "name", "username", "runner", "example"]);
+
+/**
+ * Commits made before the scan held the maintainer's own home folder to the
+ * rule: their tests used it as a sample path. History is not rewritten (the
+ * maintainer allowed their handle there: it is the repository's author
+ * name), so each listed commit may keep home folders of the users named for
+ * it. Every other commit is held to the rule.
+ */
+export const EARLIER_HOME_PATHS: Readonly<Record<string, readonly string[]>> = {
+  // 🎉 chore: scaffold Suspender with its pure core: test/paths.test.ts, the home and a made-up sibling of it.
+  "7d8d768104295a2802309ae1da49983915661146": ["fakie", "fakieother"],
+};
 
 const RULES: Rule[] = [
   { kind: "GitHub token", pattern: /\bgh[pousr]_[A-Za-z0-9]{30,}\b/, hide: true },
@@ -65,8 +77,7 @@ const RULES: Rule[] = [
   {
     kind: "home-folder path",
     pattern: /(?:[A-Za-z]:\\{1,2}Users\\{1,2}|\/Users\/|\/home\/)([A-Za-z0-9._-]+)/,
-    allow: (m) =>
-      STAND_IN_NAMES.has((m[1] ?? "").toLowerCase()) || /^fakie/i.test(m[1] ?? "") || /^[A-Z_]+$/.test(m[1] ?? ""),
+    allow: (m) => STAND_IN_NAMES.has((m[1] ?? "").toLowerCase()) || /^[A-Z_]+$/.test(m[1] ?? ""),
   },
   { kind: "co-author line", pattern: /^co-authored-by:/im },
 ];
@@ -75,8 +86,8 @@ function shorten(text: string): string {
   return text.length > 60 ? `${text.slice(0, 57)}...` : text;
 }
 
-/** Findings in one text. `where` names it in the report. */
-export function scanText(where: string, text: string, words: string[]): Finding[] {
+/** Findings in one text. `where` names it in the report; `homes` are users whose home folders may appear. */
+export function scanText(where: string, text: string, words: string[], homes: readonly string[] = []): Finding[] {
   const found: Finding[] = [];
   const lowered = text.toLowerCase();
   for (const word of words) {
@@ -88,6 +99,9 @@ export function scanText(where: string, text: string, words: string[]): Finding[
     for (const rule of RULES) {
       const m = line.match(rule.pattern);
       if (!m || rule.allow?.(m)) {
+        continue;
+      }
+      if (rule.kind === "home-folder path" && homes.includes((m[1] ?? "").toLowerCase())) {
         continue;
       }
       found.push({ where, kind: rule.kind, sample: rule.hide ? "(hidden)" : shorten(m[0]) });
@@ -132,7 +146,11 @@ export function scanTree(root: string, words: string[]): Finding[] {
   return found;
 }
 
-export function scanHistory(root: string, words: string[]): Finding[] {
+export function scanHistory(
+  root: string,
+  words: string[],
+  earlier: Readonly<Record<string, readonly string[]>> = EARLIER_HOME_PATHS,
+): Finding[] {
   const found: Finding[] = [];
   const SEP = "\x1e";
   const FIELD = "\x1f";
@@ -150,15 +168,18 @@ export function scanHistory(root: string, words: string[]): Finding[] {
     }
     const [sha = "", an = "", ae = "", cn = "", ce = "", message = "", diff = ""] = entry.split(FIELD);
     const short = sha.slice(0, 8);
+    const homes = earlier[sha] ?? [];
     found.push(...scanText(`commit ${short} author`, `${an} <${ae}>\n${cn} <${ce}>`, words));
     found.push(...scanText(`commit ${short} message`, message, words));
-    // Only lines a commit added or removed, with the file each one is in.
+    // Only the lines a commit added, with the file each one is in. A removed line
+    // was added by an earlier commit and is reported there: the commit that
+    // takes it out is not to blame for it.
     let file = "?";
     for (const line of diff.split("\n")) {
       if (line.startsWith("+++ b/")) {
         file = line.slice(6);
-      } else if ((line.startsWith("+") || line.startsWith("-")) && !line.startsWith("+++") && !line.startsWith("---")) {
-        found.push(...scanText(`commit ${short} ${file}`, line.slice(1), words));
+      } else if (line.startsWith("+") && !line.startsWith("+++")) {
+        found.push(...scanText(`commit ${short} ${file}`, line.slice(1), words, homes));
       }
     }
   }

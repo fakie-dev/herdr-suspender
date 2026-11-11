@@ -1,0 +1,9 @@
+{
+  "global": {
+    "ctrl-shift-s": "mod.open:suspender",
+    "alt-shift-s": "suspender.toggle-focused"
+  },
+  "layout:suspender": {
+    "ctrl-shift-s": { "command": "layout.toggle", "args": { "id": "suspender-panel" } }
+  }
+}

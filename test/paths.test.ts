@@ -6,7 +6,7 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { homePath, midId, repoPath, shortBranch, shortId } from "../src/core/paths.ts";
 
-const WIN_HOME = "C:\\Users\\Fakie";
+const WIN_HOME = "C:\\Users\\tester";
 const WIN_REPO = `${WIN_HOME}\\Documents\\dev\\clients\\northwind-portal`;
 const WIN_DEEP = `${WIN_REPO}\\apps\\web\\src\\auth`;
 
@@ -24,7 +24,7 @@ describe("repoPath", () => {
   });
 
   it("works the same with POSIX paths", () => {
-    const repo = "/home/fakie/dev/clients/northwind-portal";
+    const repo = "/home/tester/dev/clients/northwind-portal";
     assert.equal(repoPath(`${repo}/apps/web/src/auth`, repo, "/", 24), "northwind-portal/…/auth");
     assert.equal(repoPath(`${repo}/apps/web/src/auth`, repo, "/", 34), "northwind-portal/apps/web/src/auth");
     assert.equal(repoPath(repo, repo, "/", 10), "northwind-portal");
@@ -35,8 +35,8 @@ describe("repoPath", () => {
   });
 
   it("falls back to the whole folder, squeezed, without a repository", () => {
-    assert.equal(repoPath(`${WIN_HOME}\\dev\\landing`, null, "\\", 24), "C:\\…\\Fakie\\dev\\landing");
-    assert.equal(repoPath("/home/fakie/dev/landing", null, "/", 10), "/…/landing");
+    assert.equal(repoPath(`${WIN_HOME}\\dev\\landing`, null, "\\", 24), "C:\\…\\tester\\dev\\landing");
+    assert.equal(repoPath("/home/tester/dev/landing", null, "/", 10), "/…/landing");
   });
 
   it("accepts forward slashes in Windows paths", () => {
@@ -55,17 +55,19 @@ describe("homePath", () => {
 
   it("is ~ for the home folder itself", () => {
     assert.equal(homePath(WIN_HOME, WIN_HOME, "\\", 20), "~");
-    assert.equal(homePath("/home/fakie", "/home/fakie", "/", 20), "~");
+    assert.equal(homePath("/home/tester", "/home/tester", "/", 20), "~");
   });
 
   it("works the same with POSIX paths, inside and outside ~", () => {
-    assert.equal(homePath("/home/fakie/dev/x", "/home/fakie", "/", 40), "~/dev/x");
-    assert.equal(homePath("/opt/tools/bin", "/home/fakie", "/", 40), "/opt/tools/bin");
-    assert.equal(homePath("/srv/data/projects/clients/portal/app", "/home/fakie", "/", 20), "/…/portal/app");
+    assert.equal(homePath("/home/tester/dev/x", "/home/tester", "/", 40), "~/dev/x");
+    assert.equal(homePath("/opt/tools/bin", "/home/tester", "/", 40), "/opt/tools/bin");
+    assert.equal(homePath("/srv/data/projects/clients/portal/app", "/home/tester", "/", 20), "/…/portal/app");
   });
 
   it("does not take a sibling user folder for home", () => {
-    assert.equal(homePath("C:\\Users\\FakieOther\\x", WIN_HOME, "\\", 40), "C:\\Users\\FakieOther\\x");
+    // Another user whose name starts with this one's.
+    const sibling = `${WIN_HOME}Other\\x`;
+    assert.equal(homePath(sibling, WIN_HOME, "\\", 40), sibling);
   });
 });
 

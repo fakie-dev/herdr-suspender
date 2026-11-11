@@ -4,6 +4,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, it } from "node:test";
+import { scanHistory } from "../scripts/check-privacy.ts";
 
 const SCRIPT = join(import.meta.dirname, "..", "scripts", "check-privacy.ts");
 
@@ -13,6 +14,8 @@ const AWS_KEY = `${"AKIA"}${"ABCDEFGHIJKLMNOP"}`;
 const EMAIL = `jane.doe${"@"}corp-mail.test`;
 const WIN_PATH = `C:\\${"Users"}\\jdoe\\work\\app`;
 const POSIX_PATH = `/${"home"}/jdoe/work/app`;
+// The maintainer's own home folder: their handle is the repository's author name, not a stand-in.
+const OWN_PATH = `C:\\${"Users"}\\Fakie\\x`;
 
 let repo: string;
 
@@ -98,6 +101,13 @@ describe("check-privacy on the working tree", () => {
     assert.equal(run().code, 0);
   });
 
+  it("flags the maintainer's own home folder too", () => {
+    put("t.ts", `const home = "${OWN_PATH}";\n`);
+    const r = run();
+    assert.equal(r.code, 1, r.out);
+    assert.match(r.out, /t\.ts.*home-folder path/);
+  });
+
   it("flags a word from .privacy.local, ignoring case, and skips comments", () => {
     put(".privacy.local", "# words only the maintainer knows\nNorthwind\n");
     assert.equal(run().code, 0);
@@ -149,6 +159,22 @@ describe("check-privacy --history", () => {
     put("y.txt", "y\n");
     commit(`add y\n\nthanks ${EMAIL}`);
     assert.equal(run("--history").code, 1);
+  });
+
+  it("lets the maintainer's home folder stay only in the commits listed as made before the rule", () => {
+    put("old.ts", `const home = "${OWN_PATH}";\n`);
+    commit("add old paths");
+    const listed = git("rev-parse", "HEAD").trim();
+    put("old.ts", "const home = 'C:\\Users\\tester';\n");
+    commit("replace them");
+    const allowed = { [listed]: ["fakie"] };
+    assert.deepEqual(scanHistory(repo, [], allowed), [], "the listed commit is let be, its fix too");
+    assert.equal(scanHistory(repo, []).length, 1, "unlisted, it is flagged");
+    put("new.ts", `const home = "${OWN_PATH}";\n`);
+    commit("add it again");
+    const later = scanHistory(repo, [], allowed);
+    assert.equal(later.length, 1, "a later commit is held to the rule");
+    assert.match(later[0]?.where ?? "", /new\.ts/);
   });
 
   it("flags a co-author line in a commit message", () => {

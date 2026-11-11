@@ -1,10 +1,10 @@
 # Suspender
 
-A mod that puts a Claude Code or Codex session to sleep and wakes it in the same tab. A sleeping tab keeps its
-place and shows the agent's last screen, dimmed, with a strip at the bottom: session title, branch, model,
-folder, and a Resume button. Press Resume and the same conversation continues. After Herdr or the computer
-restarts, tabs that had an agent show the same strip and wait; nothing starts by itself. A Sessions list lists
-every session of every space.
+A mod that puts a Claude Code or Codex session to sleep, giving its memory back, and resumes it in the same
+tab. A sleeping tab keeps its place and shows the agent's last screen, dimmed, with a strip at the bottom:
+session title, branch, model, folder, and a Resume button. Press Resume and the same conversation continues.
+After Herdr restarts or the computer reboots, tabs that had an agent show the same strip and wait for you to
+restore them; nothing starts by itself. The Sessions panel shows every session in every space.
 
 ![Suspender](preview.png)
 
@@ -56,9 +56,10 @@ Agent statuses are not drawn by this mod; Herdr's own list shows them. A sleepin
 Sessions, never in the Agents list.
 
 **Sleep** (pill, row button, `Alt+Shift+S`): the last screen is saved, the agent is stopped (Claude Code: Esc,
-wait up to 10 s for idle, `/exit`; Codex: `/quit`; if it is still alive 10 s later the terminal is killed and
-the strip says so), a sleeping panel takes the terminal's slot in the layout, and the terminal is closed. The
-agent's process and its shell are gone; memory is returned.
+wait up to 10 s for idle, Ctrl+C, `/exit`; Codex: Ctrl+C, `/quit`; if it is still alive 10 s later the terminal
+is killed and the strip says so), a sleeping panel takes the terminal's slot in the layout, and the terminal is
+closed. Ctrl+C empties the prompt, so a draft is dropped rather than sent with the exit command. The agent's
+process and its shell are gone; memory is returned.
 
 **Resume** (strip button, row button, `Alt+Shift+S` on a sleeping tab): checks that the transcript exists and
 that no other process holds the session. Then it starts the default shell in a new terminal, types the
@@ -75,10 +76,15 @@ checked every five seconds while the strip is on screen.
 **Restart.** Terminals carry labels `suspender.agent`, `suspender.session` and `suspender.state` (`running` or
 `exited`). A terminal that says `running` but holds no agent any more was interrupted by a restart: its strip
 says so and waits. If there is any doubt the strip is shown and the agent is not started. An agent you left
-yourself with `/exit` is marked `exited` and does not turn into a sleeping tab.
+yourself with `/exit` is marked `exited` and does not turn into a sleeping tab. An agent killed from outside
+keeps the last status Herdr saw; when the terminal's title goes back to the shell's, one process list shows the
+agent gone, and if its status is still on display a few seconds later the tab becomes interrupted. After
+`/exit` the status goes out within that time, so the shell stays.
 
 **Changed in the meantime.** If you used the session in another program while it slept, Resume continues the
-latest state, and the strip says what changed, read once when it is first shown.
+latest state, and the strip says what changed (`Updated after sleep · <time> · +N messages`). That is read when
+the tab is shown and right after the session is closed in the other place. Nothing watches the conversation
+while the strip stays on screen, so work done elsewhere shows up the next time the tab is shown.
 
 **Gone.** If the transcript is gone, the strip offers `Start new session` (a new agent in the same folder) and
 `Forget`. `Forget`, or closing a sleeping tab, deletes the store entry and leaves the transcript alone.
@@ -87,8 +93,9 @@ latest state, and the strip says what changed, read once when it is first shown.
 those open elsewhere with a notice.
 
 **Cost.** No redraw timers. Memory of running processes is read only while the panel is open and at most every
-30 s. A transcript is read only when a session goes to sleep or when its strip is first shown and the file
-changed.
+30 s. A transcript is read only when a session goes to sleep, when its strip is shown, and right after the
+session is closed elsewhere, each time only if the file changed. A Codex whose session is not known yet is
+looked up in the process list only when its terminal changes, and on Windows at most once a minute.
 
 ## Built from
 
@@ -109,8 +116,10 @@ Herdr calls it makes: `pane.split` (with `mod` and `props`), `pane.swap`, `pane.
 `run`). Commands: `suspender.toggle-focused`, `resume-all`, `forget`, `start-new`, `sleep-when-done`,
 `interrupt-and-sleep`, `cancel`. Programs it starts: `hc`; for process memory and liveness on Windows `tasklist`
 and `robocopy /L` (file size and time), on macOS and Linux `ps` and `stat`; PowerShell only in rare cases of
-ambiguity. It reads `~/.claude/projects`, `~/.claude/sessions` and `~/.codex/sessions` and writes only
-`~/.config/herdr-app/suspender/sessions.json`. No network.
+ambiguity. It reads `~/.claude/projects`, `~/.claude/sessions`, `~/.codex/sessions` and Herdr's
+`layouts/main.json`. It writes two files: `~/.config/herdr-app/suspender/sessions.json`, and
+`~/.config/herdr-app/layouts/suspender.json`, which it creates when missing and rebuilds when `main.json` or
+Herdr's version changes. No network.
 
 One of the copies of the mod leads (a `suspender.leader` stamp, taken over after 15 s of silence): it binds
 sessions to terminals and recognizes restarts; the others only draw.
@@ -133,10 +142,9 @@ neighbour. Insert the sleeping panel before stopping the agent and close the ter
 Keys reach only a mod that is shown somewhere in the window. The restart check runs when the first copy of the
 mod is shown.
 
-Limits: Claude Code and Codex only. The strip cannot warn about unsent text in the prompt. The text of the last
-screen is the screen at the moment of sleep, not a live view. The UI is English only; all texts are in
-`src/i18n/en.ts`. A Claude Code that was killed from outside keeps the status Herdr last saw, so the mod does
-not notice it vanished until the terminal is restarted.
+Limits: Claude Code and Codex only. Sleep does not warn about a draft in the prompt; it empties the prompt before
+the exit command. The text of the last screen is the screen at the moment of sleep, not a live view. The UI is
+English only; all texts are in `src/i18n/en.ts`.
 
 ## Done when
 

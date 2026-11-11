@@ -33,6 +33,10 @@ interface SimTerminal extends HostTerminal {
   agentPid: number | null;
   /** What was typed to start the agent in the shell ("claude --resume s1"). */
   ran: string | null;
+  /** What sits in the agent's prompt, not sent yet. */
+  input: string;
+  /** Every line the agent was sent (Enter on its prompt), in order. */
+  submitted: string[];
 }
 
 interface SimPane extends HostPane {
@@ -124,6 +128,8 @@ export class Sim implements Host {
       listed: true,
       agentPid: agent !== null && !opts.direct ? this.pidSeq++ : null,
       ran: null,
+      input: "",
+      submitted: [],
     };
     this.terms.set(address, term);
     const pane = this.newPane(tab, address, null, null);
@@ -198,11 +204,13 @@ export class Sim implements Host {
   terminals(): HostTerminal[] {
     return [...this.terms.values()]
       .filter((t) => t.listed)
-      .map(({ agent: _a, direct: _d, screen: _s, listed: _l, agentPid: _p, ran: _r, ...t }) => ({
-        ...t,
-        labels: { ...t.labels },
-        argv: [...t.argv],
-      }));
+      .map(
+        ({ agent: _a, direct: _d, screen: _s, listed: _l, agentPid: _p, ran: _r, input: _i, submitted: _u, ...t }) => ({
+          ...t,
+          labels: { ...t.labels },
+          argv: [...t.argv],
+        }),
+      );
   }
   panes(): HostPane[] {
     return this.paneList.map(({ props: _p, size: _s, ...p }) => ({ ...p }));
@@ -333,12 +341,11 @@ export class Sim implements Host {
       case "keys": {
         const t = this.terms.get(rest[0] ?? "");
         const keys = rest.slice(1);
-        if (t?.agent && keys.includes("esc") && t.status === "working") {
-          this.later(200, () => {
-            t.status = "idle";
-          });
+        if (t?.agent) {
+          this.agentKeys(t, keys);
+          return ok("{}");
         }
-        // A command typed key by key, then Enter.
+        // A command typed key by key into a shell, then Enter.
         const typed =
           keys.at(-1) === "enter"
             ? keys
@@ -346,9 +353,7 @@ export class Sim implements Host {
                 .map((k) => (k === "space" ? " " : k))
                 .join("")
             : "";
-        if (t?.agent && /^\/(exit|quit)$/.test(typed) && this.exitsOnStop) {
-          this.later(300, () => this.agentLeaves(t.address));
-        } else if (t && t.state === "live" && t.agent === null && typed !== "" && t.screen !== "") {
+        if (t && t.state === "live" && typed !== "" && t.screen !== "") {
           // (A shell that has not shown its prompt yet loses what is typed.)
           this.typed.push({ address: t.address, line: typed });
           this.shellRuns(t, typed);
@@ -454,6 +459,36 @@ export class Sim implements Host {
     return lines.join("\r\n");
   }
 
+  /**
+   * Keys pressed in an agent: characters go into its prompt, Enter sends the
+   * prompt as one line, Esc stops a turn, Ctrl+C empties the prompt (or stops
+   * a turn). A line that is exactly its exit command makes it leave.
+   */
+  private agentKeys(t: SimTerminal, keys: string[]): void {
+    for (const key of keys) {
+      if (key === "esc" || key === "ctrl+c") {
+        if (t.status === "working") {
+          this.later(200, () => {
+            t.status = "idle";
+          });
+        } else if (key === "ctrl+c") {
+          t.input = "";
+        }
+      } else if (key === "enter") {
+        const line = t.input;
+        t.input = "";
+        t.submitted.push(line);
+        if (/^\/(exit|quit)$/.test(line) && this.exitsOnStop) {
+          this.later(300, () => this.agentLeaves(t.address));
+        }
+      } else if (key === "space") {
+        t.input += " ";
+      } else if ([...key].length === 1) {
+        t.input += key;
+      }
+    }
+  }
+
   /** A shell runs a typed line: `claude …` / `codex …` start that agent in it. */
   private shellRuns(t: SimTerminal, line: string): void {
     const agent: AgentId | null = /^claude\b/.test(line) ? "claude" : /^codex\b/.test(line) ? "codex" : null;
@@ -518,6 +553,8 @@ export class Sim implements Host {
       listed: false,
       agentPid: null,
       ran: null,
+      input: "",
+      submitted: [],
     };
     this.terms.set(address, term);
     const tab = labels["herdr.tab"] ?? TAB;
@@ -716,8 +753,8 @@ export function fakeAdapter(
     },
     stopSteps: () =>
       id === "claude"
-        ? [{ key: "escape" }, { waitIdleMs: 10_000 }, { send: "/exit" }, { waitExitMs: 10_000 }]
-        : [{ send: "/quit" }, { waitExitMs: 10_000 }],
+        ? [{ key: "esc" }, { waitIdleMs: 10_000 }, { key: "ctrl+c" }, { send: "/exit" }, { waitExitMs: 10_000 }]
+        : [{ key: "ctrl+c" }, { send: "/quit" }, { waitExitMs: 10_000 }],
     resumeArgv: (sessionId: string) =>
       id === "claude" ? ["claude", "--resume", sessionId] : ["codex", "resume", sessionId],
     newArgv: () => [id],

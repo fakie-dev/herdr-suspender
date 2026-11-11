@@ -52,8 +52,11 @@ The mod is `mods/suspender/`, a copy of the one in the first card. Shipped mods 
 The mod keeps this file current: whenever a copy of it runs it compares the hash of `layouts/main.json` and
 Herdr's version with the record, and rebuilds `layouts/suspender.json` if either changed. If Herdr's new
 `main.json` no longer has the blocks the insertions need, the last working file stays and one toast says
-`Suspender couldn't update its layout for Herdr <version>`. Keys: the mod's `keys.json` adds
-`layout:suspender` with `Ctrl+Shift+S` toggling `suspender-panel`.
+`Suspender couldn't update its layout for Herdr <version>`.
+
+Keys come in `keys.json` next to this recipe, the mod's own snippet: merge it into yours. It adds
+`layout:suspender` with `Ctrl+Shift+S` toggling `suspender-panel`, `Ctrl+Shift+S` opening the Sessions window in
+any other layout, and `Alt+Shift+S` for Sleep and Resume of the tab in focus.
 
 ## Watch out
 
