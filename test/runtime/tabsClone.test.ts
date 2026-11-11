@@ -417,6 +417,28 @@ describe("tabsKeeper (what the shown copies of one window ask)", () => {
     assert.equal(layoutTabs(), "clone");
   });
 
+  it("another copy of the mod wrote the same candidate first: still a pass, no toast", async () => {
+    const candidateMain = `${appHome}/suspender/tabs-check/suspender-tabs/main.js`;
+    const patched = patchTabs(source, sha(source));
+    const write = ports.writeText;
+    // As Herdr's port does: no `expected` means "what is there now", read before the write lands.
+    ports.writeText = async (path, text, expected) =>
+      write(path, text, expected === undefined ? (ports.files.get(path) ?? null) : expected);
+    ports.beforeWrite = (path) => {
+      if (path === candidateMain && patched !== null) {
+        ports.files.set(path, patched);
+      }
+    };
+    const out = await keep(noSleep, toast);
+    assert.ok(
+      ports.writes.some((w) => w.path === candidateMain && !w.ok),
+      "the candidate write was refused",
+    );
+    assert.equal(out.mode, "clone");
+    assert.deepEqual(toasts, []);
+    assert.equal(layoutTabs(), "clone");
+  });
+
   describe("a check that hangs", () => {
     let first: Promise<TabsOutcome> | null = null;
     beforeEach(() => {

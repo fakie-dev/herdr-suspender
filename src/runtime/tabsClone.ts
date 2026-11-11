@@ -111,7 +111,11 @@ function ours(main: string, modJson: string | null): boolean {
 
 /** Puts `text` at `path` unless it is there already; false when that does not stick. */
 async function put(ports: Ports, path: string, text: string): Promise<boolean> {
-  return (await ports.readText(path)) === text || (await ports.writeText(path, text));
+  if ((await ports.readText(path)) === text || (await ports.writeText(path, text))) {
+    return true;
+  }
+  // Refused: another copy of the mod wrote in between. If it wrote this same text, that is done.
+  return (await ports.readText(path)) === text;
 }
 
 /**
