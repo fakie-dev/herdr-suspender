@@ -6,11 +6,15 @@
 // Every copy runs an engine: one of them leads (binds sessions, recognises a
 // restart), and whichever copy a person presses a button in carries the
 // action out. Every copy that stays (not a popup or a dialog) also keeps
-// layouts/suspender.json fresh against Herdr's main.json.
+// layouts/suspender.json fresh against Herdr's main.json, and so does loading
+// the module itself: Herdr loads it as soon as it sees the mod's folder (and
+// `herdr-app check` does), so installing the mod is enough for the layout.
 
 import { type AsyncContext, type Context, div, type Element, View } from "gpui-kit";
-import { appHome, props as herdrProps, nextCommand, updates } from "herdr";
+import { appHome, props as herdrProps, nextCommand, notify, updates, writeTextFile } from "herdr";
+import { buildLivingLayout, LAYOUT_NAME } from "./core/layout.ts";
 import type { SessionKey } from "./core/model.ts";
+import { SHIPPED_MAIN, SHIPPED_MAIN_VERSION } from "./core/shippedMain.ts";
 import { herdrPorts } from "./platform/ports.ts";
 import { type Choice, Engine, newCoordinator, TICK_MS } from "./runtime/engine.ts";
 import { herdrHost } from "./runtime/herdrHost.ts";
@@ -33,6 +37,57 @@ const coordinator = newCoordinator();
 
 /** Herdr versions the layout sync already warned about, shared by the copies of this window. */
 const layoutWarned = new Set<string>();
+
+/** The running Herdr's version, if it says. */
+function herdrVersion(): string | null {
+  try {
+    return updates().app.version;
+  } catch {
+    return null;
+  }
+}
+
+/** Builds or refreshes layouts/suspender.json from Herdr's main.json; never throws (the layout is a convenience). */
+async function keepLayout(toast: (text: string) => void): Promise<void> {
+  try {
+    const version = herdrVersion() ?? "";
+    await syncLayout({ ports: herdrPorts(), appHome: appHome(), herdrVersion: version, toast, warned: layoutWarned });
+  } catch {
+    // The mod works without its layout.
+  }
+}
+
+/**
+ * A layout when there is none yet, with nothing to wait for: built from the
+ * main.json this Herdr ships, written at once and only if the file is absent.
+ * `herdr-app check`, which installing the mod runs, lands this write and no
+ * read (measured), so a clean install gets its layout. Settles when the
+ * write does (landed or refused), so the rebuild from the main.json the person
+ * really has comes after it and is not refused by it.
+ */
+function seedLayout(): Promise<unknown> {
+  try {
+    const built = buildLivingLayout(SHIPPED_MAIN, herdrVersion() ?? SHIPPED_MAIN_VERSION);
+    if (built.ok) {
+      const path = [appHome(), "layouts", `${LAYOUT_NAME}.json`].join(herdrPorts().sep);
+      return writeTextFile(path, `${JSON.stringify(built.layout, null, 2)}\n`, null).catch(() => null);
+    }
+  } catch {
+    // The mod works without its layout.
+  }
+  return Promise.resolve();
+}
+
+// On load, with no copy on screen yet (a clean install has no layout that shows one).
+void seedLayout().then(() =>
+  keepLayout((text) => {
+    try {
+      notify({ title: text, level: "warning" });
+    } catch {
+      // No window to show it in (a check run): the next copy that shows says it.
+    }
+  }),
+);
 
 const copyId = (): string => `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
 
@@ -58,7 +113,9 @@ export default class Suspender extends View {
     const props = (typeof raw === "object" && raw !== null ? raw : {}) as Props;
     const host = herdrHost(cx);
     const ports = herdrPorts();
-    const engine = new Engine({ host, ports, id: copyId(), coordinator });
+    // Beside the layouts it belongs with: another HERDR_APP_HOME is another window with its own sessions.
+    const storePath = [appHome(), "suspender", "sessions.json"].join(ports.sep);
+    const engine = new Engine({ host, ports, id: copyId(), coordinator, storePath });
     this.engine = engine;
     const key = typeof props.key === "string" ? (props.key as SessionKey) : null;
     if (props.role === "sleep" && key !== null) {
@@ -81,19 +138,8 @@ export default class Suspender extends View {
     }
 
     if (this.popup === null && this.confirm === null) {
-      const warned = layoutWarned;
       cx.spawn(async () => {
-        try {
-          await syncLayout({
-            ports,
-            appHome: appHome(),
-            herdrVersion: updates().app.version,
-            toast: (text) => host.notify(text, "warning"),
-            warned,
-          });
-        } catch {
-          // The layout is a convenience: the mod works without it.
-        }
+        await keepLayout((text) => host.notify(text, "warning"));
       });
     }
 
@@ -112,21 +158,30 @@ export default class Suspender extends View {
     cx.timer.every(TICK_MS, (cx) => {
       cx.spawn(round);
     });
+    // Each command is taken as it comes and carried out on its own task: a copy
+    // still busy with the last one (a Sleep takes seconds) must not pick a
+    // press up late, after the window that dedupes one press across copies
+    // has passed, and run it on whatever has the focus by then.
     cx.spawn(async (cx) => {
       for (;;) {
         const command = await nextCommand();
-        if (command === "toggle-focused") {
-          await engine.toggleFocused();
-        } else if (command === "resume-all") {
-          await engine.resumeAllShown();
-        } else if (command === "forget") {
-          await engine.forgetFocused();
-        } else if (command === "start-new") {
-          await engine.startNewFocused();
-        } else if (this.confirm !== null && command in CHOICES) {
+        if (this.confirm !== null && command in CHOICES) {
           this.confirm.answer(CHOICES[command] ?? "cancel");
+          cx.notify();
+          continue;
         }
-        cx.notify();
+        cx.spawn(async (cx) => {
+          if (command === "toggle-focused") {
+            await engine.toggleFocused();
+          } else if (command === "resume-all") {
+            await engine.resumeAllShown();
+          } else if (command === "forget") {
+            await engine.forgetFocused();
+          } else if (command === "start-new") {
+            await engine.startNewFocused();
+          }
+          cx.notify();
+        });
       }
     });
   }

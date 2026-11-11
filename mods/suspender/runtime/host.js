@@ -47,6 +47,7 @@ export function normalizeTerminal(raw) {
         foreground: fg !== null && fgPid !== null ? { pid: fgPid, argv: strings(fg["argv"]), name: str(fg["name"]) ?? "" } : null,
         createdMs: num(raw["created_ms"]) ?? 0,
         parent: str(raw["parent"]),
+        title: str(raw["title"]),
     };
 }
 export function toTerminalView(t) {

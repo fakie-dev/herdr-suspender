@@ -29,12 +29,19 @@ function csvFields(line) {
  * be OR-ed); `ps -p` takes a list. Empty set: no process at all.
  */
 export async function liveProcesses(pids, p) {
+    return (await liveProcessesOrNull(pids, p)) ?? new Map();
+}
+/** As `liveProcesses`, but null when the system did not answer (the list failed): not the same as "none alive". */
+export async function liveProcessesOrNull(pids, p) {
     const result = new Map();
     const wanted = new Set(pids);
     if (wanted.size === 0) {
         return result;
     }
     const all = await listAll(p, [...wanted]);
+    if (all === null) {
+        return null;
+    }
     for (const [pid, live] of all) {
         if (wanted.has(pid)) {
             result.set(pid, live);
@@ -43,25 +50,33 @@ export async function liveProcesses(pids, p) {
     return result;
 }
 /** Every process with name and resident memory: one cheap call (tasklist / ps). */
-export function allProcesses(p) {
-    return listAll(p, null);
+export async function allProcesses(p) {
+    return (await listAll(p, null)) ?? new Map();
 }
+/** Null when the list could not be taken (the tool failed, or Windows listed nothing at all). */
 async function listAll(p, only) {
     const result = new Map();
     if (p.platform === "windows") {
         const out = await run(p.exec, "tasklist", ["/FO", "CSV", "/NH"]);
-        for (const line of out?.stdout.split(/\r?\n/) ?? []) {
+        if (out === null) {
+            return null;
+        }
+        for (const line of out.stdout.split(/\r?\n/)) {
             const fields = csvFields(line);
             const pid = Number(fields[1]);
             if (fields.length >= 5 && Number.isFinite(pid)) {
                 result.set(pid, { name: fields[0] ?? "", rssKb: digitsOnly(fields[4] ?? "") });
             }
         }
-        return result;
+        // tasklist lists every process there is: nothing at all means it did not work.
+        return result.size === 0 ? null : result;
     }
     const select = only === null ? ["-A"] : ["-p", only.join(",")];
     const out = await run(p.exec, "ps", ["-o", "pid=,rss=,comm=", ...select]);
-    for (const line of out?.stdout.split("\n") ?? []) {
+    if (out === null) {
+        return null;
+    }
+    for (const line of out.stdout.split("\n")) {
         const match = /^\s*(\d+)\s+(\d+)\s*(.*)$/.exec(line);
         if (match) {
             result.set(Number(match[1]), { name: (match[3] ?? "").trim(), rssKb: Number(match[2]) });
@@ -151,6 +166,38 @@ export function descendsFrom(list, pid, ancestor, maxDepth = 8) {
         current = next;
     }
     return false;
+}
+/**
+ * `root` and every process under it, in one pass over the list (a process
+ * table has hundreds of entries; Herdr's interpreter makes n² walks slow).
+ */
+export function subtree(list, root) {
+    if (!list.some((d) => d.pid === root)) {
+        return [];
+    }
+    const children = new Map();
+    for (const d of list) {
+        if (d.pid !== d.ppid) {
+            const siblings = children.get(d.ppid);
+            if (siblings === undefined) {
+                children.set(d.ppid, [d.pid]);
+            }
+            else {
+                siblings.push(d.pid);
+            }
+        }
+    }
+    const seen = new Set([root]);
+    const queue = [root];
+    for (let i = 0; i < queue.length; i++) {
+        for (const child of children.get(queue[i] ?? -1) ?? []) {
+            if (!seen.has(child)) {
+                seen.add(child);
+                queue.push(child);
+            }
+        }
+    }
+    return queue;
 }
 function splitPath(path) {
     const cut = Math.max(path.lastIndexOf("\\"), path.lastIndexOf("/"));

@@ -8,7 +8,7 @@
 
 import type { SessionInfo } from "../core/model.ts";
 import type { Ports } from "../platform/ports.ts";
-import { allProcesses, descendsFrom, type ProcessDetail, processDetails } from "../platform/proc.ts";
+import { allProcesses, descendsFrom, type ProcessDetail, processDetails, subtree } from "../platform/proc.ts";
 import {
   baseName,
   contextFields,
@@ -116,13 +116,35 @@ function metaCwd(head: string | null): string | null {
 
 const detailsTried = new Map<string, number>();
 
+const isCodex = (d: ProcessDetail): boolean =>
+  /codex/i.test(`${d.name} ${d.commandLine ?? ""}`) && !/app-server/i.test(d.commandLine ?? "");
+
+/** The codex processes under a shell (and the shell itself, if it is one): one pass over the table. */
 function codexProcesses(tree: ProcessDetail[], shellPid: number): ProcessDetail[] {
-  return tree.filter(
-    (d) =>
-      (d.pid === shellPid || descendsFrom(tree, d.pid, shellPid)) &&
-      /codex/i.test(`${d.name} ${d.commandLine ?? ""}`) &&
-      !/app-server/i.test(d.commandLine ?? ""),
-  );
+  const below = new Set(subtree(tree, shellPid));
+  return tree.filter((d) => below.has(d.pid) && isCodex(d));
+}
+
+/**
+ * The rollouts our codex made: each goes to the codex that started last
+ * before it was born (a rollout comes right after its process starts, or on
+ * /new). Of ours, the newest is the session now (after /new, not the first).
+ */
+function newestOwn(
+  tree: ProcessDetail[],
+  ours: ProcessDetail[],
+  candidates: { id: string; born: number }[],
+): string | null {
+  const mine = new Set(ours.map((d) => d.pid));
+  const starts = tree
+    .filter(isCodex)
+    .filter((d): d is ProcessDetail & { startMs: number } => d.startMs !== null)
+    .sort((a, b) => a.startMs - b.startMs);
+  const own = candidates.filter((c) => {
+    const maker = starts.filter((d) => d.startMs <= c.born + START_SLACK_MS).at(-1);
+    return maker !== undefined && mine.has(maker.pid);
+  });
+  return own.sort((a, b) => b.born - a.born)[0]?.id ?? null;
 }
 
 async function discoverSession(t: TerminalView, p: Ports): Promise<string | null> {
@@ -169,7 +191,8 @@ async function discoverSession(t: TerminalView, p: Ports): Promise<string | null
     }
     detailsTried.set(key, now);
   }
-  const ours = codexProcesses(await processDetails(p), fg.pid);
+  const tree = await processDetails(p);
+  const ours = codexProcesses(tree, fg.pid);
   for (const proc of ours) {
     const id = uuidIn(proc.commandLine?.split(/\s+/) ?? []);
     if (id !== null && /\bresume\b/.test(proc.commandLine ?? "")) {
@@ -180,10 +203,12 @@ async function discoverSession(t: TerminalView, p: Ports): Promise<string | null
   if (starts.length === 0 || candidates.length === 0) {
     return null;
   }
-  // The rollout a process makes is the first one after it started.
   const started = Math.min(...starts);
-  const after = candidates.filter((c) => c.born >= started - START_SLACK_MS).sort((a, b) => a.born - b.born);
-  return after[0]?.id ?? null;
+  return newestOwn(
+    tree,
+    ours,
+    candidates.filter((c) => c.born >= started - START_SLACK_MS),
+  );
 }
 
 // ---- reading the rollout

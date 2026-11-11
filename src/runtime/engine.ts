@@ -10,7 +10,7 @@
 // a person asked for in it (Sleep, Resume, Forget). Store writes say what they
 // replace, so two copies writing at once never lose each other's change.
 
-import { emptyInfo } from "../adapters/common.ts";
+import { emptyInfo, sameDir } from "../adapters/common.ts";
 import type { AgentAdapter, TerminalView } from "../adapters/contract.ts";
 import { ADAPTERS } from "../adapters/index.ts";
 import { classifyTerminal, LABEL_AGENT, LABEL_STATE, sessionLabels } from "../core/classify.ts";
@@ -34,7 +34,7 @@ import {
 } from "../core/store.ts";
 import { hasMessage, t } from "../i18n/index.ts";
 import type { Ports } from "../platform/ports.ts";
-import { allProcesses, type ProcessDetail, processDetails } from "../platform/proc.ts";
+import { allProcesses, type ProcessDetail, processDetails, subtree } from "../platform/proc.ts";
 import { type Host, type HostTerminal, normalizeTerminal, toTerminalView } from "./host.ts";
 
 /** The mod's folder name: what `pane.split {mod}` asks for. */
@@ -68,6 +68,16 @@ export const PROMPT_WAIT_MS = 10_000;
 export const SNAPSHOT_EVERY_MS = 5_000;
 /** How long the copy that asked waits for the answer; a later one is the leader's to carry out. */
 export const QUESTION_WAIT_MS = 120_000;
+/**
+ * A copy acting on a session holds it (its buttons wait) and says so at every
+ * step; a hold nobody renewed this long belongs to a copy Herdr closed
+ * half-way (its tasks end at their next await), and is let go.
+ */
+export const LEASE_STALE_MS = 30_000;
+/** "Closed elsewhere" is believed only when a second look this much later says so too. */
+export const CONFIRM_CLOSED_MS = 1_500;
+/** A silent agent (one that reports nothing) is looked for at most this often. */
+export const SILENT_CHECK_MS = 60_000;
 const POLL_MS = 250;
 const PANE_WAIT_MS = 3_000;
 
@@ -90,6 +100,12 @@ export interface AgentProcess {
   reported: boolean;
 }
 
+/** Who acts on a session, and when it last said so. */
+export interface Lease {
+  owner: string;
+  at: number;
+}
+
 /**
  * What the copies of one window share (they run in one module instance): the
  * store as last read or written, which sessions a copy is acting on, choices
@@ -98,7 +114,8 @@ export interface AgentProcess {
 export interface Coordinator {
   store: StoreFile | null;
   storeRev: unknown;
-  busy: Set<SessionKey>;
+  /** Sessions a copy is acting on now. */
+  busy: Map<SessionKey, Lease>;
   whenDone: Set<SessionKey>;
   progress: Map<SessionKey, WakeStep>;
   fresh: Map<SessionKey, Freshness>;
@@ -110,13 +127,17 @@ export interface Coordinator {
   checkedAt: Map<string, number>;
   /** When each mod command was last carried out. */
   commands: Map<string, number>;
+  /** What a terminal looked like (title, processes) when its agent was last known to be there. */
+  seen: Map<string, string>;
+  /** When a silent agent's process was last looked for (by terminal address). */
+  silentLook: Map<string, number>;
 }
 
 export function newCoordinator(): Coordinator {
   return {
     store: null,
     storeRev: undefined,
-    busy: new Set(),
+    busy: new Map(),
     whenDone: new Set(),
     progress: new Map(),
     fresh: new Map(),
@@ -124,6 +145,8 @@ export function newCoordinator(): Coordinator {
     agents: new Map(),
     checkedAt: new Map(),
     commands: new Map(),
+    seen: new Map(),
+    silentLook: new Map(),
   };
 }
 
@@ -262,7 +285,18 @@ export class Engine {
 
   /** A copy is acting on this session now (its buttons wait). */
   busy(key: SessionKey): boolean {
-    return this.co.busy.has(key);
+    const lease = this.co.busy.get(key);
+    return lease !== undefined && this.ports.now() - lease.at < LEASE_STALE_MS;
+  }
+
+  /** This copy is still at work: its holds stay fresh. */
+  private touch(): void {
+    const now = this.ports.now();
+    for (const lease of this.co.busy.values()) {
+      if (lease.owner === this.id) {
+        lease.at = now;
+      }
+    }
   }
 
   /** The person chose "Sleep when done" and the agent has not finished yet. */
@@ -279,10 +313,15 @@ export class Engine {
     return cur !== null && cur.id === this.id && this.ports.now() - cur.at < LEADER_STALE_MS;
   }
 
-  /** Gives up leadership (the copy is closing), so another takes over at once. */
+  /** Gives up leadership and its holds (the copy is closing), so another takes over at once. */
   release(): void {
     if (asLeader(this.host.shared(LEADER_KEY))?.id === this.id) {
       this.host.setShared(LEADER_KEY, null);
+    }
+    for (const [key, lease] of this.co.busy) {
+      if (lease.owner === this.id) {
+        this.co.busy.delete(key);
+      }
     }
   }
 
@@ -337,10 +376,13 @@ export class Engine {
       }
       case "running":
         this.absentSince.delete(term.address);
+        if (own !== null && (await this.killedUnderReport(term, cls.key, own))) {
+          return;
+        }
         await this.follow(term, cls.key);
         return;
       case "interrupted":
-        if (agentOwnsTerminal(term) || this.silentAgent(term)) {
+        if (agentOwnsTerminal(term) || (own !== null && (await this.silentAgent(term, own)))) {
           // Silent (at its own prompt, or not reporting at all), not gone.
           this.absentSince.delete(term.address);
           await this.follow(term, cls.key);
@@ -393,6 +435,7 @@ export class Engine {
     });
     this.bindTried.delete(term.address);
     this.co.checkedAt.set(term.address, this.ports.now());
+    this.co.seen.set(term.address, signature(term));
     await this.noteAgent(term, adapter);
     return key;
   }
@@ -419,7 +462,7 @@ export class Engine {
       }
       return;
     }
-    if (this.co.busy.has(key) || !RUNNING.includes(rec.state)) {
+    if (this.busy(key) || !RUNNING.includes(rec.state)) {
       return;
     }
     if (rec.terminal !== term.address) {
@@ -454,7 +497,7 @@ export class Engine {
    */
   private async agentGone(term: HostTerminal, key: SessionKey, agent: AgentId, sessionId: string): Promise<void> {
     const rec = this.record(key);
-    if (rec !== null && (this.co.busy.has(key) || !RUNNING.includes(rec.state))) {
+    if (rec !== null && (this.busy(key) || !RUNNING.includes(rec.state))) {
       return;
     }
     const now = this.ports.now();
@@ -467,6 +510,9 @@ export class Engine {
       return;
     }
     this.absentSince.delete(term.address);
+    // Whatever runs in this shell next is another process.
+    this.co.agents.delete(term.address);
+    this.co.seen.delete(term.address);
     const boundPid = term.labels[LABEL_PID];
     if (boundPid !== undefined && term.pid !== null && boundPid === String(term.pid)) {
       await this.ports.hc(["label", term.address, `${LABEL_STATE}=exited`]);
@@ -491,7 +537,7 @@ export class Engine {
     const now = this.ports.now();
     for (const rec of this.records()) {
       const key = rec.key;
-      if (this.co.busy.has(key)) {
+      if (this.busy(key)) {
         this.flowSince.delete(key);
         continue;
       }
@@ -500,6 +546,10 @@ export class Engine {
         gone = live.size > 0 && (rec.terminal === null || !live.has(rec.terminal));
       } else if (SLEEPING.includes(rec.state)) {
         gone = rec.pane === null || !panes.has(rec.pane);
+        if (!gone && unfinished(rec)) {
+          await this.finishSleep(rec);
+          continue;
+        }
       } else {
         const since = this.flowSince.get(key) ?? now;
         this.flowSince.set(key, since);
@@ -523,6 +573,24 @@ export class Engine {
     }
   }
 
+  /**
+   * A sleep whose copy was closed after the record said "asleep" (or
+   * "interrupted") but before the pane took over: the terminal is still
+   * attached, the time and the facts are missing. Its pane is there; finish
+   * what placing it does.
+   */
+  private async finishSleep(rec: SessionRecord): Promise<void> {
+    const key = rec.key;
+    await this.act(key, async () => {
+      const now = this.record(key);
+      if (now === null || !unfinished(now) || now.pane === null) {
+        return;
+      }
+      const flow: Flow = { prepared: now.pane, pending: null };
+      await this.placeSleepPane(key, flow, now.info.transcriptSize === null, now.forced);
+    });
+  }
+
   /** A stopping or waking left behind (its copy closed mid-way): finish it the machine's way. */
   private async recover(rec: SessionRecord, live: Set<string>): Promise<void> {
     const key = rec.key;
@@ -536,10 +604,81 @@ export class Engine {
 
   // ---- which session a terminal runs now
 
-  /** A terminal whose agent was found under its shell and has not reported yet: silent, not gone. */
-  private silentAgent(term: HostTerminal): boolean {
+  /**
+   * A terminal whose agent was found under its shell and has not reported
+   * yet: silent, not gone, as long as its process is there. That is looked
+   * at when the terminal changes (its title, its processes) and otherwise at
+   * most every SILENT_CHECK_MS: one process list each time, none in between.
+   */
+  private async silentAgent(term: HostTerminal, adapter: AgentAdapter): Promise<boolean> {
     const known = this.co.agents.get(term.address);
-    return known !== undefined && known.shell === term.pid && !known.reported;
+    if (known === undefined || known.shell !== term.pid || known.reported) {
+      return false;
+    }
+    const now = this.ports.now();
+    const last = this.co.silentLook.get(term.address);
+    if (last === undefined) {
+      this.co.silentLook.set(term.address, now);
+      this.co.seen.set(term.address, signature(term));
+      return true;
+    }
+    const changed = this.co.seen.get(term.address) !== signature(term);
+    if (!changed && now - last < SILENT_CHECK_MS) {
+      return true;
+    }
+    this.co.silentLook.set(term.address, now);
+    if ((await this.agentAlive(term, adapter)) === false) {
+      this.co.agents.delete(term.address);
+      this.co.silentLook.delete(term.address);
+      return false;
+    }
+    this.co.seen.set(term.address, signature(term));
+    return true;
+  }
+
+  /**
+   * Herdr keeps an agent's last report after its process is killed hard
+   * (taskkill /F, a crash): "claude-code idle" stays with nothing behind it.
+   * When a bound terminal changes while its agent is not working (its title,
+   * its processes: the shell's title comes back when the agent ends), one
+   * process list says whether the agent is still there; gone, the session is
+   * interrupted (Resume), as after a crash. Nothing is looked at while
+   * nothing changes, and a list that failed proves nothing.
+   */
+  private async killedUnderReport(term: HostTerminal, key: SessionKey, adapter: AgentAdapter): Promise<boolean> {
+    const rec = this.record(key);
+    if (rec === null || this.busy(key) || !RUNNING.includes(rec.state) || isWorking(term.status)) {
+      return false;
+    }
+    const now = signature(term);
+    const before = this.co.seen.get(term.address);
+    this.co.seen.set(term.address, now);
+    if (before === undefined || before === now || (await this.agentAlive(term, adapter)) !== false) {
+      return false;
+    }
+    this.co.agents.delete(term.address);
+    this.co.seen.delete(term.address);
+    await this.act(key, () => this.dispatch(key, { t: "agentExited", byUser: false }));
+    return true;
+  }
+
+  /**
+   * Whether the agent's own process still runs under the terminal's shell:
+   * its known pid in one cheap list (tasklist / ps), else one process tree.
+   * Null when the system did not answer.
+   */
+  private async agentAlive(term: HostTerminal, adapter: AgentAdapter): Promise<boolean | null> {
+    const known = this.co.agents.get(term.address);
+    if (known !== undefined && known.shell === term.pid) {
+      const all = await allProcesses(this.ports).catch(() => new Map<number, { name: string }>());
+      if (all.size === 0) {
+        return null;
+      }
+      const live = all.get(known.pid);
+      return live !== undefined && adapter.matches(processView(term, known.pid, live.name));
+    }
+    const tree = await processDetails(this.ports).catch(() => []);
+    return tree.length === 0 ? null : agentIn(tree, term, adapter, null) !== null;
   }
 
   /**
@@ -555,22 +694,8 @@ export class Engine {
     if (term.pid === null) {
       return null;
     }
-    const shell = term.pid;
     const tree = await processDetails(this.ports).catch(() => []);
-    const below = new Set(subtree(tree, shell));
-    below.delete(shell);
-    const under = tree.filter((d) => below.has(d.pid));
-    const view = toTerminalView(term);
-    const agent = under.find((d) =>
-      adapter.matches({ ...view, app: null, foreground: { pid: d.pid, argv: [d.name], name: d.name } }),
-    );
-    if (agent === undefined) {
-      return null;
-    }
-    if (args !== null && !args.every((arg) => under.some((d) => (d.commandLine ?? "").includes(arg)))) {
-      return null;
-    }
-    return { shell, pid: agent.pid, name: agent.name, reported: false };
+    return agentIn(tree, term, adapter, args);
   }
 
   /**
@@ -633,19 +758,47 @@ export class Engine {
     if (other !== null && other.terminal !== null && other.terminal !== term.address && this.alive(other.terminal)) {
       return key;
     }
+    // Looked up by "sessions started since": while another agent of this kind runs
+    // in the folder without a record, the newer session may well be its own.
+    if (RECHECK[adapter.id] === "newer" && this.unboundNeighbour(term, adapter)) {
+      return key;
+    }
     return this.rekey(rec, term, sessionId);
   }
 
-  /** The terminal now runs `sessionId`: its record and labels move there; the old id is let go. */
+  /** Another live terminal in the same folder runs this adapter's agent and has no record yet. */
+  private unboundNeighbour(term: HostTerminal, adapter: AgentAdapter): boolean {
+    const bound = new Set(this.records().map((r) => r.terminal));
+    return this.host
+      .terminals()
+      .some(
+        (x) =>
+          x.address !== term.address &&
+          x.state === "live" &&
+          !bound.has(x.address) &&
+          sameDir(x.cwd, term.cwd, this.ports) &&
+          adapter.matches(toTerminalView(x)),
+      );
+  }
+
+  /**
+   * The terminal now runs `sessionId`: its record and labels move there; the
+   * old id is let go. Another copy may have moved it first (and started a
+   * Sleep on the new key): with the old record gone, nothing is touched.
+   */
   private async rekey(rec: SessionRecord, term: HostTerminal, sessionId: string): Promise<SessionKey> {
     const key = sessionKey(rec.agent, sessionId);
-    await this.label(term, rec.agent, sessionId);
+    let moved = false;
     await this.mutate((file) => {
-      const old = file.sessions[rec.key] ?? rec;
+      const old = file.sessions[rec.key];
+      if (old === undefined) {
+        return false;
+      }
       delete file.sessions[rec.key];
       const there = file.sessions[key];
-      // A session that sleeps in another tab keeps its record there (that tab shows "open elsewhere").
-      if (there === undefined || RUNNING.includes(there.state) || there.terminal === term.address) {
+      // A session that sleeps in another tab keeps its record there (that tab shows "open elsewhere");
+      // one this terminal already has is already moved.
+      if (there === undefined || (RUNNING.includes(there.state) && there.terminal !== term.address)) {
         file.sessions[key] = {
           ...old,
           key,
@@ -657,8 +810,13 @@ export class Engine {
           memFreedMb: null,
         };
       }
+      moved = true;
       return true;
     });
+    if (!moved) {
+      return this.record(key)?.terminal === term.address ? key : rec.key;
+    }
+    await this.label(term, rec.agent, sessionId);
     for (const set of [this.co.whenDone]) {
       if (set.delete(rec.key)) {
         set.add(key);
@@ -678,7 +836,7 @@ export class Engine {
   async sleep(asked: SessionKey): Promise<void> {
     await this.load();
     // The agent may have moved to another session since it was bound (/clear, /resume, Codex /new).
-    const key = this.co.busy.has(asked) ? asked : await this.verifySession(asked);
+    const key = this.busy(asked) ? asked : await this.verifySession(asked);
     await this.act(key, async () => {
       const rec = this.record(key);
       const term = rec?.terminal ? this.term(rec.terminal) : null;
@@ -711,7 +869,7 @@ export class Engine {
   /** Carries out a recorded answer, if there is one. */
   private async takeAnswer(key: SessionKey): Promise<void> {
     const choice = this.co.answers.get(key);
-    if (choice !== undefined && !this.co.busy.has(key)) {
+    if (choice !== undefined && !this.busy(key)) {
       this.co.answers.delete(key);
       await this.choose(key, choice);
     }
@@ -835,8 +993,30 @@ export class Engine {
   /** The strip is shown: is the conversation still there, and did it change while asleep? Once per show. */
   async refreshOnShow(key: SessionKey): Promise<void> {
     await this.load();
+    await this.reread(key);
+  }
+
+  /**
+   * While the strip stays on screen: waits for the adapter to see the
+   * conversation change on disk (a folder watch, no process), then reads
+   * what changed. False when the adapter cannot watch (then only a show reads).
+   */
+  async followTranscript(key: SessionKey): Promise<boolean> {
     const rec = this.record(key);
-    if (rec === null || !["asleep", "interrupted", "error", "elsewhere"].includes(rec.state) || this.co.busy.has(key)) {
+    const adapter = rec === null ? null : this.adapter(rec.agent);
+    if (rec === null || adapter?.watchTranscript === undefined) {
+      return false;
+    }
+    await adapter.watchTranscript(rec.sessionId, rec.cwd, this.ports);
+    await this.load();
+    await this.reread(key);
+    return true;
+  }
+
+  /** Is the conversation still there, and what changed in it since the sleep ("updated after sleep · +N"). */
+  private async reread(key: SessionKey): Promise<void> {
+    const rec = this.record(key);
+    if (rec === null || !["asleep", "interrupted", "error", "elsewhere"].includes(rec.state) || this.busy(key)) {
       return;
     }
     const adapter = this.adapter(rec.agent);
@@ -858,17 +1038,28 @@ export class Engine {
     }
   }
 
-  /** While a session is open elsewhere: has it been closed there? */
+  /**
+   * While a session is open elsewhere: has it been closed there? One look can
+   * be wrong (a session file read while the other copy rewrites it, a process
+   * list that failed), so "closed" counts only when a second look a moment
+   * later says so too. Closed: what the other copy added is read at once.
+   */
   async recheckElsewhere(key: SessionKey): Promise<void> {
     await this.load();
     const rec = this.record(key);
-    if (rec === null || rec.state !== "elsewhere" || this.co.busy.has(key)) {
+    if (rec === null || rec.state !== "elsewhere" || this.busy(key)) {
       return;
     }
-    const open = await this.adapter(rec.agent).openElsewhere(rec.sessionId, this.ports);
-    if (!open.open) {
-      await this.act(key, () => this.dispatch(key, { t: "closedElsewhere" }));
+    const adapter = this.adapter(rec.agent);
+    if ((await adapter.openElsewhere(rec.sessionId, this.ports)).open) {
+      return;
     }
+    await this.host.sleep(CONFIRM_CLOSED_MS);
+    if (this.record(key)?.state !== "elsewhere" || (await adapter.openElsewhere(rec.sessionId, this.ports)).open) {
+      return;
+    }
+    await this.act(key, () => this.dispatch(key, { t: "closedElsewhere" }));
+    await this.reread(key);
   }
 
   /** Every shown copy gets a mod command: one press is one action. */
@@ -934,14 +1125,17 @@ export class Engine {
 
   /** Runs `body` unless another copy is already acting on this session. */
   private async act(key: SessionKey, body: () => Promise<unknown>): Promise<void> {
-    if (this.co.busy.has(key)) {
+    if (this.busy(key)) {
       return;
     }
-    this.co.busy.add(key);
+    const lease: Lease = { owner: this.id, at: this.ports.now() };
+    this.co.busy.set(key, lease);
     try {
       await body();
     } finally {
-      this.co.busy.delete(key);
+      if (this.co.busy.get(key) === lease) {
+        this.co.busy.delete(key);
+      }
     }
   }
 
@@ -1175,9 +1369,10 @@ export class Engine {
     }
     // The agent writes its transcript on the way out (the exit command, hooks):
     // the snapshot "updated after sleep" compares with is the one after that.
+    const known = this.record(key)?.info ?? rec.info;
     const after = stopped
       ? await this.adapter(rec.agent)
-          .snapshot(rec.sessionId, rec.cwd, this.ports, this.record(key)?.info ?? rec.info)
+          .snapshot(rec.sessionId, rec.cwd, this.ports, known.transcriptSize !== null ? known : undefined)
           .catch(() => null)
       : null;
     await this.patch(key, (r) => {
@@ -1275,13 +1470,17 @@ export class Engine {
           }
         }
       }
-      await this.host.sleep(POLL_MS);
+      await this.pause(POLL_MS);
     }
     if (found === null) {
       return failed("reason.timeout", address);
     }
     this.co.agents.set(address, found);
     this.co.checkedAt.set(address, this.ports.now());
+    const started = this.term(address);
+    if (started !== null) {
+      this.co.seen.set(address, signature(started));
+    }
     const pane = await this.waitFor(() => this.paneOf(address), PANE_WAIT_MS);
     if (pane === null) {
       return failed("reason.noPane", address);
@@ -1336,7 +1535,7 @@ export class Engine {
           return;
         }
       }
-      await this.host.sleep(POLL_MS);
+      await this.pause(POLL_MS);
     }
   }
 
@@ -1422,6 +1621,13 @@ export class Engine {
     this.host.setShared(PROGRESS_KEY, { key, step, at: this.ports.now() });
   }
 
+  /** Every wait of a flow goes through here: the copy is at work, so its holds stay fresh. */
+  private async pause(ms: number): Promise<void> {
+    this.touch();
+    await this.host.sleep(ms);
+    this.touch();
+  }
+
   private async waitUntil(done: () => boolean, ms: number): Promise<boolean> {
     const end = this.ports.now() + ms;
     for (;;) {
@@ -1431,7 +1637,7 @@ export class Engine {
       if (this.ports.now() >= end) {
         return false;
       }
-      await this.host.sleep(POLL_MS);
+      await this.pause(POLL_MS);
     }
   }
 
@@ -1445,38 +1651,52 @@ export class Engine {
   }
 }
 
+export { subtree };
+
+/** What a terminal looks like from outside: its title and its processes. A change is worth one look. */
+function signature(term: HostTerminal): string {
+  return JSON.stringify([term.title, term.pid, term.foreground?.pid ?? null]);
+}
+
+/** A record that says the session sleeps while its terminal is still attached, or without its time. */
+function unfinished(rec: SessionRecord): boolean {
+  return rec.terminal !== null || ((rec.state === "asleep" || rec.state === "interrupted") && rec.sleptAtMs === null);
+}
+
+/** The terminal as the adapter should see it with `pid` (named `name`) in front. */
+function processView(term: HostTerminal, pid: number, name: string): TerminalView {
+  return { ...toTerminalView(term), app: null, foreground: { pid, argv: [name], name } };
+}
+
+/** The agent's process under the terminal's shell in a process tree (with `args`, run with them). */
+function agentIn(
+  tree: readonly ProcessDetail[],
+  term: HostTerminal,
+  adapter: AgentAdapter,
+  args: readonly string[] | null,
+): AgentProcess | null {
+  if (term.pid === null) {
+    return null;
+  }
+  const shell = term.pid;
+  const below = new Set(subtree(tree, shell));
+  below.delete(shell);
+  const under = tree.filter((d) => below.has(d.pid));
+  const agent = under.find((d) => adapter.matches(processView(term, d.pid, d.name)));
+  if (agent === undefined) {
+    return null;
+  }
+  if (args !== null && !args.every((arg) => under.some((d) => (d.commandLine ?? "").includes(arg)))) {
+    return null;
+  }
+  return { shell, pid: agent.pid, name: agent.name, reported: false };
+}
+
 const isWorking = (status: string | null): boolean => status === "working" || status === "blocked";
 
 /** `hc keys` names for typing `text`: each character is its own key, a space is "space". */
 export function typedKeys(text: string): string[] {
   return [...text].map((ch) => (ch === " " ? "space" : ch));
-}
-
-/**
- * `root` and every process under it, in one pass over the list (a process
- * table has hundreds of entries; Herdr's interpreter makes n² walks slow).
- */
-export function subtree(list: readonly ProcessDetail[], root: number): number[] {
-  if (!list.some((d) => d.pid === root)) {
-    return [];
-  }
-  const children = new Map<number, number[]>();
-  for (const d of list) {
-    if (d.pid !== d.ppid) {
-      children.set(d.ppid, [...(children.get(d.ppid) ?? []), d.pid]);
-    }
-  }
-  const seen = new Set<number>([root]);
-  const queue = [root];
-  for (let i = 0; i < queue.length; i++) {
-    for (const child of children.get(queue[i] ?? -1) ?? []) {
-      if (!seen.has(child)) {
-        seen.add(child);
-        queue.push(child);
-      }
-    }
-  }
-  return queue;
 }
 
 function newRecord(

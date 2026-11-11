@@ -12,7 +12,7 @@ import { badgeText, fitSegments, SEPARATOR } from "../core/fit.ts";
 import type { SessionKey, SessionRecord } from "../core/model.ts";
 import { t } from "../i18n/index.ts";
 import type { Ports } from "../platform/ports.ts";
-import type { Choice, Engine } from "../runtime/engine.ts";
+import { type Choice, type Engine, TICK_MS } from "../runtime/engine.ts";
 import type { Host } from "../runtime/host.ts";
 import { measureAt, screenLines, stripActions, stripSegments, stripStatus, wakeSteps } from "./format.ts";
 import { anchorRect, factsFor, hoverPopup } from "./popup.ts";
@@ -39,6 +39,7 @@ export class SleepPane {
   private size = { width: 0, height: 0 };
   private shown = false;
   private watching = false;
+  private following = false;
   private readonly engine: Engine;
   private readonly host: Host;
   private readonly ports: Ports;
@@ -76,6 +77,21 @@ export class SleepPane {
       });
     }
     this.shown = visible;
+    if (visible && !this.following && rec.state !== "elsewhere" && rec.state !== "waking") {
+      // While it stays on screen: work on the conversation elsewhere shows up ("updated after sleep · +N").
+      this.following = true;
+      cx.spawn(async (cx) => {
+        try {
+          while (this.visible() && (await this.engine.followTranscript(this.key))) {
+            cx.notify();
+            // At most one read per round, however busy the folder is.
+            await cx.sleep(TICK_MS);
+          }
+        } finally {
+          this.following = false;
+        }
+      });
+    }
     if (rec.state !== "elsewhere") {
       return;
     }

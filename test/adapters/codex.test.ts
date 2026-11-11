@@ -67,6 +67,32 @@ describe("codex: discoverSession", () => {
     assert.equal(await codexAdapter.discoverSession(shell(200), p), theirs);
   });
 
+  it("after /new, takes the newest rollout of the codex under this shell, not its first", async () => {
+    const created = NOW - 120_000;
+    // One codex under shell 100, started a minute ago; it made a rollout then, and another on /new.
+    const p = scriptExec(fakePorts({ now: NOW }), () => ok("  100     1    02:00 bash\n  101   100    01:00 codex\n"));
+    addRollout(p.files, NOW - 59_000, "a", CWD);
+    const now = addRollout(p.files, NOW - 10_000, "b", CWD);
+    const t = terminal({ cwd: CWD, createdMs: created, foreground: { pid: 100, argv: [], name: "bash" } });
+    assert.equal(await codexAdapter.discoverSession(t, p), now);
+  });
+
+  it("walks a big process table once, not once per process", async () => {
+    // A busy machine: 4000 other processes, and our codex under shell 100.
+    const lines = ["  100     1    02:00 bash", "  101   100    01:00 codex"];
+    for (let pid = 1000; pid < 5000; pid++) {
+      lines.push(`  ${pid}   ${pid % 7 === 0 ? 1 : pid - 1}    01:00 node`);
+    }
+    const p = scriptExec(fakePorts({ now: NOW }), () => ok(`${lines.join("\n")}\n`));
+    addRollout(p.files, NOW - 90_000, "a", CWD); // before our codex started: an earlier one's
+    const ours = addRollout(p.files, NOW - 30_000, "b", CWD);
+    const t = terminal({ cwd: CWD, createdMs: NOW - 120_000, foreground: { pid: 100, argv: [], name: "bash" } });
+    const started = performance.now();
+    assert.equal(await codexAdapter.discoverSession(t, p), ours);
+    const elapsed = performance.now() - started;
+    assert.ok(elapsed < 250, `took ${elapsed.toFixed(0)} ms`);
+  });
+
   it("is null when there is no rollout yet", async () => {
     const t = terminal({ cwd: CWD, createdMs: NOW - 1000, foreground: { pid: 1, argv: ["bash"], name: "bash" } });
     assert.equal(await codexAdapter.discoverSession(t, fakePorts({ now: NOW })), null);

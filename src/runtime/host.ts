@@ -24,6 +24,8 @@ export interface HostTerminal {
   createdMs: number;
   /** The terminal that started it (sub-agents), or null. */
   parent: string | null;
+  /** The title its program set (an agent sets its own; the shell's comes back when it ends), or null. */
+  title: string | null;
 }
 
 export interface HostPane {
@@ -112,6 +114,7 @@ export function normalizeTerminal(raw: unknown): HostTerminal | null {
       fg !== null && fgPid !== null ? { pid: fgPid, argv: strings(fg["argv"]), name: str(fg["name"]) ?? "" } : null,
     createdMs: num(raw["created_ms"]) ?? 0,
     parent: str(raw["parent"]),
+    title: str(raw["title"]),
   };
 }
 

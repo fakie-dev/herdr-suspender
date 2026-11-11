@@ -35,7 +35,13 @@ async function readUtf8(path) {
         return await fs.readFile(path, "utf8");
     }
     catch {
-        return null;
+        // "fs/promises" reads only in the home: a HERDR_APP_HOME elsewhere is read through Herdr (up to 1 MiB).
+        try {
+            return await readTextFile(path);
+        }
+        catch {
+            return null;
+        }
     }
 }
 export function herdrPorts() {

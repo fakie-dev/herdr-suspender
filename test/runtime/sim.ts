@@ -16,6 +16,10 @@ import { type FakePorts, fakePorts } from "../fakePorts.ts";
 export const SPACE = "sp1";
 export const TAB = "tb1";
 export const SHELL_ARGV = ["pwsh.exe", "-NoExit", "-Command", "$global:__hc_prompt = …"];
+/** The title a shell gives its terminal (PowerShell: its own path). */
+export const SHELL_TITLE = "C:\\Program Files\\PowerShell\\7\\pwsh.exe";
+/** The title an agent gives its terminal while it runs (Claude: the conversation's). */
+export const AGENT_TITLE = "Synthetic conversation";
 
 interface SimTerminal extends HostTerminal {
   /** Listed by the app (`terminals()`): one started with `hc run` only once Herdr adopts it. */
@@ -113,6 +117,7 @@ export class Sim implements Host {
       foreground: null,
       createdMs: this.now - 60_000,
       parent: null,
+      title: agent === null ? SHELL_TITLE : AGENT_TITLE,
       agent,
       direct: opts.direct ?? false,
       screen: `screen of ${address}`,
@@ -171,7 +176,21 @@ export class Sim implements Host {
     t.app = null;
     t.status = null;
     t.direct = false;
+    t.title = SHELL_TITLE;
     t.screen = "PS C:\\work\\repo>";
+  }
+
+  /**
+   * The agent's process is killed hard (taskkill /F, a crash): it is gone from
+   * the process table and the shell's title is back, but Herdr keeps the last
+   * status it reported ("claude-code idle"): nothing reports the exit.
+   */
+  killAgent(address: string): void {
+    const t = this.term(address);
+    t.agent = null;
+    t.agentPid = null;
+    t.ran = null;
+    t.title = SHELL_TITLE;
   }
 
   // ---- Host
@@ -391,7 +410,10 @@ export class Sim implements Host {
     base.now = () => this.now;
     base.exec = async (cmd, args) => {
       this.execCalls.push({ cmd, args });
-      return /powershell/i.test(cmd) ? ok(this.processTable()) : { code: 127, stdout: "", stderr: "sim: no such tool" };
+      if (/powershell/i.test(cmd)) {
+        return ok(this.processTable());
+      }
+      return /tasklist/i.test(cmd) ? ok(this.taskList()) : { code: 127, stdout: "", stderr: "sim: no such tool" };
     };
     return base;
   }
@@ -416,6 +438,22 @@ export class Sim implements Host {
     return lines.join("\r\n");
   }
 
+  /** Every process as `tasklist /FO CSV /NH` prints it: name, pid, session, number, memory. */
+  private taskList(): string {
+    const row = (name: string, pid: number): string => `"${name}","${pid}","Console","1","10 000 K"`;
+    const lines: string[] = [];
+    for (const t of this.terms.values()) {
+      if (t.state !== "live" || t.pid === null) {
+        continue;
+      }
+      lines.push(row(t.direct ? `${t.argv[0]}.exe` : "pwsh.exe", t.pid));
+      if (t.agent !== null && t.agentPid !== null) {
+        lines.push(row(`${t.agent}.exe`, t.agentPid));
+      }
+    }
+    return lines.join("\r\n");
+  }
+
   /** A shell runs a typed line: `claude …` / `codex …` start that agent in it. */
   private shellRuns(t: SimTerminal, line: string): void {
     const agent: AgentId | null = /^claude\b/.test(line) ? "claude" : /^codex\b/.test(line) ? "codex" : null;
@@ -425,11 +463,14 @@ export class Sim implements Host {
     t.agent = agent;
     t.agentPid = this.pidSeq++;
     t.ran = this.shellRewrites?.(line) ?? line;
+    // A program sets its title when it starts, whether or not it reports a status.
+    t.title = AGENT_TITLE;
     if (this.reportAfterMs !== null) {
       this.later(this.reportAfterMs, () => {
         if (t.state === "live" && t.agent === agent) {
           t.status = "idle";
           t.app = appOf(agent);
+          t.title = AGENT_TITLE;
         }
       });
     }
@@ -470,6 +511,7 @@ export class Sim implements Host {
       foreground: null,
       createdMs: this.now,
       parent: null,
+      title: shell ? SHELL_TITLE : AGENT_TITLE,
       agent: shell ? null : agent,
       direct: !shell,
       screen: "",
@@ -525,6 +567,7 @@ export class Sim implements Host {
     t.app = null;
     t.status = null;
     t.agentPid = null;
+    t.title = SHELL_TITLE;
     this.onLeave?.(address);
     if (t.direct) {
       // A program exiting closes its pane.

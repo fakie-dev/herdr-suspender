@@ -6,7 +6,7 @@
 
 import type { SessionInfo } from "../core/model.ts";
 import type { Ports } from "../platform/ports.ts";
-import { descendsFrom, liveProcesses, processDetails } from "../platform/proc.ts";
+import { descendsFrom, liveProcessesOrNull, processDetails } from "../platform/proc.ts";
 import {
   contextFields,
   emptyInfo,
@@ -329,16 +329,20 @@ async function openElsewhere(
   sessionId: string,
   p: Ports,
   exceptTerminal?: string,
-): Promise<{ open: boolean; where?: string }> {
+): Promise<{ open: boolean; where?: string; unsure?: boolean }> {
   const holders = (await liveSessions(p)).filter((s) => s.sessionId === sessionId);
   if (holders.length === 0) {
     return { open: false };
   }
   // A file can outlive its process (a crash) and a pid can be reused: the process must be alive and be claude.
-  const live = await liveProcesses(
+  const live = await liveProcessesOrNull(
     holders.map((s) => s.pid),
     p,
   );
+  if (live === null) {
+    // No answer is not "closed": resuming next to a live copy would make two.
+    return { open: true, unsure: true };
+  }
   let alive = holders.filter((s) => /claude/i.test(live.get(s.pid)?.name ?? ""));
   if (exceptTerminal !== undefined && alive.length > 0) {
     const own = await terminalPids(exceptTerminal, p);
@@ -368,6 +372,12 @@ export const claudeAdapter: AgentAdapter = {
   openElsewhere,
   watchOpenness: async (p) => {
     await p.watch(sessionsDir(p));
+  },
+  // The transcript's own project folder: no process, and only that project's files wake it.
+  watchTranscript: async (sessionId, cwd, p) => {
+    const path = await findTranscript(sessionId, cwd, p);
+    const cut = path === null ? -1 : Math.max(path.lastIndexOf("/"), path.lastIndexOf("\\"));
+    await p.watch(path !== null && cut > 0 ? path.slice(0, cut) : join(p, projectsDir(p), projectName(cwd)));
   },
   stopSteps: () => STOP_STEPS.map((step) => ({ ...step })),
   resumeArgv: (sessionId) => ["claude", "--resume", sessionId],

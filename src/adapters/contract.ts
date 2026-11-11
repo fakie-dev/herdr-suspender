@@ -39,10 +39,20 @@ export interface AgentAdapter {
   snapshot(sessionId: string, cwd: string, p: Ports, prev?: SessionInfo): Promise<SessionInfo>;
   /** False once the conversation is gone from disk (expired or deleted). */
   transcriptExists(sessionId: string, cwd: string, p: Ports): Promise<boolean>;
-  /** Whether a live process other than the one in `exceptTerminal` holds this session. */
-  openElsewhere(sessionId: string, p: Ports, exceptTerminal?: string): Promise<{ open: boolean; where?: string }>;
+  /**
+   * Whether a live process other than the one in `exceptTerminal` holds this
+   * session. When the system did not answer (a process list that failed) it
+   * says open, with `unsure`: a second copy is worse than a wait.
+   */
+  openElsewhere(
+    sessionId: string,
+    p: Ports,
+    exceptTerminal?: string,
+  ): Promise<{ open: boolean; where?: string; unsure?: boolean }>;
   /** Resolves when something that `openElsewhere` looks at may have changed (Claude: its sessions folder). */
   watchOpenness?(p: Ports): Promise<void>;
+  /** Resolves when the session's conversation may have changed on disk (a folder watch: no process). */
+  watchTranscript?(sessionId: string, cwd: string, p: Ports): Promise<void>;
   /** Claude: Esc, wait idle, "/exit"; Codex: "/quit". */
   stopSteps(): StopStep[];
   /** ["claude","--resume",id] | ["codex","resume",id] */

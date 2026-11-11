@@ -5,7 +5,7 @@
 // carries the start time. Names given with /rename are in
 // `~/.codex/session_index.jsonl`. `state_5.sqlite` is not read: Herdr's
 // runtime has no SQLite and the mod has no native packages.
-import { allProcesses, descendsFrom, processDetails } from "../platform/proc.js";
+import { allProcesses, descendsFrom, processDetails, subtree } from "../platform/proc.js";
 import { baseName, contextFields, emptyInfo, gitInfo, isRecord, join, jsonLines, num, oneLine, readTranscript, sameDir, str, terminalPids, tokensText, uuidIn, } from "./common.js";
 const DAY_MS = 86_400_000;
 const START_SLACK_MS = 2_000;
@@ -87,10 +87,28 @@ function metaCwd(head) {
 }
 // ---- finding the session
 const detailsTried = new Map();
+const isCodex = (d) => /codex/i.test(`${d.name} ${d.commandLine ?? ""}`) && !/app-server/i.test(d.commandLine ?? "");
+/** The codex processes under a shell (and the shell itself, if it is one): one pass over the table. */
 function codexProcesses(tree, shellPid) {
-    return tree.filter((d) => (d.pid === shellPid || descendsFrom(tree, d.pid, shellPid)) &&
-        /codex/i.test(`${d.name} ${d.commandLine ?? ""}`) &&
-        !/app-server/i.test(d.commandLine ?? ""));
+    const below = new Set(subtree(tree, shellPid));
+    return tree.filter((d) => below.has(d.pid) && isCodex(d));
+}
+/**
+ * The rollouts our codex made: each goes to the codex that started last
+ * before it was born (a rollout comes right after its process starts, or on
+ * /new). Of ours, the newest is the session now (after /new, not the first).
+ */
+function newestOwn(tree, ours, candidates) {
+    const mine = new Set(ours.map((d) => d.pid));
+    const starts = tree
+        .filter(isCodex)
+        .filter((d) => d.startMs !== null)
+        .sort((a, b) => a.startMs - b.startMs);
+    const own = candidates.filter((c) => {
+        const maker = starts.filter((d) => d.startMs <= c.born + START_SLACK_MS).at(-1);
+        return maker !== undefined && mine.has(maker.pid);
+    });
+    return own.sort((a, b) => b.born - a.born)[0]?.id ?? null;
 }
 async function discoverSession(t, p) {
     const fg = t.foreground;
@@ -136,7 +154,8 @@ async function discoverSession(t, p) {
         }
         detailsTried.set(key, now);
     }
-    const ours = codexProcesses(await processDetails(p), fg.pid);
+    const tree = await processDetails(p);
+    const ours = codexProcesses(tree, fg.pid);
     for (const proc of ours) {
         const id = uuidIn(proc.commandLine?.split(/\s+/) ?? []);
         if (id !== null && /\bresume\b/.test(proc.commandLine ?? "")) {
@@ -147,10 +166,8 @@ async function discoverSession(t, p) {
     if (starts.length === 0 || candidates.length === 0) {
         return null;
     }
-    // The rollout a process makes is the first one after it started.
     const started = Math.min(...starts);
-    const after = candidates.filter((c) => c.born >= started - START_SLACK_MS).sort((a, b) => a.born - b.born);
-    return after[0]?.id ?? null;
+    return newestOwn(tree, ours, candidates.filter((c) => c.born >= started - START_SLACK_MS));
 }
 const noFacts = () => ({
     firstPrompt: null,

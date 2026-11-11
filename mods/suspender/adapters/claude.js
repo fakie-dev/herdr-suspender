@@ -3,7 +3,7 @@
 // (pid, sessionId, cwd, startedAt, status, name) and removes it on exit; the
 // conversation is `~/.claude/projects/<cwd, non-alphanumerics as ->/<id>.jsonl`,
 // one JSON record per line (user, assistant, ai-title, custom-title, …).
-import { descendsFrom, liveProcesses, processDetails } from "../platform/proc.js";
+import { descendsFrom, liveProcessesOrNull, processDetails } from "../platform/proc.js";
 import { contextFields, emptyInfo, gitInfo, isRecord, join, jsonLines, num, oneLine, readTranscript, sameDir, str, terminalPids, tokensText, uuidIn, } from "./common.js";
 /** Claude's context windows are 200k or 1M tokens; more than 200k in use means 1M. */
 const SMALL_WINDOW = 200_000;
@@ -261,7 +261,11 @@ async function openElsewhere(sessionId, p, exceptTerminal) {
         return { open: false };
     }
     // A file can outlive its process (a crash) and a pid can be reused: the process must be alive and be claude.
-    const live = await liveProcesses(holders.map((s) => s.pid), p);
+    const live = await liveProcessesOrNull(holders.map((s) => s.pid), p);
+    if (live === null) {
+        // No answer is not "closed": resuming next to a live copy would make two.
+        return { open: true, unsure: true };
+    }
     let alive = holders.filter((s) => /claude/i.test(live.get(s.pid)?.name ?? ""));
     if (exceptTerminal !== undefined && alive.length > 0) {
         const own = await terminalPids(exceptTerminal, p);
@@ -288,6 +292,12 @@ export const claudeAdapter = {
     openElsewhere,
     watchOpenness: async (p) => {
         await p.watch(sessionsDir(p));
+    },
+    // The transcript's own project folder: no process, and only that project's files wake it.
+    watchTranscript: async (sessionId, cwd, p) => {
+        const path = await findTranscript(sessionId, cwd, p);
+        const cut = path === null ? -1 : Math.max(path.lastIndexOf("/"), path.lastIndexOf("\\"));
+        await p.watch(path !== null && cut > 0 ? path.slice(0, cut) : join(p, projectsDir(p), projectName(cwd)));
     },
     stopSteps: () => STOP_STEPS.map((step) => ({ ...step })),
     resumeArgv: (sessionId) => ["claude", "--resume", sessionId],
