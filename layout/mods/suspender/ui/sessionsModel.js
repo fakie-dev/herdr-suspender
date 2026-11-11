@@ -3,8 +3,9 @@
 // items a row keeps at a width, the popup's facts, where it opens, when memory
 // is measured. Pure, so it is tested without Herdr; `panel.ts`, `popup.ts`,
 // `toggle.ts` and `pill.ts` only lay it out.
-import { fitSegments } from "../core/fit.js";
+import { fitSegments, SEPARATOR } from "../core/fit.js";
 import { homePath, midId, repoPath, shortBranch, shortId } from "../core/paths.js";
+import { modPx, toMod, toWindow, windowPx, } from "../core/scale.js";
 import { t } from "../i18n/index.js";
 import { clock, measureAt } from "./format.js";
 // ---- states and groups
@@ -108,10 +109,22 @@ export class MemoryPolicy {
     }
 }
 // ---- a row's second line
-/** Room a row keeps for its margins, padding and the agent tile. */
+/**
+ * Room a row keeps around its second line, in the mod's px: its margins (4 + 4),
+ * padding (8 + 8), the agent tile (16) and its gap (8), the panel's border
+ * (1 + 1), and 4 to spare (kerning, rounding).
+ */
 export const ROW_CHROME_PX = 54;
-/** The memory figure's icon and the gap before it. */
+/** The second line's text, the badge's and the memory figure's (panel.ts draws them at these sizes). */
+export const ROW_TEXT = 11.5;
+export const ROW_SMALL_TEXT = 11;
+/** Between two elements of the second line (its items, separators, the badge). */
+export const ROW_ITEM_GAP = 6;
+/** The badge's padding (6 + 6) and border (1 + 1) around "+N". */
+const BADGE_CHROME_PX = 14;
+/** The memory figure's icon (the moon, 11; the dot is narrower) and its gap (4). */
 const MEM_ICON_PX = 15;
+/** Between the items and the memory figure. */
 const MEM_GAP_PX = 8;
 /** An item's 12 px icon and the gap after it. */
 const ICON_PX = 16;
@@ -121,27 +134,39 @@ const FOLDER_MAX = 24;
 function rowSegments(info, sep) {
     const segs = [];
     if (info.branch) {
-        segs.push({ key: "branch", text: shortBranch(info.branch, BRANCH_MAX), priority: 1 });
+        segs.push({ key: "branch", text: shortBranch(info.branch, BRANCH_MAX), priority: 1, extra: ICON_PX });
     }
     if (info.model) {
         segs.push({ key: "model", text: info.model, priority: 2 });
     }
     if (info.cwd) {
-        segs.push({ key: "folder", text: repoPath(info.cwd, info.repoRoot, sep, FOLDER_MAX), priority: 3 });
+        segs.push({
+            key: "folder",
+            text: repoPath(info.cwd, info.repoRoot, sep, FOLDER_MAX),
+            priority: 3,
+            extra: ICON_PX,
+        });
     }
     if (info.sessionId) {
         segs.push({ key: "id", text: `#${shortId(info.sessionId)}`, priority: 4 });
     }
     return segs;
 }
-/** The items of a row's second line that fit a panel `panelWidth` px wide, and how many went (the `+N`). */
-export function fitRow(rec, panelWidth, memText, sep, measure) {
+/**
+ * The items of a row's second line that fit, and how many went (the `+N`).
+ * `panelWidth` is the panel's width as Herdr reports it (window px); the row is
+ * drawn in the mod's px, so the width goes through the zoom first. `measure`
+ * gives a text's width at a size in the mod's px (Geist's advances by default).
+ */
+export function fitRow(rec, panelWidth, memText, sep, measure, scale) {
     const segs = rowSegments(rec.info, sep);
-    const icons = new Map(segs.filter((s) => s.key === "branch" || s.key === "folder").map((s) => [s.text, ICON_PX]));
-    const withIcons = (text) => measure(text) + (icons.get(text) ?? 0);
-    const memory = memText === null ? 0 : measure(memText) + MEM_ICON_PX + MEM_GAP_PX;
-    const width = Math.max(0, panelWidth - ROW_CHROME_PX - memory);
-    const fit = fitSegments(null, segs, width, withIcons);
+    const text = (s) => measure(s, ROW_TEXT);
+    const memory = memText === null ? 0 : measure(memText, ROW_SMALL_TEXT) + MEM_ICON_PX + MEM_GAP_PX;
+    const width = Math.max(0, toMod(scale, panelWidth) - ROW_CHROME_PX - memory);
+    const fit = fitSegments(null, segs, width, text, {
+        separator: 2 * ROW_ITEM_GAP + text(SEPARATOR.trim()),
+        badge: (n) => ROW_ITEM_GAP + BADGE_CHROME_PX + measure(`+${n}`, ROW_SMALL_TEXT),
+    });
     return { segs: segs.filter((s) => fit.shown.includes(s.key)), hidden: fit.hidden };
 }
 const BRANCH_POPUP_MAX = 34;
@@ -250,27 +275,56 @@ export function popupHeight(facts) {
     ].filter((px) => px > 0);
     return POPUP_PAD * 2 + blocks.reduce((sum, px) => sum + px, 0) + (blocks.length - 1) * POPUP_GAP;
 }
-const EDGE_PX = 8;
+/** The gap between the popup and the window's edge or its anchor. */
+const EDGE_PX = modPx(8);
+/** A row's popup starts this far above the row's top. */
+const ROW_LIFT_PX = modPx(6);
+/** A strip's popup ends this far left of the strip's right end (clear of its buttons). */
+const STRIP_INSET_PX = modPx(120);
 const clamp = (value, min, max) => Math.max(min, Math.min(value, max));
 /**
- * Where the popup opens: left of a list row (so it never covers the panel), or
- * right of it when there is no room on the left (Sessions in a window); above a
- * strip, near its right end. Always inside the window.
+ * The popup's size: its width, and its height up to what the window holds
+ * (a window too short for it gets a popup as tall as it can, scrolled by nothing:
+ * the facts at the bottom go first).
  */
-export function popupPosition(anchor, kind, size, viewport) {
-    const maxX = viewport.width - size.width - EDGE_PX;
-    const maxY = viewport.height - size.height - EDGE_PX;
+export function popupSize(facts, viewport, scale) {
+    const room = toMod(scale, viewport.height) - 2 * EDGE_PX;
+    return { width: modPx(POPUP_WIDTH), height: modPx(Math.max(0, Math.min(popupHeight(facts), room))) };
+}
+/**
+ * Where the popup opens, in window px (what `openOverlay({at})` takes): left of
+ * a list row, so it does not cover the Sessions panel, or right of it when there
+ * is no room on the left (Sessions in a window); when neither side has room,
+ * the side that covers the row least. Above a strip, near its right end. Inside
+ * the window. The anchor and the window are as Herdr reports them; the popup's
+ * size is the mod's, which Herdr draws times the zoom.
+ */
+export function popupPosition(anchor, kind, size, viewport, scale) {
+    const px = (len) => toWindow(scale, len);
+    const width = px(size.width);
+    const height = px(size.height);
+    const edge = px(EDGE_PX);
+    const maxX = Math.max(edge, viewport.width - width - edge);
+    const maxY = Math.max(edge, viewport.height - height - edge);
     if (kind === "strip") {
         return {
-            x: clamp(anchor.left + anchor.width - size.width - 120, EDGE_PX, maxX),
-            y: clamp(anchor.top - size.height - EDGE_PX, EDGE_PX, maxY),
+            x: windowPx(clamp(anchor.left + anchor.width - width - px(STRIP_INSET_PX), edge, maxX)),
+            y: windowPx(clamp(anchor.top - height - edge, edge, maxY)),
         };
     }
-    const left = anchor.left - EDGE_PX - size.width;
-    return {
-        x: left >= EDGE_PX ? left : clamp(anchor.left + anchor.width + EDGE_PX, EDGE_PX, maxX),
-        y: clamp(anchor.top - 6, EDGE_PX, maxY),
-    };
+    const y = windowPx(clamp(anchor.top - px(ROW_LIFT_PX), edge, maxY));
+    const left = anchor.left - edge - width;
+    if (left >= edge) {
+        return { x: windowPx(left), y };
+    }
+    const right = anchor.left + anchor.width + edge;
+    if (right <= maxX) {
+        return { x: windowPx(right), y };
+    }
+    // No room on either side: cover as little of the row as can be.
+    const coverLeft = edge + width - (anchor.left - edge);
+    const coverRight = anchor.left + anchor.width + edge - maxX;
+    return { x: windowPx(coverLeft <= coverRight ? edge : maxX), y };
 }
 // ---- layout facts
 /** Whether the layout's node `id` is on screen: it exists and is not hidden. */

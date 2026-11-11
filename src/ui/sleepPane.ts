@@ -11,35 +11,41 @@
 import { h_flex, v_flex } from "gpui-base";
 import { type AsyncContext, type Color, type Context, div, type Element, svg } from "gpui-kit";
 import { closeOverlay, settings, theme } from "herdr";
-import { badgeText, fitSegments, SEPARATOR } from "../core/fit.ts";
+import { badgeText, SEPARATOR } from "../core/fit.ts";
 import type { SessionKey, SessionRecord } from "../core/model.ts";
+import { reportedSize, scaleOf, type WindowSize, windowPx } from "../core/scale.ts";
 import { t } from "../i18n/index.ts";
 import type { Ports } from "../platform/ports.ts";
 import type { Choice, Engine } from "../runtime/engine.ts";
 import type { Host } from "../runtime/host.ts";
 import {
-  measureAt,
+  fitStrip,
   mixColor,
   SCREEN_DIM,
   type ScreenLook,
   type ScreenMark,
+  STRIP_BADGE_TEXT,
+  STRIP_BUTTON_PAD,
+  STRIP_GAP,
+  STRIP_ITEM_GAP,
+  STRIP_MOON_PX,
+  STRIP_PAD_LEFT,
+  STRIP_PAD_RIGHT,
+  STRIP_PLAY_GAP,
+  STRIP_PLAY_PX,
+  STRIP_TEXT,
   screenGrid,
   screenLines,
   screenLook,
   screenMarks,
   stripActions,
-  stripSegments,
   stripStatus,
   wakeSteps,
 } from "./format.ts";
 import { anchorRect, factsFor, hoverPopup } from "./popup.ts";
 
 const ICONS = "mods/suspender/icons";
-const STRIP_TEXT = 12.5;
 const STATUS_TEXT = 12;
-/** Room the strip keeps for the moon, gaps and padding besides the info line and the buttons. */
-const STRIP_CHROME_PX = 60;
-const BUTTON_PX = 96;
 
 /** A theme colour by name (theme() names every one the mod uses; a missing one draws nothing). */
 function palette(): (name: string) => Color {
@@ -72,7 +78,8 @@ function markElement(m: ScreenMark, l: ScreenLook, shade: (share: number) => Col
 }
 
 export class SleepPane {
-  private size = { width: 0, height: 0 };
+  /** As Herdr reports it: window px. */
+  private size: WindowSize = { width: windowPx(0), height: windowPx(0) };
   private shown = false;
   private watching = false;
   private readonly engine: Engine;
@@ -168,8 +175,10 @@ export class SleepPane {
       .size_full()
       .overflow_hidden()
       .bg(color("background"))
+      // Every text names its size, so Herdr's UI font size cannot reflow what fitStrip measured.
+      .text_size(STRIP_TEXT)
       .on_size_change((size, cx) => {
-        this.size = size;
+        this.size = reportedSize(size);
         cx.notify();
       });
     if (rec === null) {
@@ -215,9 +224,7 @@ export class SleepPane {
     const actions = stripActions(rec, busy);
 
     // Line 1: title · branch · model · folder (+N), cut from the end as in the mockup.
-    const segs = stripSegments(rec.info, this.ports.sep);
-    const width = this.size.width - STRIP_CHROME_PX - actions.length * BUTTON_PX;
-    const fit = fitSegments(rec.info.title, segs, Math.max(0, width), measureAt(STRIP_TEXT));
+    const fit = fitStrip(rec.info, actions, this.size.width, this.ports.sep, scaleOf(settings()));
     const icon: Record<string, string> = { branch: "branch", model: "chip", folder: "folder" };
     const items: Element[] = [];
     if (fit.title && rec.info.title) {
@@ -225,7 +232,7 @@ export class SleepPane {
         div().flex_shrink(1).min_w(0).truncate().font_semibold().text_color(color("foreground")).child(rec.info.title),
       );
     }
-    for (const seg of segs.filter((s) => fit.shown.includes(s.key))) {
+    for (const seg of fit.segs) {
       if (items.length > 0) {
         items.push(div().flex_none().text_color(color("dim")).child(SEPARATOR.trim()));
       }
@@ -250,7 +257,7 @@ export class SleepPane {
           .rounded(8)
           .border(1)
           .border_color(color("border"))
-          .text_size(11)
+          .text_size(STRIP_BADGE_TEXT)
           .text_color(color("dim"))
           .child(badgeText(fit.hidden).trim()),
       );
@@ -289,8 +296,8 @@ export class SleepPane {
         .id(`strip-${a.action}`)
         .flex_none()
         .h(28)
-        .px(12)
-        .gap(7)
+        .px(STRIP_BUTTON_PAD)
+        .gap(STRIP_PLAY_GAP)
         .items_center()
         .rounded(7)
         .text_size(STRIP_TEXT)
@@ -310,7 +317,7 @@ export class SleepPane {
             .on_mouse_down("left", (_e, cx) => cx.stop_propagation())
             .on_click((_e, cx) => this.press(a.action, cx)),
         )
-        .when(i === 0 && a.action === "resume", (el) => el.child(svg(`${ICONS}/play.svg`).size(11)))
+        .when(i === 0 && a.action === "resume", (el) => el.child(svg(`${ICONS}/play.svg`).size(STRIP_PLAY_PX)))
         .child(a.label),
     );
 
@@ -338,17 +345,17 @@ export class SleepPane {
         .bg(color("chrome"))
         .border_t(1)
         .border_color(color("border"))
-        .pl(12)
-        .pr(10)
+        .pl(STRIP_PAD_LEFT)
+        .pr(STRIP_PAD_RIGHT)
         .py(8)
         .gap(3)
         .child(
           h_flex()
-            .gap(10)
+            .gap(STRIP_GAP)
             .items_center()
             .child(
               svg(`${ICONS}/moon.svg`)
-                .size(14)
+                .size(STRIP_MOON_PX)
                 .flex_none()
                 .text_color(color(rec.state === "interrupted" ? "working" : "accent")),
             )
@@ -356,7 +363,7 @@ export class SleepPane {
               h_flex()
                 .flex_1()
                 .min_w(0)
-                .gap(8)
+                .gap(STRIP_ITEM_GAP)
                 .items_center()
                 .overflow_hidden()
                 .whitespace_nowrap()

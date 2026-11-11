@@ -8,10 +8,11 @@
 export const SEPARATOR = " · ";
 /** The badge for `n` dropped items, with its leading gap. */
 export const badgeText = (n) => ` +${n}`;
-export function fitSegments(title, segs, widthPx, measure) {
+export function fitSegments(title, segs, widthPx, measure, drawing = {}) {
     const hasTitle = title !== null && title !== "";
-    const titleWidth = hasTitle ? measure(title) : 0;
-    const sepWidth = measure(SEPARATOR);
+    const titleWidth = hasTitle ? (drawing.title ?? measure)(title) : 0;
+    const sepWidth = drawing.separator ?? measure(SEPARATOR);
+    const badgeWidth = drawing.badge ?? ((n) => measure(badgeText(n)));
     const shown = new Set(segs.map((_, i) => i));
     // Everything but the title, which shrinks into whatever room is left.
     const fixedWidth = () => {
@@ -19,12 +20,12 @@ export function fitSegments(title, segs, widthPx, measure) {
         let items = hasTitle ? 1 : 0;
         segs.forEach((seg, i) => {
             if (shown.has(i)) {
-                width += (items > 0 ? sepWidth : 0) + measure(seg.text);
+                width += (items > 0 ? sepWidth : 0) + measure(seg.text) + (seg.extra ?? 0);
                 items++;
             }
         });
         const hidden = segs.length - shown.size;
-        return width + (hidden > 0 ? measure(badgeText(hidden)) : 0);
+        return width + (hidden > 0 ? badgeWidth(hidden) : 0);
     };
     const tooTight = () => {
         const fixed = fixedWidth();

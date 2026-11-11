@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { buildLivingLayout } from "../../src/core/layout.ts";
+import { modPx, windowPx } from "../../src/core/scale.ts";
 import { t } from "../../src/i18n/index.ts";
 import {
   fitRow,
@@ -24,6 +25,8 @@ import { HOME, rec } from "./helpers.ts";
 
 /** 6 px per character: the widths in the comments below are this, plus the icons. */
 const six = (text: string): number => text.length * 6;
+/** Zoom 1: window px and the mod's px are the same (other zooms: scale.test.ts). */
+const ONE = { zoom: 1 };
 
 describe("sleeping count (the N of 'Sessions · N')", () => {
   it("counts every state that has a sleeping tab, and no running one", () => {
@@ -158,7 +161,9 @@ describe("memory", () => {
 
 describe("fitRow: whole items go, +N counts them", () => {
   // Widths at 6 px per character. Chrome around a row: 54 px; memory "910 MB" reserves
-  // 36 + 15 (its icon) + 8 (gap) = 59 px; branch and folder carry a 16 px icon; " · " is 18 px; " +N" is 18 px.
+  // 36 + 15 (its icon) + 8 (gap) = 59 px; branch and folder carry a 16 px icon; a separator
+  // is "·" with 6 px either side, 18 px; the badge is its 6 px gap, 14 px of padding and
+  // border, and "+N" (12), 32 px.
   const long = rec("c41b07e2-9f13-4d8a-b2c5-77e0a1d93f52", "asleep", {
     info: {
       branch: "feature/PORTAL-412-oauth-device-flow-for-tv",
@@ -176,32 +181,32 @@ describe("fitRow: whole items go, +N counts them", () => {
   // branch 12 ch = 72 + 16 = 88; model 48; folder "api-gateway" 11 ch = 66 + 16 = 82; id 54.
 
   const keys = (rowRec: typeof long, width: number): { shown: string[]; hidden: number } => {
-    const r = fitRow(rowRec, width, "910 MB", "\\", six);
+    const r = fitRow(rowRec, windowPx(width), "910 MB", "\\", six, ONE);
     return { shown: r.segs.map((s) => s.key), hidden: r.hidden };
   };
 
-  it("at 360 px keeps branch and model of a long session (room 247, 214 needed with the badge)", () => {
+  it("at 360 px keeps branch and model of a long session (room 247, 228 needed with the badge)", () => {
     assert.deepEqual(keys(long, 360), { shown: ["branch", "model"], hidden: 2 });
   });
-  it("at 300 px keeps only the branch (room 187: branch and model need 214)", () => {
+  it("at 300 px keeps only the branch (room 187: branch and model need 228)", () => {
     assert.deepEqual(keys(long, 300), { shown: ["branch"], hidden: 3 });
   });
-  it("at 230 px keeps nothing but +4 (room 117: the branch with the badge needs 148)", () => {
+  it("at 230 px keeps nothing but +4 (room 117: the branch with the badge needs 162)", () => {
     assert.deepEqual(keys(long, 230), { shown: [], hidden: 4 });
   });
-  it("a short session at 360 px: id and folder go (room 247, 272 with the folder)", () => {
+  it("a short session at 360 px: id and folder go (room 247, 286 with the folder)", () => {
     assert.deepEqual(keys(short, 360), { shown: ["branch", "model"], hidden: 2 });
   });
-  it("a short session at 300 px: the same two (room 187, 172 needed)", () => {
+  it("a short session at 300 px: the same two (room 187, 186 needed)", () => {
     assert.deepEqual(keys(short, 300), { shown: ["branch", "model"], hidden: 2 });
   });
-  it("a short session at 230 px: only the branch (room 117, 106 needed)", () => {
-    assert.deepEqual(keys(short, 230), { shown: ["branch"], hidden: 3 });
+  it("a short session at 230 px: nothing but +4 (room 117, the branch and its badge need 120)", () => {
+    assert.deepEqual(keys(short, 230), { shown: [], hidden: 4 });
   });
 
   it("gives the whole width to the items when there is no memory figure", () => {
-    // 360 - 54 = 306 and all four need 326 + 0 badge: the id still goes, then 272 fits.
-    const r = fitRow(short, 360, null, "\\", six);
+    // 360 - 54 = 306 and all four need 326: the id goes, and the other three with "+1" need 286.
+    const r = fitRow(short, windowPx(360), null, "\\", six, ONE);
     assert.deepEqual(
       r.segs.map((s) => s.key),
       ["branch", "model", "folder"],
@@ -210,7 +215,7 @@ describe("fitRow: whole items go, +N counts them", () => {
   });
 
   it("shows the id as # and its first 8 characters, the folder from the repository root", () => {
-    const r = fitRow(long, 2000, "910 MB", "\\", six);
+    const r = fitRow(long, windowPx(2000), "910 MB", "\\", six, ONE);
     assert.deepEqual(
       r.segs.map((s) => s.text),
       ["feature/PORTAL-412…", "Opus 5.5", "northwind-portal\\…\\auth", "#c41b07e2"],
@@ -220,7 +225,7 @@ describe("fitRow: whole items go, +N counts them", () => {
 
   it("leaves out an item the agent does not store", () => {
     const bare = rec("abcdef012345", "asleep", { info: { cwd: `${HOME}\\dev\\x`, repoRoot: null } });
-    const r = fitRow(bare, 2000, null, "\\", six);
+    const r = fitRow(bare, windowPx(2000), null, "\\", six, ONE);
     assert.deepEqual(
       r.segs.map((s) => s.key),
       ["folder", "id"],
@@ -353,34 +358,42 @@ describe("popup size and place", () => {
     assert.ok(height({ ...rich, memFreedMb: null }) < full);
   });
 
-  const viewport = { width: 1280, height: 800 };
-  const size = { width: 344, height: 420 };
+  // At zoom 1 window px and the mod's px are the same (zoom: test/ui/scale.test.ts).
+  const one = { zoom: 1 };
+  const viewport = { width: windowPx(1280), height: windowPx(800) };
+  const size = { width: modPx(344), height: modPx(420) };
+  const box = (left: number, top: number, width: number, height: number) => ({
+    left: windowPx(left),
+    top: windowPx(top),
+    width: windowPx(width),
+    height: windowPx(height),
+  });
 
   it("puts the popup left of a list row, so it never covers the Sessions panel", () => {
-    const row = { left: 960, top: 300, width: 300, height: 48 };
-    const p = popupPosition(row, "row", size, viewport);
+    const row = box(960, 300, 300, 48);
+    const p = popupPosition(row, "row", size, viewport, one);
     assert.deepEqual(p, { x: 608, y: 294 });
     assert.ok(p.x + size.width <= row.left);
   });
 
   it("keeps the popup inside the window vertically", () => {
-    const row = { left: 960, top: 700, width: 300, height: 48 };
-    assert.equal(popupPosition(row, "row", size, viewport).y, 800 - 420 - 8);
+    const row = box(960, 700, 300, 48);
+    assert.equal(popupPosition(row, "row", size, viewport, one).y, 800 - 420 - 8);
   });
 
   it("goes to the right of the row when there is no room on the left (Sessions in a window)", () => {
-    const row = { left: 100, top: 300, width: 300, height: 48 };
-    assert.deepEqual(popupPosition(row, "row", size, viewport), { x: 408, y: 294 });
+    const row = box(100, 300, 300, 48);
+    assert.deepEqual(popupPosition(row, "row", size, viewport, one), { x: 408, y: 294 });
   });
 
   it("sits above the strip, near its right end", () => {
-    const strip = { left: 300, top: 700, width: 760, height: 46 };
-    assert.deepEqual(popupPosition(strip, "strip", size, viewport), { x: 596, y: 272 });
+    const strip = box(300, 700, 760, 46);
+    assert.deepEqual(popupPosition(strip, "strip", size, viewport, one), { x: 596, y: 272 });
   });
 
   it("does not leave the window above the strip either", () => {
-    const strip = { left: 300, top: 200, width: 760, height: 46 };
-    assert.equal(popupPosition(strip, "strip", size, viewport).y, 8);
+    const strip = box(300, 200, 760, 46);
+    assert.equal(popupPosition(strip, "strip", size, viewport, one).y, 8);
   });
 });
 

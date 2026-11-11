@@ -7,34 +7,46 @@
 // Colours only from theme(); the only motion is Herdr's own popup frame.
 import { h_flex, v_flex } from "gpui-base";
 import { div } from "gpui-kit";
-import { closeOverlay, openOverlay } from "herdr";
+import { closeOverlay, openOverlay, settings } from "herdr";
+import { scaleOf, windowPx } from "../core/scale.js";
 import { t } from "../i18n/index.js";
 import { MOD_NAME } from "../runtime/engine.js";
 import { agentTile, icon, palette, TONE_COLOR } from "./kit.js";
-import { FACT_GAP_PX, FACT_ROW_PX, POPUP_WIDTH, popupFacts, popupHeight, popupPosition, QUOTE_LINE_PX, TITLE_LINE_PX, TITLE_TEXT, } from "./sessionsModel.js";
+import { FACT_GAP_PX, FACT_ROW_PX, POPUP_WIDTH, popupFacts, popupPosition, popupSize, QUOTE_LINE_PX, TITLE_LINE_PX, TITLE_TEXT, } from "./sessionsModel.js";
 /** How long the pointer rests on a row or a strip before its popup opens. */
 export const SHOW_DELAY_MS = 350;
 /** From one row to the next while a popup is open. */
 const NEIGHBOUR_DELAY_MS = 60;
 /** How long a popup stays after the pointer left its anchor, so the pointer can cross the gap to it. */
 const HIDE_DELAY_MS = 180;
-const FALLBACK_VIEWPORT = { width: 1600, height: 900 };
-/** The anchor's window rectangle from a mouse-move over it. */
+const FALLBACK_VIEWPORT = { width: windowPx(1600), height: windowPx(900) };
+/** The anchor's rectangle from a mouse-move over it (Herdr reports it in window px). */
 export function anchorRect(e) {
     return {
-        left: e.position.x - e.local_position.x,
-        top: e.position.y - e.local_position.y,
-        width: e.bounds.width,
-        height: e.bounds.height,
+        left: windowPx(e.position.x - e.local_position.x),
+        top: windowPx(e.position.y - e.local_position.y),
+        width: windowPx(e.bounds.width),
+        height: windowPx(e.bounds.height),
     };
 }
 function viewport() {
     try {
         const size = window.viewport_size();
-        return size.width > 0 && size.height > 0 ? size : FALLBACK_VIEWPORT;
+        return size.width > 0 && size.height > 0
+            ? { width: windowPx(size.width), height: windowPx(size.height) }
+            : FALLBACK_VIEWPORT;
     }
     catch {
         return FALLBACK_VIEWPORT;
+    }
+}
+/** The zoom Herdr applies now. */
+function scaleNow() {
+    try {
+        return scaleOf(settings());
+    }
+    catch {
+        return scaleOf(null);
     }
 }
 /** One per window: who is hovered, which popup is open, and the timers between them. */
@@ -62,9 +74,10 @@ export class HoverPopup {
             if (shown === null) {
                 return;
             }
-            const size = { width: POPUP_WIDTH, height: popupHeight(shown) };
+            const scale = scaleNow();
+            const size = popupSize(shown, room, scale);
             this.close();
-            this.overlay = openPopup(spec, popupPosition(spec.rect, spec.kind, size, room), size);
+            this.overlay = openPopup(spec, popupPosition(spec.rect, spec.kind, size, room, scale), size);
         });
     }
     /** The pointer left an anchor: close the popup shortly, unless the pointer reaches it. */
@@ -162,6 +175,8 @@ export class PopupView {
             .size_full()
             .p(12)
             .gap(9)
+            // Every text names its size, so Herdr's UI font size cannot reflow the popup it measured.
+            .text_size(12)
             .bg(color("popover"))
             .text_color(color("muted"))
             .on_hover((over, cx) => (over ? hoverPopup.overPopupEnter() : hoverPopup.overPopupLeave(cx)));

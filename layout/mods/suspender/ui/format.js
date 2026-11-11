@@ -1,8 +1,11 @@
 // What the strip of a sleeping tab says, as plain data: the status line, the
 // items of the info line, the buttons, the last screen. Pure, so it is tested
 // without Herdr; `sleepPane.ts` only lays it out.
+import { fitSegments, SEPARATOR } from "../core/fit.js";
 import { repoPath, shortBranch } from "../core/paths.js";
+import { scaleOf, toMod } from "../core/scale.js";
 import { hasMessage, t } from "../i18n/index.js";
+import { uiMeasure } from "./textWidth.js";
 /** Widths of the strip's items, as in the approved mockup (session-info.html v4). */
 const BRANCH_MAX = 28;
 const FOLDER_MAX = 34;
@@ -94,6 +97,52 @@ export function stripSegments(info, sep) {
     }
     return segs;
 }
+// The strip, as sleepPane.ts draws it, in the mod's px: what `fitStrip` counts.
+export const STRIP_TEXT = 12.5;
+export const STRIP_BADGE_TEXT = 11;
+/** Padding left and right of the strip. */
+export const STRIP_PAD_LEFT = 12;
+export const STRIP_PAD_RIGHT = 10;
+/** The moon at the strip's start. */
+export const STRIP_MOON_PX = 14;
+/** Between the moon, the info line and each button. */
+export const STRIP_GAP = 10;
+/** Between the elements of the info line (title, separators, items, badge). */
+export const STRIP_ITEM_GAP = 8;
+/** An item's 12 px icon and the 4 px before its text. */
+const STRIP_ICON_PX = 16;
+/** A button's padding (12 + 12); the first is filled, the others have a 1 px border. */
+export const STRIP_BUTTON_PAD = 12;
+/** The play icon of Resume and the gap after it. */
+export const STRIP_PLAY_PX = 11;
+export const STRIP_PLAY_GAP = 7;
+/** The badge's padding (6 + 6) and border (1 + 1). */
+const STRIP_BADGE_CHROME = 14;
+/** Kerning and rounding. */
+const STRIP_SPARE = 4;
+/** A strip button's width in the mod's px. */
+export function stripButtonWidth(a, first, measure) {
+    const icon = first && a.action === "resume" ? STRIP_PLAY_PX + STRIP_PLAY_GAP : 0;
+    return 2 * STRIP_BUTTON_PAD + (first ? 0 : 2) + icon + measure(a.label, STRIP_TEXT, "semibold");
+}
+/**
+ * The strip's info line: whether the title shows, which items, how many went
+ * to "+N". `paneWidth` is the sleeping pane's width as Herdr reports it (window
+ * px); the strip is drawn in the mod's px, so the width goes through the zoom.
+ */
+export function fitStrip(info, actions, paneWidth, sep, scale, measure = uiMeasure) {
+    const segs = stripSegments(info, sep).map((s) => ({ ...s, extra: STRIP_ICON_PX }));
+    const buttons = actions.reduce((sum, a, i) => sum + STRIP_GAP + stripButtonWidth(a, i === 0, measure), 0);
+    const chrome = STRIP_PAD_LEFT + STRIP_PAD_RIGHT + STRIP_MOON_PX + STRIP_GAP + STRIP_SPARE + buttons;
+    const width = Math.max(0, toMod(scale, paneWidth) - chrome);
+    const text = (s) => measure(s, STRIP_TEXT);
+    const fit = fitSegments(info.title, segs, width, text, {
+        title: (s) => measure(s, STRIP_TEXT, "semibold"),
+        separator: 2 * STRIP_ITEM_GAP + text(SEPARATOR.trim()),
+        badge: (n) => STRIP_ITEM_GAP + STRIP_BADGE_CHROME + measure(`+${n}`, STRIP_BADGE_TEXT),
+    });
+    return { title: fit.title, segs: segs.filter((s) => fit.shown.includes(s.key)), hidden: fit.hidden };
+}
 /** The last `max` lines of a screen, without the blank lines under the prompt. */
 export function screenLines(text, max) {
     if (text === null || max <= 0) {
@@ -142,7 +191,8 @@ export function screenLook(look) {
     const named = look["font_family"];
     const font = typeof named === "string" && named !== "" ? named : FALLBACK_FONT;
     const size = positive(look["font_size"], 14);
-    const zoom = positive(look["zoom"], 1);
+    const scale = scaleOf(look);
+    const zoom = scale.zoom;
     const metrics = FONTS[font.toLowerCase()] ?? FALLBACK_METRICS;
     const device = size * zoom;
     const cellW = Math.max(1, Math.round(device * metrics.advance)) / zoom;
@@ -159,13 +209,19 @@ export function screenLook(look) {
         padX,
         padY,
         stroke: Math.max(1, Math.round(device * LINE_WEIGHT)) / zoom,
+        scale,
     };
 }
-/** Rows that fit a pane `height` px tall, and where the first starts: what is left under the last row is shared above and below, as the terminal does. */
-export function screenGrid(height, l) {
-    if (height <= 0) {
+/**
+ * Rows that fit a pane `reported` px tall (window px, as Herdr reports it), and
+ * where the first starts, in the mod's px: what is left under the last row is
+ * shared above and below, as the terminal does.
+ */
+export function screenGrid(reported, l) {
+    if (reported <= 0) {
         return { rows: DEFAULT_ROWS, top: l.padY };
     }
+    const height = toMod(l.scale, reported);
     const inside = Math.max(0, height - 2 * l.padY);
     const rows = Math.floor(inside / l.cellH + 1e-9);
     return { rows, top: l.padY + Math.floor((inside - rows * l.cellH) / 2) };

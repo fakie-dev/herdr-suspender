@@ -8,8 +8,9 @@
 
 import { h_flex, v_flex } from "gpui-base";
 import { type Context, div, type Element, type MouseMoveEvent } from "gpui-kit";
-import { closeOverlay, openOverlay } from "herdr";
+import { closeOverlay, openOverlay, settings } from "herdr";
 import type { SessionKey } from "../core/model.ts";
+import { type ModSize, scaleOf, type WindowPx, type WindowRect, type WindowSize, windowPx } from "../core/scale.ts";
 import { t } from "../i18n/index.ts";
 import type { Ports } from "../platform/ports.ts";
 import { type Engine, MOD_NAME } from "../runtime/engine.ts";
@@ -20,10 +21,9 @@ import {
   POPUP_WIDTH,
   type PopupFacts,
   popupFacts,
-  popupHeight,
   popupPosition,
+  popupSize,
   QUOTE_LINE_PX,
-  type Rect,
   TITLE_LINE_PX,
   TITLE_TEXT,
 } from "./sessionsModel.ts";
@@ -34,33 +34,44 @@ export const SHOW_DELAY_MS = 350;
 const NEIGHBOUR_DELAY_MS = 60;
 /** How long a popup stays after the pointer left its anchor, so the pointer can cross the gap to it. */
 const HIDE_DELAY_MS = 180;
-const FALLBACK_VIEWPORT = { width: 1600, height: 900 };
+const FALLBACK_VIEWPORT: WindowSize = { width: windowPx(1600), height: windowPx(900) };
 
 export interface PopupSpec {
   key: SessionKey;
   kind: "row" | "strip";
-  /** The anchor's rectangle in window coordinates. */
-  rect: Rect;
+  /** The anchor's rectangle, in window px. */
+  rect: WindowRect;
   /** A running session's memory, measured by whoever draws the list; null for the rest. */
   usedMb: number | null;
 }
 
-/** The anchor's window rectangle from a mouse-move over it. */
-export function anchorRect(e: MouseMoveEvent): Rect {
+/** The anchor's rectangle from a mouse-move over it (Herdr reports it in window px). */
+export function anchorRect(e: MouseMoveEvent): WindowRect {
   return {
-    left: e.position.x - e.local_position.x,
-    top: e.position.y - e.local_position.y,
-    width: e.bounds.width,
-    height: e.bounds.height,
+    left: windowPx(e.position.x - e.local_position.x),
+    top: windowPx(e.position.y - e.local_position.y),
+    width: windowPx(e.bounds.width),
+    height: windowPx(e.bounds.height),
   };
 }
 
-function viewport(): { width: number; height: number } {
+function viewport(): WindowSize {
   try {
     const size = window.viewport_size();
-    return size.width > 0 && size.height > 0 ? size : FALLBACK_VIEWPORT;
+    return size.width > 0 && size.height > 0
+      ? { width: windowPx(size.width), height: windowPx(size.height) }
+      : FALLBACK_VIEWPORT;
   } catch {
     return FALLBACK_VIEWPORT;
+  }
+}
+
+/** The zoom Herdr applies now. */
+function scaleNow() {
+  try {
+    return scaleOf(settings());
+  } catch {
+    return scaleOf(null);
   }
 }
 
@@ -90,9 +101,10 @@ export class HoverPopup {
       if (shown === null) {
         return;
       }
-      const size = { width: POPUP_WIDTH, height: popupHeight(shown) };
+      const scale = scaleNow();
+      const size = popupSize(shown, room, scale);
       this.close();
-      this.overlay = openPopup(spec, popupPosition(spec.rect, spec.kind, size, room), size);
+      this.overlay = openPopup(spec, popupPosition(spec.rect, spec.kind, size, room, scale), size);
     });
   }
 
@@ -144,11 +156,7 @@ export class HoverPopup {
 export const hoverPopup = new HoverPopup();
 
 /** Opens the popup overlay for a spec at a place; its overlay id, or null. */
-export function openPopup(
-  spec: PopupSpec,
-  at: { x: number; y: number },
-  size: { width: number; height: number },
-): string | null {
+export function openPopup(spec: PopupSpec, at: { x: WindowPx; y: WindowPx }, size: ModSize): string | null {
   try {
     return openOverlay({
       mod: MOD_NAME,
@@ -206,6 +214,8 @@ export class PopupView {
       .size_full()
       .p(12)
       .gap(9)
+      // Every text names its size, so Herdr's UI font size cannot reflow the popup it measured.
+      .text_size(12)
       .bg(color("popover"))
       .text_color(color("muted"))
       .on_hover((over, cx) => (over ? hoverPopup.overPopupEnter() : hoverPopup.overPopupLeave(cx)));

@@ -11,22 +11,24 @@
 // most every 30 s, inside the round every copy already runs (no timer here).
 import { h_flex, v_flex } from "gpui-base";
 import { div } from "gpui-kit";
-import { closeOverlay, layout, spaces } from "herdr";
+import { closeOverlay, layout, settings, spaces } from "herdr";
 import { SEPARATOR } from "../core/fit.js";
 import { sessionsShown } from "../core/layout.js";
+import { reportedSize, scaleOf, windowPx } from "../core/scale.js";
 import { t } from "../i18n/index.js";
 import { allProcesses, processDetails } from "../platform/proc.js";
 import { subtree } from "../runtime/engine.js";
-import { measureAt } from "./format.js";
 import { agentTile, icon, palette, TONE_COLOR } from "./kit.js";
 import { anchorRect, factsFor, hoverPopup } from "./popup.js";
-import { fitRow, groupSessions, isSleeping, MemoryPolicy, memoryFreedText, rowMemory, stateWord, } from "./sessionsModel.js";
+import { fitRow, groupSessions, isSleeping, MemoryPolicy, memoryFreedText, ROW_ITEM_GAP, ROW_SMALL_TEXT, ROW_TEXT, rowMemory, stateWord, } from "./sessionsModel.js";
+import { uiMeasure } from "./textWidth.js";
 /** Running sessions' memory is read at most this often, and only while the panel is shown. */
 export const MEMORY_EVERY_MS = 30_000;
+/** The panel's width until Herdr reports it (window px at zoom 1). */
 const DEFAULT_WIDTH = 320;
-const TEXT = 11.5;
 export class PanelView {
-    size = { width: DEFAULT_WIDTH, height: 0 };
+    /** As Herdr reports it: window px. */
+    size = { width: windowPx(DEFAULT_WIDTH), height: windowPx(0) };
     /** What running sessions occupy now, in MB, as last measured. */
     used = new Map();
     sampling = false;
@@ -86,6 +88,7 @@ export class PanelView {
     }
     render(_cx) {
         const color = palette();
+        const scale = scaleOf(settings());
         const records = this.o.engine.records();
         const groups = groupSessions(records, spaces()
             .filter((s) => s.machine === null)
@@ -129,7 +132,7 @@ export class PanelView {
             .overflow_y_scrollbar()
             .py(6)
             .when(groups.length === 0, (el) => el.child(div().p(14).text_size(12).text_color(color("dim")).child(t("panel.empty"))))
-            .children(groups.flatMap((g) => this.group(g, color)));
+            .children(groups.flatMap((g) => this.group(g, color, scale)));
         return v_flex()
             .id("panel-root")
             .size_full()
@@ -142,13 +145,13 @@ export class PanelView {
             .text_color(color("foreground"))
             .text_size(13)
             .on_size_change((size, cx) => {
-            this.size = size;
+            this.size = reportedSize(size);
             cx.notify();
         })
             .child(header)
             .child(body);
     }
-    group(g, color) {
+    group(g, color, scale) {
         const head = h_flex()
             .px(12)
             .pt(8)
@@ -171,14 +174,14 @@ export class PanelView {
             .on_click((_e, cx) => this.act(() => this.o.engine.resumeAll(g.spaceId), cx))
             .child(icon("play", 10, color("muted")))
             .child(t("panel.resumeAll"))));
-        return [head, ...g.rows.map((r) => this.row(r, color))];
+        return [head, ...g.rows.map((r) => this.row(r, color, scale))];
     }
-    row(rec, color) {
+    row(rec, color, scale) {
         const { engine, host, ports } = this.o;
         const agentName = engine.adapter(rec.agent).displayName;
         const used = this.used.get(rec.key) ?? null;
         const memory = rowMemory(rec, used);
-        const fit = fitRow(rec, this.size.width, memory?.text ?? null, ports.sep, measureAt(TEXT * 0.9));
+        const fit = fitRow(rec, this.size.width, memory?.text ?? null, ports.sep, uiMeasure, scale);
         const tone = TONE_COLOR[rec.state === "interrupted"
             ? "warn"
             : isSleeping(rec.state)
@@ -208,7 +211,7 @@ export class PanelView {
                 .rounded(8)
                 .border(1)
                 .border_color(color("border"))
-                .text_size(11)
+                .text_size(ROW_SMALL_TEXT)
                 .text_color(color("dim"))
                 .child(`+${fit.hidden}`));
         }
@@ -275,17 +278,17 @@ export class PanelView {
             .child(h_flex()
             .flex_1()
             .min_w(0)
-            .gap(6)
+            .gap(ROW_ITEM_GAP)
             .items_center()
             .overflow_hidden()
             .whitespace_nowrap()
-            .text_size(TEXT)
+            .text_size(ROW_TEXT)
             .children(items))
             .when(memory !== null, (el) => el.child(h_flex()
             .flex_none()
             .gap(4)
             .items_center()
-            .text_size(11)
+            .text_size(ROW_SMALL_TEXT)
             .text_color(color(memory?.kind === "freed" ? "accent" : "muted"))
             .child(memory?.kind === "freed"
             ? icon("moon", 11, color("accent"))

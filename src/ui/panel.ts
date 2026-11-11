@@ -13,17 +13,17 @@
 import { h_flex, v_flex } from "gpui-base";
 import type { AsyncContext } from "gpui-kit";
 import { type Context, div, type Element } from "gpui-kit";
-import { closeOverlay, layout, spaces } from "herdr";
+import { closeOverlay, layout, settings, spaces } from "herdr";
 import { SEPARATOR } from "../core/fit.ts";
 import { sessionsShown } from "../core/layout.ts";
 import type { SessionKey, SessionRecord } from "../core/model.ts";
+import { reportedSize, type Scale, scaleOf, type WindowSize, windowPx } from "../core/scale.ts";
 import { t } from "../i18n/index.ts";
 import type { Ports } from "../platform/ports.ts";
 import { allProcesses, processDetails } from "../platform/proc.ts";
 import type { Engine } from "../runtime/engine.ts";
 import { subtree } from "../runtime/engine.ts";
 import type { Host } from "../runtime/host.ts";
-import { measureAt } from "./format.ts";
 import { agentTile, icon, type Palette, palette, TONE_COLOR } from "./kit.ts";
 import { anchorRect, factsFor, hoverPopup } from "./popup.ts";
 import {
@@ -33,15 +33,18 @@ import {
   isSleeping,
   MemoryPolicy,
   memoryFreedText,
+  ROW_ITEM_GAP,
+  ROW_SMALL_TEXT,
+  ROW_TEXT,
   rowMemory,
   stateWord,
 } from "./sessionsModel.ts";
+import { uiMeasure } from "./textWidth.ts";
 
 /** Running sessions' memory is read at most this often, and only while the panel is shown. */
 export const MEMORY_EVERY_MS = 30_000;
+/** The panel's width until Herdr reports it (window px at zoom 1). */
 const DEFAULT_WIDTH = 320;
-const TEXT = 11.5;
-/** Geist at 11.5 px averages about 90 % of the width `measureAt` assumes. */
 
 export interface PanelOptions {
   engine: Engine;
@@ -54,7 +57,8 @@ export interface PanelOptions {
 }
 
 export class PanelView {
-  private size = { width: DEFAULT_WIDTH, height: 0 };
+  /** As Herdr reports it: window px. */
+  private size: WindowSize = { width: windowPx(DEFAULT_WIDTH), height: windowPx(0) };
   /** What running sessions occupy now, in MB, as last measured. */
   private used = new Map<SessionKey, number>();
   private sampling = false;
@@ -118,6 +122,7 @@ export class PanelView {
 
   render(_cx: Context): Element {
     const color = palette();
+    const scale = scaleOf(settings());
     const records = this.o.engine.records();
     const groups = groupSessions(
       records,
@@ -173,7 +178,7 @@ export class PanelView {
       .when(groups.length === 0, (el) =>
         el.child(div().p(14).text_size(12).text_color(color("dim")).child(t("panel.empty"))),
       )
-      .children(groups.flatMap((g) => this.group(g, color)));
+      .children(groups.flatMap((g) => this.group(g, color, scale)));
 
     return v_flex()
       .id("panel-root")
@@ -187,14 +192,14 @@ export class PanelView {
       .text_color(color("foreground"))
       .text_size(13)
       .on_size_change((size, cx) => {
-        this.size = size;
+        this.size = reportedSize(size);
         cx.notify();
       })
       .child(header)
       .child(body);
   }
 
-  private group(g: Group, color: Palette): Element[] {
+  private group(g: Group, color: Palette, scale: Scale): Element[] {
     const head = h_flex()
       .px(12)
       .pt(8)
@@ -221,15 +226,15 @@ export class PanelView {
             .child(t("panel.resumeAll")),
         ),
       );
-    return [head, ...g.rows.map((r) => this.row(r, color))];
+    return [head, ...g.rows.map((r) => this.row(r, color, scale))];
   }
 
-  private row(rec: SessionRecord, color: Palette): Element {
+  private row(rec: SessionRecord, color: Palette, scale: Scale): Element {
     const { engine, host, ports } = this.o;
     const agentName = engine.adapter(rec.agent).displayName;
     const used = this.used.get(rec.key) ?? null;
     const memory = rowMemory(rec, used);
-    const fit = fitRow(rec, this.size.width, memory?.text ?? null, ports.sep, measureAt(TEXT * 0.9));
+    const fit = fitRow(rec, this.size.width, memory?.text ?? null, ports.sep, uiMeasure, scale);
     const tone =
       TONE_COLOR[
         rec.state === "interrupted"
@@ -266,7 +271,7 @@ export class PanelView {
           .rounded(8)
           .border(1)
           .border_color(color("border"))
-          .text_size(11)
+          .text_size(ROW_SMALL_TEXT)
           .text_color(color("dim"))
           .child(`+${fit.hidden}`),
       );
@@ -354,11 +359,11 @@ export class PanelView {
                 h_flex()
                   .flex_1()
                   .min_w(0)
-                  .gap(6)
+                  .gap(ROW_ITEM_GAP)
                   .items_center()
                   .overflow_hidden()
                   .whitespace_nowrap()
-                  .text_size(TEXT)
+                  .text_size(ROW_TEXT)
                   .children(items),
               )
               .when(memory !== null, (el) =>
@@ -367,7 +372,7 @@ export class PanelView {
                     .flex_none()
                     .gap(4)
                     .items_center()
-                    .text_size(11)
+                    .text_size(ROW_SMALL_TEXT)
                     .text_color(color(memory?.kind === "freed" ? "accent" : "muted"))
                     .child(
                       memory?.kind === "freed"

@@ -10,6 +10,19 @@ export interface Segment {
   text: string;
   /** Lower is more important. */
   priority: number;
+  /** What is drawn with the text besides it (an icon and its gap), in px. */
+  extra?: number;
+}
+
+/**
+ * How the line is drawn, when it is not plain text: the px between two items
+ * (the separator with the gaps around it), the badge's px for `n` items gone
+ * (with its gap), the title's px. By default each is `measure` of its text.
+ */
+export interface FitDrawing {
+  separator?: number;
+  badge?: (hidden: number) => number;
+  title?: (text: string) => number;
 }
 
 export interface FitResult {
@@ -31,10 +44,12 @@ export function fitSegments(
   segs: Segment[],
   widthPx: number,
   measure: (text: string) => number,
+  drawing: FitDrawing = {},
 ): FitResult {
   const hasTitle = title !== null && title !== "";
-  const titleWidth = hasTitle ? measure(title) : 0;
-  const sepWidth = measure(SEPARATOR);
+  const titleWidth = hasTitle ? (drawing.title ?? measure)(title) : 0;
+  const sepWidth = drawing.separator ?? measure(SEPARATOR);
+  const badgeWidth = drawing.badge ?? ((n: number): number => measure(badgeText(n)));
   const shown = new Set(segs.map((_, i) => i));
 
   // Everything but the title, which shrinks into whatever room is left.
@@ -43,12 +58,12 @@ export function fitSegments(
     let items = hasTitle ? 1 : 0;
     segs.forEach((seg, i) => {
       if (shown.has(i)) {
-        width += (items > 0 ? sepWidth : 0) + measure(seg.text);
+        width += (items > 0 ? sepWidth : 0) + measure(seg.text) + (seg.extra ?? 0);
         items++;
       }
     });
     const hidden = segs.length - shown.size;
-    return width + (hidden > 0 ? measure(badgeText(hidden)) : 0);
+    return width + (hidden > 0 ? badgeWidth(hidden) : 0);
   };
   const tooTight = (): boolean => {
     const fixed = fixedWidth();

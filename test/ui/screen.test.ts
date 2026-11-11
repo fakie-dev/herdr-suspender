@@ -12,6 +12,7 @@
 
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
+import { windowPx } from "../../src/core/scale.ts";
 import { cellWidth, mixColor, screenGrid, screenLook, screenMarks } from "../../src/ui/format.ts";
 
 const look = (over: Record<string, unknown> = {}) =>
@@ -63,13 +64,13 @@ describe("terminal cell", () => {
 describe("screen grid in a pane", () => {
   it("fits whole rows and centres what is left under the last one, as the terminal does", () => {
     // 702 px: 678 inside the padding = 37 rows of 18 and 12 px left; 6 go on top.
-    assert.deepEqual(screenGrid(702, look()), { rows: 37, top: 18 });
+    assert.deepEqual(screenGrid(windowPx(702), look()), { rows: 37, top: 18 });
     // JetBrains Mono 11 (15 px rows): 45 rows, 3 px left, 1 on top.
-    assert.deepEqual(screenGrid(702, look({ font_size: 11 })), { rows: 45, top: 13 });
+    assert.deepEqual(screenGrid(windowPx(702), look({ font_size: 11 })), { rows: 45, top: 13 });
   });
 
   it("before the pane has a size, assumes a screenful from the top padding", () => {
-    assert.deepEqual(screenGrid(0, look()), { rows: 30, top: 12 });
+    assert.deepEqual(screenGrid(windowPx(0), look()), { rows: 30, top: 12 });
   });
 });
 
