@@ -4,6 +4,7 @@ node_modules/
 # Herdr writes these next to a mod it loads
 jsconfig.json
 mods/suspender/**/*.d.ts
+layout/mods/suspender/**/*.d.ts
 *.log
 # the maintainer's own words for the privacy check, never published
 .privacy.local

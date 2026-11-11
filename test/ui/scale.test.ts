@@ -139,7 +139,7 @@ describe("text widths: Geist as Herdr draws it (measured on screen at zoom 1)", 
 
 describe("every zoom: the popup by its row, the items whole or in +N", () => {
   // The UI font size is not an axis here: the mod names every text size in px, so it
-  // cannot move anything (scaleOf ignores it; rootText.test.ts holds the roots to it).
+  // cannot move anything (scaleOf ignores it; drawn.test.ts holds the roots to it).
   const ZOOMS = [0.8, 1, 1.1, 1.5, 2];
   const WINDOWS = [
     { width: 1600, height: 1000 },

@@ -386,9 +386,17 @@ export function toggleWidth(count, measure) {
 export function pillAgent(terminal, detect) {
     return terminal === null || terminal.state !== "live" ? null : detect(terminal);
 }
+/**
+ * The share of the column a quote line may fill. The width table runs ~0.9 % narrow
+ * (its own check against Herdr's drawing), so a line filled to the edge could be cut
+ * by "…" on a real font: 3 % keeps it clear of that and of a slightly wider UI font.
+ */
+const QUOTE_FILL = 0.97;
 /** A prompt's or a reply's lines in the quote's column, at the size the popup draws them. */
 function quoteLines(text) {
-    return text === null ? [] : wrapLines(text, QUOTE_TEXT_PX, QUOTE_MAX_LINES, (s) => textWidth(s, QUOTE_TEXT));
+    return text === null
+        ? []
+        : wrapLines(text, QUOTE_TEXT_PX * QUOTE_FILL, QUOTE_MAX_LINES, (s) => textWidth(s, QUOTE_TEXT));
 }
 /** The name's lines in the popup's text column. */
 function titleLayout(title) {

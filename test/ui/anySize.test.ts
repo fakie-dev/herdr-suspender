@@ -85,6 +85,7 @@ describe("the popup's first prompt and last reply", () => {
   const long =
     "Plan the move of the invoices table to the Postgres 16 cluster with no downtime, keep the old primary " +
     "as a fallback for a week, and write down every step so the on-call engineer can roll it back alone.";
+  const column = QUOTE_TEXT_PX;
   const facts = popupFacts(
     rec("c47a8e13-2f6d-4b90-8e15-6d3a9c2b7f40", "asleep", {
       info: { firstPrompt: long, lastReply: "Short reply." },
@@ -94,11 +95,57 @@ describe("the popup's first prompt and last reply", () => {
 
   it("take two lines of the column at most, the second ending in … when the text goes on", () => {
     const lines = facts.promptLines;
-    assert.equal(lines.length, QUOTE_MAX_LINES);
+    // Two, written out: the popup's height is built for two lines, so 3 must not pass.
+    assert.equal(lines.length, 2);
+    assert.equal(QUOTE_MAX_LINES, 2);
     for (const line of lines) {
       assert.ok(textWidth(line, QUOTE_TEXT) <= QUOTE_TEXT_PX, `"${line}" in ${QUOTE_TEXT_PX} px`);
     }
     assert.ok(lines.at(-1)?.endsWith("…"));
+  });
+
+  it("keep a margin for the width table, which runs ~1 % narrow: no line is filled to the edge", () => {
+    const column = QUOTE_TEXT_PX;
+    for (const line of facts.promptLines) {
+      assert.ok(
+        textWidth(line, QUOTE_TEXT) <= column / 1.02,
+        `"${line}": ${textWidth(line, QUOTE_TEXT)} of ${column} px`,
+      );
+    }
+  });
+
+  it("a text whose first line would reach the edge still ends its first line without …", () => {
+    // Words are added until the line stands between 98 % and 100 % of the column: the
+    // old wrap kept it there, and a font 1 % wider than the table cut it with "…".
+    const words = long.split(" ");
+    let edge = "";
+    for (let start = 0; start < words.length && edge === ""; start++) {
+      let tried = "";
+      for (const word of words.slice(start)) {
+        tried = tried === "" ? word : `${tried} ${word}`;
+        const width = textWidth(tried, QUOTE_TEXT);
+        if (width > column) {
+          break;
+        }
+        if (width > column * 0.98) {
+          edge = tried;
+          break;
+        }
+      }
+    }
+    assert.ok(textWidth(edge, QUOTE_TEXT) > column * 0.98, "the fixture reaches the edge");
+    const text = `${edge} ${words.slice(0, 5).join(" ")}`;
+    const lines = popupFacts(rec("c47a8e13-2f6d-4b90-8e15-6d3a9c2b7f41", "asleep", { info: { firstPrompt: text } }), {
+      agentName: "Claude Code",
+      home: HOME,
+      sep: "\\",
+      now: 0,
+      usedMb: null,
+    }).promptLines;
+    assert.equal(lines.length, 2);
+    assert.ok(!lines[0]?.endsWith("…"));
+    assert.ok(textWidth(lines[0] ?? "", QUOTE_TEXT) <= column / 1.02);
+    assert.ok(!lines[1]?.endsWith("…"), "the whole text still fits in two lines");
   });
 
   it("show a short text whole, without …", () => {

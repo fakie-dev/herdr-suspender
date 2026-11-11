@@ -27,7 +27,9 @@ useStandIns({ appHome: join(home, ".config", "herdr-app"), home, readsHang: fals
 const { SleepPane } = await import("../../src/ui/sleepPane.ts");
 const { PopupView } = await import("../../src/ui/popup.ts");
 const { PanelView } = await import("../../src/ui/panel.ts");
+const { openPopup } = await import("../../src/ui/popup.ts");
 const { STRIP_TEXT } = await import("../../src/ui/format.ts");
+const { FACT_ROW_PX } = await import("../../src/ui/sessionsModel.ts");
 
 interface Drawn {
   kind: string;
@@ -177,5 +179,40 @@ describe("the strip's button in a narrow pane", () => {
     assert.deepEqual(texts(button), []);
     assert.ok(has(button, "tooltip", "Resume"));
     assert.ok([...walk(button)].some((el) => el.kind === "svg" && String(el.arg).endsWith("play.svg")));
+  });
+});
+
+describe("the popup in a window too short for all its fact rows", () => {
+  const factRows = (root: Drawn): Drawn[] =>
+    [...walk(root)].filter((el) => el.kind === "h_flex" && has(el, "h", FACT_ROW_PX) && has(el, "gap", 12));
+
+  it("draws as many fact rows as it was given, from the top", async () => {
+    const { engine, ports, cx } = await world();
+    const all = factRows(new PopupView(engine, ports, KEY, null, null).render(cx) as unknown as Drawn);
+    assert.ok(all.length >= 4, `the fixture has fact rows: ${all.length}`);
+    const two = factRows(new PopupView(engine, ports, KEY, null, null, 2).render(cx) as unknown as Drawn);
+    assert.equal(two.length, 2);
+    assert.deepEqual(texts(two[0] as unknown as Drawn), texts(all[0] as unknown as Drawn));
+    assert.equal(factRows(new PopupView(engine, ports, KEY, null, null, 0).render(cx) as unknown as Drawn).length, 0);
+  });
+
+  it("opens its overlay with the row count popupSize chose, for the window to draw", () => {
+    const opened: Array<{ props?: { rows?: unknown; key?: unknown }; width?: unknown; height?: unknown }> = [];
+    (globalThis as { suspenderOverlays?: unknown }).suspenderOverlays = opened;
+    try {
+      const at = { x: 10, y: 20 } as unknown as Parameters<typeof openPopup>[1];
+      const id = openPopup({ key: KEY, usedMb: null } as unknown as Parameters<typeof openPopup>[0], at, {
+        width: 344,
+        height: 200,
+        rows: 3,
+      } as unknown as Parameters<typeof openPopup>[2]);
+      assert.equal(typeof id, "string");
+      assert.equal(opened.length, 1);
+      assert.equal(opened[0]?.props?.rows, 3);
+      assert.equal(opened[0]?.props?.key, KEY);
+      assert.equal(opened[0]?.height, 200);
+    } finally {
+      (globalThis as { suspenderOverlays?: unknown }).suspenderOverlays = undefined;
+    }
   });
 });

@@ -153,7 +153,8 @@ ${recording.herdr ?? ""}`;
  * was asked of them (`calls`: [method, ...args]; `kids`: children, strings
  * included; `when(cond, fn)` applies fn only when cond holds), so a test can
  * look at what a view draws. "herdr" answers theme() with no colours,
- * settings() with `globalThis.suspenderSettings` (else zoom 1) and spaces()
+ * settings() with `globalThis.suspenderSettings` (else zoom 1), openOverlay() with a push to
+ * `globalThis.suspenderOverlays`, and spaces()
  * with `globalThis.suspenderSpaces` (else none).
  */
 function recordingBodies(): Record<string, string> {
@@ -188,6 +189,12 @@ export const v_flex = () => element("v_flex");
 export const theme = () => ({});
 export const settings = () => globalThis.suspenderSettings ?? { zoom: 1 };
 export const spaces = () => globalThis.suspenderSpaces ?? [];
+// Overlays opened go to globalThis.suspenderOverlays (when a test sets it), as the options were given.
+export const openOverlay = (options) => {
+  globalThis.suspenderOverlays?.push(options);
+  return "overlay-" + (globalThis.suspenderOverlays?.length ?? 0);
+};
+export const closeOverlay = () => null;
 `,
   };
 }
