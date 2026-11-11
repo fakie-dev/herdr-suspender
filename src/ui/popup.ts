@@ -10,7 +10,7 @@ import { h_flex, v_flex } from "gpui-base";
 import { type Context, div, type Element, type MouseMoveEvent } from "gpui-kit";
 import { closeOverlay, openOverlay, settings } from "herdr";
 import type { SessionKey } from "../core/model.ts";
-import { type ModSize, scaleOf, type WindowPx, type WindowRect, type WindowSize, windowPx } from "../core/scale.ts";
+import { scaleOf, type WindowPx, type WindowRect, type WindowSize, windowPx } from "../core/scale.ts";
 import { t } from "../i18n/index.ts";
 import type { Ports } from "../platform/ports.ts";
 import { type Engine, MOD_NAME } from "../runtime/engine.ts";
@@ -20,10 +20,14 @@ import {
   FACT_ROW_PX,
   POPUP_WIDTH,
   type PopupFacts,
+  type PopupSize,
   popupFacts,
   popupPosition,
   popupSize,
+  QUOTE_GAP_PX,
+  QUOTE_LABEL_PX,
   QUOTE_LINE_PX,
+  QUOTE_TEXT,
   TITLE_LINE_PX,
   TITLE_TEXT,
 } from "./sessionsModel.ts";
@@ -156,14 +160,15 @@ export class HoverPopup {
 export const hoverPopup = new HoverPopup();
 
 /** Opens the popup overlay for a spec at a place; its overlay id, or null. */
-export function openPopup(spec: PopupSpec, at: { x: WindowPx; y: WindowPx }, size: ModSize): string | null {
+export function openPopup(spec: PopupSpec, at: { x: WindowPx; y: WindowPx }, size: PopupSize): string | null {
   try {
     return openOverlay({
       mod: MOD_NAME,
-      props: { role: "popup", key: spec.key, usedMb: spec.usedMb },
+      props: { role: "popup", key: spec.key, usedMb: spec.usedMb, rows: size.rows },
       kind: "popup",
       at,
-      ...size,
+      width: size.width,
+      height: size.height,
     });
   } catch {
     return null;
@@ -193,13 +198,23 @@ export class PopupView {
   private readonly key: SessionKey;
   private readonly overlay: string | null;
   private readonly usedMb: number | null;
+  /** Fact rows to draw (popupSize: the window's height); all of them by default. */
+  private readonly rows: number;
 
-  constructor(engine: Engine, ports: Ports, key: SessionKey, overlay: string | null, usedMb: number | null) {
+  constructor(
+    engine: Engine,
+    ports: Ports,
+    key: SessionKey,
+    overlay: string | null,
+    usedMb: number | null,
+    rows = Number.POSITIVE_INFINITY,
+  ) {
     this.engine = engine;
     this.ports = ports;
     this.key = key;
     this.overlay = overlay;
     this.usedMb = usedMb;
+    this.rows = rows;
   }
 
   close(): void {
@@ -223,20 +238,20 @@ export class PopupView {
       return root;
     }
     const tone = color(TONE_COLOR[facts.tone]);
-    const quote = (label: string, text: string): Element =>
+    // Whole lines, wrapped by sessionsModel, the last ending in "…" when the text goes on.
+    const quote = (label: string, lines: string[]): Element =>
       h_flex()
-        .gap(8)
+        .gap(QUOTE_GAP_PX)
         .items_start()
-        .text_size(12)
-        .child(div().w(52).flex_none().text_color(color("dim")).child(label))
+        .text_size(QUOTE_TEXT)
+        .child(div().w(QUOTE_LABEL_PX).flex_none().text_color(color("dim")).child(label))
         .child(
-          div()
+          v_flex()
             .flex_1()
             .min_w(0)
-            .line_height(`${QUOTE_LINE_PX}px`)
-            .max_h(2 * QUOTE_LINE_PX)
-            .overflow_hidden()
-            .child(text),
+            .children(
+              lines.map((line) => div().h(QUOTE_LINE_PX).line_height(`${QUOTE_LINE_PX}px`).truncate().child(line)),
+            ),
         );
 
     root.child(
@@ -268,11 +283,11 @@ export class PopupView {
           ),
       );
     }
-    if (facts.prompt !== null) {
-      root.child(quote(t("popup.prompt"), facts.prompt));
+    if (facts.promptLines.length > 0) {
+      root.child(quote(t("popup.prompt"), facts.promptLines));
     }
-    if (facts.reply !== null) {
-      root.child(quote(t("popup.reply"), facts.reply));
+    if (facts.replyLines.length > 0) {
+      root.child(quote(t("popup.reply"), facts.replyLines));
     }
     if (facts.context !== null || facts.tokens !== null) {
       const meter = POPUP_WIDTH - 24 - 2;
@@ -331,7 +346,7 @@ export class PopupView {
         .border_color(color("border"))
         .text_size(11.5)
         .children(
-          facts.rows.map((row) =>
+          facts.rows.slice(0, this.rows).map((row) =>
             h_flex()
               .h(FACT_ROW_PX)
               .line_height(`${FACT_ROW_PX}px`)

@@ -83,7 +83,7 @@ export async function loadMod(options: { readsHang: boolean; main?: string }): P
  * `appHome` for every module imported after this call (with `await import()`).
  * A name the stand-ins do not define does nothing, whatever is done with it.
  */
-export function useStandIns(options: { appHome: string; home: string; readsHang: boolean }): void {
+export function useStandIns(options: { appHome: string; home: string; readsHang: boolean; record?: boolean }): void {
   const { appHome, home } = options;
   const hang = "new Promise(() => undefined)";
   const bodies: Record<string, string> = {
@@ -115,13 +115,20 @@ export * from "node:fs/promises";
 ${options.readsHang ? `export const readFile = () => ${hang};\nexport const readdir = () => ${hang};` : ""}
 `,
   };
+  if (options.record) {
+    const recording = recordingBodies();
+    bodies.herdr = `${bodies.herdr ?? ""}
+${recording.herdr ?? ""}`;
+    bodies["gpui-kit"] = recording["gpui-kit"] ?? "";
+    bodies["gpui-base"] = recording["gpui-base"] ?? "";
+  }
   const inert = "(() => { const f = new Proxy(function () {}, { get: () => f, apply: () => f }); return f; })()";
   const source = (module: string): string => {
     const real = bodies[module] ?? "";
     if (module === "fs/promises") {
       return real;
     }
-    const defined = new Set([...real.matchAll(/export const (\w+)/g)].map((m) => m[1]));
+    const defined = new Set([...real.matchAll(/export (?:const|class) (\w+)/g)].map((m) => m[1]));
     const rest = [...importedNames(module)]
       .filter((name) => !defined.has(name))
       .map((name) => (name === "View" ? "export class View {}" : `export const ${name} = ${inert};`));
@@ -139,4 +146,48 @@ ${options.readsHang ? `export const readFile = () => ${hang};\nexport const read
         : next(url, context);
     },
   });
+}
+
+/**
+ * With `record`: "gpui-kit" and "gpui-base" build elements that remember what
+ * was asked of them (`calls`: [method, ...args]; `kids`: children, strings
+ * included; `when(cond, fn)` applies fn only when cond holds), so a test can
+ * look at what a view draws. "herdr" answers theme() with no colours,
+ * settings() with `globalThis.suspenderSettings` (else zoom 1) and spaces()
+ * with `globalThis.suspenderSpaces` (else none).
+ */
+function recordingBodies(): Record<string, string> {
+  const element = `
+const element = (kind, arg) => {
+  const node = { kind, arg, calls: [], kids: [] };
+  const proxy = new Proxy(node, {
+    get(target, prop) {
+      if (prop in target || typeof prop === "symbol" || prop === "then") return target[prop];
+      return (...args) => {
+        if (prop === "child") target.kids.push(args[0]);
+        else if (prop === "children") target.kids.push(...args[0]);
+        else if (prop === "when") return args[0] ? args[1](proxy) : proxy;
+        else target.calls.push([prop, ...args]);
+        return proxy;
+      };
+    },
+  });
+  return proxy;
+};`;
+  return {
+    "gpui-kit": `${element}
+export const div = () => element("div");
+export const svg = (path) => element("svg", path);
+export class View {}
+`,
+    "gpui-base": `${element}
+export const h_flex = () => element("h_flex");
+export const v_flex = () => element("v_flex");
+`,
+    herdr: `
+export const theme = () => ({});
+export const settings = () => globalThis.suspenderSettings ?? { zoom: 1 };
+export const spaces = () => globalThis.suspenderSpaces ?? [];
+`,
+  };
 }

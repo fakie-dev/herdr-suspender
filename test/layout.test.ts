@@ -166,7 +166,7 @@ describe("buildLivingLayout with the live copy of the tab bar (clone)", () => {
   it("records the mode and the generator it was built by", () => {
     const generated = clone().suspender_generated as { tabs?: unknown; generator?: unknown };
     assert.equal(generated.tabs, "clone");
-    assert.equal(generated.generator, 3);
+    assert.equal(generated.generator, 4);
     assert.equal((build().suspender_generated as { tabs?: unknown }).tabs, "builtin");
   });
 

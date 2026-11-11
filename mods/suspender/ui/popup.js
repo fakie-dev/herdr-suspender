@@ -12,7 +12,7 @@ import { scaleOf, windowPx } from "../core/scale.js";
 import { t } from "../i18n/index.js";
 import { MOD_NAME } from "../runtime/engine.js";
 import { agentTile, icon, palette, TONE_COLOR } from "./kit.js";
-import { FACT_GAP_PX, FACT_ROW_PX, POPUP_WIDTH, popupFacts, popupPosition, popupSize, QUOTE_LINE_PX, TITLE_LINE_PX, TITLE_TEXT, } from "./sessionsModel.js";
+import { FACT_GAP_PX, FACT_ROW_PX, POPUP_WIDTH, popupFacts, popupPosition, popupSize, QUOTE_GAP_PX, QUOTE_LABEL_PX, QUOTE_LINE_PX, QUOTE_TEXT, TITLE_LINE_PX, TITLE_TEXT, } from "./sessionsModel.js";
 /** How long the pointer rests on a row or a strip before its popup opens. */
 export const SHOW_DELAY_MS = 350;
 /** From one row to the next while a popup is open. */
@@ -125,10 +125,11 @@ export function openPopup(spec, at, size) {
     try {
         return openOverlay({
             mod: MOD_NAME,
-            props: { role: "popup", key: spec.key, usedMb: spec.usedMb },
+            props: { role: "popup", key: spec.key, usedMb: spec.usedMb, rows: size.rows },
             kind: "popup",
             at,
-            ...size,
+            width: size.width,
+            height: size.height,
         });
     }
     catch {
@@ -157,12 +158,15 @@ export class PopupView {
     key;
     overlay;
     usedMb;
-    constructor(engine, ports, key, overlay, usedMb) {
+    /** Fact rows to draw (popupSize: the window's height); all of them by default. */
+    rows;
+    constructor(engine, ports, key, overlay, usedMb, rows = Number.POSITIVE_INFINITY) {
         this.engine = engine;
         this.ports = ports;
         this.key = key;
         this.overlay = overlay;
         this.usedMb = usedMb;
+        this.rows = rows;
     }
     close() {
         hoverPopup.closed(this.overlay);
@@ -184,18 +188,16 @@ export class PopupView {
             return root;
         }
         const tone = color(TONE_COLOR[facts.tone]);
-        const quote = (label, text) => h_flex()
-            .gap(8)
+        // Whole lines, wrapped by sessionsModel, the last ending in "…" when the text goes on.
+        const quote = (label, lines) => h_flex()
+            .gap(QUOTE_GAP_PX)
             .items_start()
-            .text_size(12)
-            .child(div().w(52).flex_none().text_color(color("dim")).child(label))
-            .child(div()
+            .text_size(QUOTE_TEXT)
+            .child(div().w(QUOTE_LABEL_PX).flex_none().text_color(color("dim")).child(label))
+            .child(v_flex()
             .flex_1()
             .min_w(0)
-            .line_height(`${QUOTE_LINE_PX}px`)
-            .max_h(2 * QUOTE_LINE_PX)
-            .overflow_hidden()
-            .child(text));
+            .children(lines.map((line) => div().h(QUOTE_LINE_PX).line_height(`${QUOTE_LINE_PX}px`).truncate().child(line))));
         root.child(h_flex()
             .gap(7)
             .items_center()
@@ -215,11 +217,11 @@ export class PopupView {
                 .when(facts.titleCut && facts.title !== null, (el) => el.tooltip(facts.title ?? ""))
                 .children(facts.titleLines.map((line) => div().h(TITLE_LINE_PX).line_height(`${TITLE_LINE_PX}px`).truncate().child(line))));
         }
-        if (facts.prompt !== null) {
-            root.child(quote(t("popup.prompt"), facts.prompt));
+        if (facts.promptLines.length > 0) {
+            root.child(quote(t("popup.prompt"), facts.promptLines));
         }
-        if (facts.reply !== null) {
-            root.child(quote(t("popup.reply"), facts.reply));
+        if (facts.replyLines.length > 0) {
+            root.child(quote(t("popup.reply"), facts.replyLines));
         }
         if (facts.context !== null || facts.tokens !== null) {
             const meter = POPUP_WIDTH - 24 - 2;
@@ -258,7 +260,7 @@ export class PopupView {
             .border_t(1)
             .border_color(color("border"))
             .text_size(11.5)
-            .children(facts.rows.map((row) => h_flex()
+            .children(facts.rows.slice(0, this.rows).map((row) => h_flex()
             .h(FACT_ROW_PX)
             .line_height(`${FACT_ROW_PX}px`)
             .gap(12)

@@ -164,7 +164,8 @@ export default class Suspender extends View {
         }
         else if (props.role === "popup" && key !== null) {
             const used = typeof props.usedMb === "number" ? props.usedMb : null;
-            this.popup = new PopupView(engine, ports, key, typeof props.overlay === "string" ? props.overlay : null, used);
+            const rows = typeof props.rows === "number" ? props.rows : undefined;
+            this.popup = new PopupView(engine, ports, key, typeof props.overlay === "string" ? props.overlay : null, used, rows);
         }
         else if (props.role === "toggle") {
             this.toggle = new ToggleView(engine);

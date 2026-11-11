@@ -151,16 +151,49 @@ const STRIP_BADGE_CHROME = 14;
 /** Kerning and rounding. */
 const STRIP_SPARE = 4;
 
-/** A strip button's width in the mod's px. */
-export function stripButtonWidth(a: { action: string; label: string }, first: boolean, measure: Measure): number {
+/** How the strip's buttons are drawn: with their labels, or folded to their icons. */
+export type StripButtons = "label" | "icon";
+/** A button folded to its icon: the icon and 8 px either side. */
+export const STRIP_ICON_BUTTON_PAD = 8;
+/** The icon a folded button shows (its label goes to the tooltip). */
+export const STRIP_ACTION_ICON: Readonly<Record<string, string>> = {
+  resume: "play",
+  retry: "play",
+  startNew: "play",
+  forget: "close",
+};
+
+/** A strip button's width in the mod's px, with its label or folded to its icon. */
+export function stripButtonWidth(
+  a: { action: string; label: string },
+  first: boolean,
+  measure: Measure,
+  mode: StripButtons = "label",
+): number {
+  const border = first ? 0 : 2;
+  if (mode === "icon") {
+    return 2 * STRIP_ICON_BUTTON_PAD + border + STRIP_PLAY_PX;
+  }
   const icon = first && a.action === "resume" ? STRIP_PLAY_PX + STRIP_PLAY_GAP : 0;
-  return 2 * STRIP_BUTTON_PAD + (first ? 0 : 2) + icon + measure(a.label, STRIP_TEXT, "semibold");
+  return 2 * STRIP_BUTTON_PAD + border + icon + measure(a.label, STRIP_TEXT, "semibold");
+}
+
+export interface StripFit {
+  title: boolean;
+  segs: Segment[];
+  hidden: number;
+  /** Labels while they fit; icons (labels in tooltips) in a pane too narrow for them. */
+  buttons: StripButtons;
+  /** The moon goes only when even the icons would not fit beside it. */
+  moon: boolean;
 }
 
 /**
- * The strip's info line: whether the title shows, which items, how many went
- * to "+N". `paneWidth` is the sleeping pane's width as Herdr reports it (window
- * px); the strip is drawn in the mod's px, so the width goes through the zoom.
+ * The strip at a width: its info line (whether the title shows, which items,
+ * how many went to "+N") and how its buttons are drawn. `paneWidth` is the
+ * sleeping pane's width as Herdr reports it (window px); the strip is drawn in
+ * the mod's px, so the width goes through the zoom. Nothing is drawn past the
+ * pane's edge once it holds the folded buttons (under 100 px of the mod's for two).
  */
 export function fitStrip(
   info: SessionInfo,
@@ -169,18 +202,29 @@ export function fitStrip(
   sep: Sep,
   scale: Scale,
   measure: Measure = uiMeasure,
-): { title: boolean; segs: Segment[]; hidden: number } {
+): StripFit {
+  const pane = toMod(scale, paneWidth);
+  const buttonsAt = (mode: StripButtons): number =>
+    actions.reduce((sum, a, i) => sum + STRIP_GAP + stripButtonWidth(a, i === 0, measure, mode), 0);
+  const chromeAt = (mode: StripButtons, moon: boolean): number =>
+    STRIP_PAD_LEFT + STRIP_PAD_RIGHT + (moon ? STRIP_MOON_PX + STRIP_GAP : 0) + STRIP_SPARE + buttonsAt(mode);
+  const buttons: StripButtons = chromeAt("label", true) <= pane ? "label" : "icon";
+  const moon = chromeAt(buttons, true) <= pane;
   const segs = stripSegments(info, sep).map((s) => ({ ...s, extra: STRIP_ICON_PX }));
-  const buttons = actions.reduce((sum, a, i) => sum + STRIP_GAP + stripButtonWidth(a, i === 0, measure), 0);
-  const chrome = STRIP_PAD_LEFT + STRIP_PAD_RIGHT + STRIP_MOON_PX + STRIP_GAP + STRIP_SPARE + buttons;
-  const width = Math.max(0, toMod(scale, paneWidth) - chrome);
+  const width = Math.max(0, pane - chromeAt(buttons, moon));
   const text = (s: string): number => measure(s, STRIP_TEXT);
   const fit = fitSegments(info.title, segs, width, text, {
     title: (s) => measure(s, STRIP_TEXT, "semibold"),
     separator: 2 * STRIP_ITEM_GAP + text(SEPARATOR.trim()),
     badge: (n) => STRIP_ITEM_GAP + STRIP_BADGE_CHROME + measure(`+${n}`, STRIP_BADGE_TEXT),
   });
-  return { title: fit.title, segs: segs.filter((s) => fit.shown.includes(s.key)), hidden: fit.hidden };
+  return {
+    title: fit.title,
+    segs: segs.filter((s) => fit.shown.includes(s.key)),
+    hidden: fit.hidden,
+    buttons,
+    moon,
+  };
 }
 
 /** The last `max` lines of a screen, without the blank lines under the prompt. */

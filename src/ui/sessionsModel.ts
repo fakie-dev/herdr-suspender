@@ -21,7 +21,7 @@ import {
 } from "../core/scale.ts";
 import { t } from "../i18n/index.ts";
 import { clock, measureAt } from "./format.ts";
-import type { Measure } from "./textWidth.ts";
+import { type Measure, textWidth } from "./textWidth.ts";
 
 // ---- states and groups
 
@@ -165,11 +165,11 @@ export const ROW_SMALL_TEXT = 11;
 /** Between two elements of the second line (its items, separators, the badge). */
 export const ROW_ITEM_GAP = 6;
 /** The badge's padding (6 + 6) and border (1 + 1) around "+N". */
-const BADGE_CHROME_PX = 14;
+export const ROW_BADGE_CHROME_PX = 14;
 /** The memory figure's icon (the moon, 11; the dot is narrower) and its gap (4). */
-const MEM_ICON_PX = 15;
+export const ROW_MEM_ICON_PX = 15;
 /** Between the items and the memory figure. */
-const MEM_GAP_PX = 8;
+export const ROW_MEM_GAP_PX = 8;
 /** An item's 12 px icon and the gap after it. */
 const ICON_PX = 16;
 const BRANCH_MAX = 22;
@@ -214,11 +214,11 @@ export function fitRow(
 ): { segs: Segment[]; hidden: number } {
   const segs = rowSegments(rec.info, sep);
   const text = (s: string): number => measure(s, ROW_TEXT);
-  const memory = memText === null ? 0 : measure(memText, ROW_SMALL_TEXT) + MEM_ICON_PX + MEM_GAP_PX;
+  const memory = memText === null ? 0 : measure(memText, ROW_SMALL_TEXT) + ROW_MEM_ICON_PX + ROW_MEM_GAP_PX;
   const width = Math.max(0, toMod(scale, panelWidth) - ROW_CHROME_PX - memory);
   const fit = fitSegments(null, segs, width, text, {
     separator: 2 * ROW_ITEM_GAP + text(SEPARATOR.trim()),
-    badge: (n) => ROW_ITEM_GAP + BADGE_CHROME_PX + measure(`+${n}`, ROW_SMALL_TEXT),
+    badge: (n) => ROW_ITEM_GAP + ROW_BADGE_CHROME_PX + measure(`+${n}`, ROW_SMALL_TEXT),
   });
   return { segs: segs.filter((s) => fit.shown.includes(s.key)), hidden: fit.hidden };
 }
@@ -248,6 +248,9 @@ export interface PopupFacts {
   titleCut: boolean;
   prompt: string | null;
   reply: string | null;
+  /** The prompt and the reply as the popup draws them: up to QUOTE_MAX_LINES lines, "…" ending a text that goes on. */
+  promptLines: string[];
+  replyLines: string[];
   context: { pct: number; label: string; detail: string | null } | null;
   tokens: string | null;
   rows: PopupRow[];
@@ -325,6 +328,8 @@ export function popupFacts(
     ...titleLayout(present(info.title)),
     prompt: present(info.firstPrompt),
     reply: present(info.lastReply),
+    promptLines: quoteLines(present(info.firstPrompt)),
+    replyLines: quoteLines(present(info.lastReply)),
     context: pct === null ? null : { pct, label: t("popup.context", { pct }), detail: present(info.contextText) },
     tokens: present(info.tokensText),
     rows,
@@ -349,7 +354,13 @@ export const TITLE_MAX_LINES = 3;
 const TITLE_MEASURE = measureAt(TITLE_TEXT * 1.03);
 /** A prompt or reply: two lines of 12 px at this height, so the second is never cut through. */
 export const QUOTE_LINE_PX = 18;
-const QUOTE_PX = 2 * QUOTE_LINE_PX;
+export const QUOTE_MAX_LINES = 2;
+export const QUOTE_TEXT = 12;
+/** Its label column (52) and the gap after it (8). */
+export const QUOTE_LABEL_PX = 52;
+export const QUOTE_GAP_PX = 8;
+/** The quote's text column: the popup's text column less the label and its gap. */
+export const QUOTE_TEXT_PX = POPUP_WIDTH - 2 * POPUP_PAD - QUOTE_LABEL_PX - QUOTE_GAP_PX;
 const CONTEXT_PX = 28;
 const TOKENS_PX = 16;
 /** A fact row (Branch, Model, … Session): its height and the space between two rows. */
@@ -362,8 +373,8 @@ export function popupHeight(facts: PopupFacts): number {
   const blocks = [
     HEADER_PX,
     facts.titleLines.length * TITLE_LINE_PX,
-    facts.prompt === null ? 0 : QUOTE_PX,
-    facts.reply === null ? 0 : QUOTE_PX,
+    facts.promptLines.length * QUOTE_LINE_PX,
+    facts.replyLines.length * QUOTE_LINE_PX,
     facts.context === null ? 0 : CONTEXT_PX,
     facts.tokens === null ? 0 : TOKENS_PX,
     FACTS_PAD_PX + facts.rows.length * FACT_ROW_PX + Math.max(0, facts.rows.length - 1) * FACT_GAP_PX,
@@ -380,14 +391,27 @@ const STRIP_INSET_PX = modPx(120);
 
 const clamp = (value: number, min: number, max: number): number => Math.max(min, Math.min(value, max));
 
+export interface PopupSize extends ModSize {
+  /** How many fact rows (Branch … Session) it draws: those that do not fit go whole, from the bottom. */
+  rows: number;
+}
+
 /**
- * The popup's size: its width, and its height up to what the window holds
- * (a window too short for it gets a popup as tall as it can, scrolled by nothing:
- * the facts at the bottom go first).
+ * The popup's size: its width, and its height up to what the window holds. In
+ * a window too short for it the fact rows go, whole, from the bottom, so none
+ * is cut through; a window shorter still clips what is left at its height.
  */
-export function popupSize(facts: PopupFacts, viewport: WindowSize, scale: Scale): ModSize {
+export function popupSize(facts: PopupFacts, viewport: WindowSize, scale: Scale): PopupSize {
   const room = toMod(scale, viewport.height) - 2 * EDGE_PX;
-  return { width: modPx(POPUP_WIDTH), height: modPx(Math.max(0, Math.min(popupHeight(facts), room))) };
+  const width = modPx(POPUP_WIDTH);
+  for (let rows = facts.rows.length; rows > 0; rows--) {
+    const height = popupHeight({ ...facts, rows: facts.rows.slice(0, rows) });
+    if (height <= room) {
+      return { width, height: modPx(height), rows };
+    }
+  }
+  const height = popupHeight({ ...facts, rows: [] });
+  return { width, height: modPx(Math.max(0, Math.min(height, room))), rows: 0 };
 }
 
 /**
@@ -457,6 +481,26 @@ export function panelShown(layout: unknown, id: string): boolean {
   return visit(layout) ?? false;
 }
 
+// ---- the "Sessions · N" block (role "toggle", toggle.ts draws it)
+
+/** Its padding inside the layout block (6 + 6), the button's padding (8 + 8), the moon (14) and its gap (5). */
+export const TOGGLE_OUTER_PAD = 6;
+export const TOGGLE_PAD = 8;
+export const TOGGLE_ICON_PX = 14;
+export const TOGGLE_GAP = 5;
+export const TOGGLE_TEXT = 12;
+
+/** How wide "Sessions · N" is drawn, in the mod's px. */
+export function toggleWidth(count: number, measure: Measure): number {
+  return (
+    2 * TOGGLE_OUTER_PAD +
+    2 * TOGGLE_PAD +
+    TOGGLE_ICON_PX +
+    TOGGLE_GAP +
+    measure(t("toggle.label", { count }), TOGGLE_TEXT)
+  );
+}
+
 // ---- the pill
 
 /** The agent the pill offers to sleep: the focused terminal's, when it is live and an agent. */
@@ -465,6 +509,11 @@ export function pillAgent<T extends { state: string }>(
   detect: (terminal: T) => AgentId | null,
 ): AgentId | null {
   return terminal === null || terminal.state !== "live" ? null : detect(terminal);
+}
+
+/** A prompt's or a reply's lines in the quote's column, at the size the popup draws them. */
+function quoteLines(text: string | null): string[] {
+  return text === null ? [] : wrapLines(text, QUOTE_TEXT_PX, QUOTE_MAX_LINES, (s) => textWidth(s, QUOTE_TEXT));
 }
 
 /** The name's lines in the popup's text column. */

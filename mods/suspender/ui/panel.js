@@ -191,19 +191,23 @@ export class PanelView {
                 : "live"];
         const title = rec.info.title ?? agentName;
         const items = [];
-        for (const seg of fit.segs) {
+        fit.segs.forEach((seg, i) => {
             if (items.length > 0) {
                 items.push(div().flex_none().text_color(color("dim")).child(SEPARATOR.trim()));
             }
             const glyph = seg.key === "branch" ? "branch" : seg.key === "folder" ? "folder" : null;
+            // The last item gives way first: with a UI font wider than the widths fitRow
+            // counted, it ends in "…" instead of being cut by the line's edge.
+            const last = i === fit.segs.length - 1;
             items.push(h_flex()
-                .flex_none()
+                .when(!last, (el) => el.flex_none())
+                .when(last, (el) => el.flex_shrink(1).min_w(0))
                 .gap(4)
                 .items_center()
                 .text_color(color(seg.key === "id" ? "dim" : "muted"))
                 .when(glyph !== null, (el) => el.child(icon(glyph ?? "folder", 12, color("dim"))))
-                .child(seg.text));
-        }
+                .child(div().min_w(0).truncate().child(seg.text)));
+        });
         if (fit.hidden > 0) {
             items.push(div()
                 .flex_none()

@@ -102,7 +102,7 @@
               "id": "suspender-toggle",
               "type": "block",
               "size": {
-                "px": 110
+                "px": 126
               },
               "content": {
                 "mod": "suspender",
@@ -239,7 +239,7 @@
   ],
   "suspender_generated": {
     "from": "5ae0c5da8ee9ed7ebde11f1ee0ab2710fba0970b4159cc6c88b00e6bdcf757f9",
-    "generator": 3,
+    "generator": 4,
     "tabs": "builtin"
   }
 }

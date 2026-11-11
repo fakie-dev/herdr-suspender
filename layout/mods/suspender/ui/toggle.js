@@ -8,7 +8,7 @@ import { layout, run } from "herdr";
 import { PANEL_ID } from "../core/layout.js";
 import { t } from "../i18n/index.js";
 import { icon, palette } from "./kit.js";
-import { panelShown, sleepingCount } from "./sessionsModel.js";
+import { panelShown, sleepingCount, TOGGLE_GAP, TOGGLE_ICON_PX, TOGGLE_OUTER_PAD, TOGGLE_PAD, TOGGLE_TEXT, } from "./sessionsModel.js";
 export class ToggleView {
     engine;
     constructor(engine) {
@@ -21,7 +21,7 @@ export class ToggleView {
         return h_flex()
             .size_full()
             .min_w(0)
-            .px(6)
+            .px(TOGGLE_OUTER_PAD)
             .items_center()
             .bg(color("chrome"))
             .border_b(1)
@@ -30,11 +30,11 @@ export class ToggleView {
             .id("sessions-toggle")
             .h(26)
             .min_w(0)
-            .px(8)
-            .gap(5)
+            .px(TOGGLE_PAD)
+            .gap(TOGGLE_GAP)
             .items_center()
             .rounded(6)
-            .text_size(12)
+            .text_size(TOGGLE_TEXT)
             .whitespace_nowrap()
             .bg(color(open ? "selected" : "chrome"))
             .text_color(color(open ? "foreground" : "muted"))
@@ -44,7 +44,7 @@ export class ToggleView {
             .on_click(() => {
             run("layout.toggle", { id: PANEL_ID });
         })
-            .child(icon("moon", 14, color(count > 0 ? "accent" : "muted")))
+            .child(icon("moon", TOGGLE_ICON_PX, color(count > 0 ? "accent" : "muted")))
             .child(t("toggle.label", { count })));
     }
 }

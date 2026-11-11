@@ -21,7 +21,7 @@
 import { sha256Hex } from "./sha256.js";
 export const LAYOUT_NAME = "suspender";
 /** Bumped when the insertions change, so existing living layouts are rebuilt. */
-export const GENERATOR_VERSION = 3;
+export const GENERATOR_VERSION = 4;
 export const TOGGLE_ID = "suspender-toggle";
 export const TOPBAR_ID = "suspender-topbar";
 export const PANEL_ID = "suspender-panel";
@@ -31,7 +31,8 @@ export const TABS_CLONE = "suspender-tabs";
 /** The Sessions panel's id among the side panel's children (`panel-body`), and the copy's button id. */
 export const SESSIONS_CHILD = "suspender";
 const MOD = "suspender";
-const TOGGLE_WIDTH_PX = 110;
+/** "Sessions · N" for N up to 99 (122.4 px of Geist 12 with its icon and padding), with room to spare. */
+export const TOGGLE_WIDTH_PX = 126;
 const PANEL_SIZE = { px: 320 };
 const PANEL_MIN_PX = 200;
 const PANEL_MAX_PX = 700;

@@ -13,7 +13,7 @@ import { closeOverlay, settings, theme } from "herdr";
 import { badgeText, SEPARATOR } from "../core/fit.js";
 import { reportedSize, scaleOf, windowPx } from "../core/scale.js";
 import { t } from "../i18n/index.js";
-import { fitStrip, mixColor, SCREEN_DIM, STRIP_BADGE_TEXT, STRIP_BUTTON_PAD, STRIP_GAP, STRIP_ITEM_GAP, STRIP_MOON_PX, STRIP_PAD_LEFT, STRIP_PAD_RIGHT, STRIP_PLAY_GAP, STRIP_PLAY_PX, STRIP_TEXT, screenGrid, screenLines, screenLook, screenMarks, stripActions, stripStatus, wakeSteps, } from "./format.js";
+import { fitStrip, mixColor, SCREEN_DIM, STRIP_ACTION_ICON, STRIP_BADGE_TEXT, STRIP_BUTTON_PAD, STRIP_GAP, STRIP_ICON_BUTTON_PAD, STRIP_ITEM_GAP, STRIP_MOON_PX, STRIP_PAD_LEFT, STRIP_PAD_RIGHT, STRIP_PLAY_GAP, STRIP_PLAY_PX, STRIP_TEXT, screenGrid, screenLines, screenLook, screenMarks, stripActions, stripStatus, wakeSteps, } from "./format.js";
 import { anchorRect, factsFor, hoverPopup } from "./popup.js";
 const ICONS = "mods/suspender/icons";
 const STATUS_TEXT = 12;
@@ -189,19 +189,24 @@ export class SleepPane {
         if (fit.title && rec.info.title) {
             items.push(div().flex_shrink(1).min_w(0).truncate().font_semibold().text_color(color("foreground")).child(rec.info.title));
         }
-        for (const seg of fit.segs) {
+        fit.segs.forEach((seg, i) => {
             if (items.length > 0) {
                 items.push(div().flex_none().text_color(color("dim")).child(SEPARATOR.trim()));
             }
+            // The last item gives way first: with a UI font wider than the widths fitStrip
+            // counted, it ends in "…" instead of being cut by the line's edge.
+            const last = i === fit.segs.length - 1;
             items.push(h_flex()
-                .flex_none()
+                .when(!last, (el) => el.flex_none())
+                .when(last, (el) => el.flex_shrink(1).min_w(0))
                 .gap(4)
                 .items_center()
                 .child(svg(`${ICONS}/${icon[seg.key] ?? "folder"}.svg`)
                 .size(12)
+                .flex_none()
                 .text_color(color("dim")))
-                .child(seg.text));
-        }
+                .child(div().min_w(0).truncate().child(seg.text)));
+        });
         if (fit.hidden > 0) {
             items.push(div()
                 .flex_none()
@@ -233,11 +238,13 @@ export class SleepPane {
                     progress: this.engine.progress(this.key),
                     fresh: this.engine.freshness(this.key),
                 }));
+        // In a pane too narrow for the labels, each button folds to its icon, its label in a tooltip.
+        const folded = fit.buttons === "icon";
         const buttons = actions.map((a, i) => h_flex()
             .id(`strip-${a.action}`)
             .flex_none()
             .h(28)
-            .px(STRIP_BUTTON_PAD)
+            .px(folded ? STRIP_ICON_BUTTON_PAD : STRIP_BUTTON_PAD)
             .gap(STRIP_PLAY_GAP)
             .items_center()
             .rounded(7)
@@ -252,8 +259,9 @@ export class SleepPane {
             .cursor_pointer()
             .on_mouse_down("left", (_e, cx) => cx.stop_propagation())
             .on_click((_e, cx) => this.press(a.action, cx)))
-            .when(i === 0 && a.action === "resume", (el) => el.child(svg(`${ICONS}/play.svg`).size(STRIP_PLAY_PX)))
-            .child(a.label));
+            .when(folded, (el) => el.tooltip(a.label).child(svg(`${ICONS}/${STRIP_ACTION_ICON[a.action] ?? "play"}.svg`).size(STRIP_PLAY_PX)))
+            .when(!folded && i === 0 && a.action === "resume", (el) => el.child(svg(`${ICONS}/play.svg`).size(STRIP_PLAY_PX)))
+            .when(!folded, (el) => el.child(a.label)));
         return (v_flex()
             .id("strip")
             .absolute()
@@ -278,10 +286,10 @@ export class SleepPane {
             .child(h_flex()
             .gap(STRIP_GAP)
             .items_center()
-            .child(svg(`${ICONS}/moon.svg`)
+            .when(fit.moon, (el) => el.child(svg(`${ICONS}/moon.svg`)
             .size(STRIP_MOON_PX)
             .flex_none()
-            .text_color(color(rec.state === "interrupted" ? "working" : "accent")))
+            .text_color(color(rec.state === "interrupted" ? "working" : "accent"))))
             .child(h_flex()
             .flex_1()
             .min_w(0)
