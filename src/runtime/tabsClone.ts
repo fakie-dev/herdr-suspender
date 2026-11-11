@@ -5,16 +5,24 @@
 // The copy is made once with Herdr's own `mod.clone`. Its main.js is then the
 // shipped tabs/main.js plus one patch, and its first line records the sha256
 // of the shipped file it came from: when a Herdr update changes tabs/main.js,
-// the next start notices and writes the copy again. When the patch's anchors
-// are gone, or the copy does not pass `herdr-app check`, the caller builds the
-// layout around the shipped tab bar instead (see core/layout.ts, TabsMode).
+// the next start notices and writes the copy again. Only main.js is ever
+// written: the copy's other files stay as `mod.clone` made them.
+//
+// Herdr reloads a mod as soon as a file under `mods/` changes, so a layout
+// already on the copy would show any text written there at once. The new
+// main.js is therefore checked first, with `herdr-app check`, in a folder of
+// its own outside `mods/` (`suspender/tabs-check/suspender-tabs`), and only
+// text that passed is written over the copy. When the patch's anchors are
+// gone, or the check fails, the copy is left as it was and the caller builds
+// the layout around the shipped tab bar instead (see core/layout.ts, TabsMode).
 //
 // Paths inside the copy stay `mods/tabs/...`: its window-button icons are
 // always the shipped ones.
 
 import { TABS_CLONE, type TabsMode } from "../core/layout.ts";
 import { sha256Hex } from "../core/sha256.ts";
-import type { Ports } from "../platform/ports.ts";
+import type { ExecResult, Ports } from "../platform/ports.ts";
+import { syncLayout, tabsFallbackNotice } from "./layoutSync.ts";
 
 export const CLONE_NAME = TABS_CLONE;
 /** Bumped when the patch changes, so copies made by an older build are written again. */
@@ -27,6 +35,10 @@ const CLONE_POLL_MS = 100;
 export const WRITE_ATTEMPTS = 3;
 /** `herdr-app check` of the copy; it loads one small mod. */
 export const CHECK_TIMEOUT_MS = 60_000;
+/** Where a new main.js is checked before it goes live, under the app's folder: outside `mods/`, so nothing reloads. */
+export const CANDIDATE_DIR = ["suspender", "tabs-check", CLONE_NAME] as const;
+/** The candidate's mod.json when the shipped tab bar has none to copy. */
+const CANDIDATE_MOD_JSON = '{ "place": "none" }\n';
 
 const ANCHOR_ENABLED = 'const enabled = shared("workspace.panels") ?? ["files", "changes"];';
 const ENABLED = 'const enabled = [...(shared("workspace.panels") ?? ["files", "changes"]), "suspender"];';
@@ -57,18 +69,26 @@ export type TabsOutcome =
 
 const count = (text: string, needle: string): number => text.split(needle).length - 1;
 
-/** The copy's main.js for this shipped tabs/main.js, or null when an anchor is missing or not unique. */
+/**
+ * The copy's main.js for this shipped tabs/main.js, or null when an anchor is
+ * missing or not unique, or when the result would not hold each change exactly
+ * once (whichever order the anchors come in).
+ */
 export function patchTabs(source: string, hash: string): string | null {
   if (count(source, ANCHOR_ENABLED) !== 1 || count(source, ANCHOR_BUTTONS) !== 1) {
     return null;
   }
+  const enabled = source.replace(ANCHOR_ENABLED, ENABLED);
   // The new button goes on a line of its own, indented like the `.when` it precedes.
-  const at = source.indexOf(ANCHOR_BUTTONS);
-  const lineStart = source.lastIndexOf("\n", at) + 1;
-  const indent = /^[ \t]*/.exec(source.slice(lineStart, at))?.[0] ?? "";
-  const eol = source[lineStart - 2] === "\r" ? "\r\n" : "\n";
-  const head = source.slice(0, at).replace(ANCHOR_ENABLED, ENABLED);
-  return `${CLONE_MARK}${hash} patch=${PATCH_VERSION}\n${head}${SESSIONS_BUTTON}${eol}${indent}${source.slice(at)}`;
+  const at = enabled.indexOf(ANCHOR_BUTTONS);
+  const lineStart = enabled.lastIndexOf("\n", at) + 1;
+  const indent = /^[ \t]*/.exec(enabled.slice(lineStart, at))?.[0] ?? "";
+  const eol = enabled[lineStart - 2] === "\r" ? "\r\n" : "\n";
+  const body = `${enabled.slice(0, at)}${SESSIONS_BUTTON}${eol}${indent}${enabled.slice(at)}`;
+  if (count(body, ENABLED) !== 1 || count(body, SESSIONS_BUTTON) !== 1) {
+    return null;
+  }
+  return `${CLONE_MARK}${hash} patch=${PATCH_VERSION}\n${body}`;
 }
 
 function parse(text: string | null): unknown {
@@ -89,9 +109,38 @@ function ours(main: string, modJson: string | null): boolean {
   return typeof from === "object" && from !== null && (from as { name?: unknown }).name === "tabs";
 }
 
+/** Puts `text` at `path` unless it is there already; false when that does not stick. */
+async function put(ports: Ports, path: string, text: string): Promise<boolean> {
+  return (await ports.readText(path)) === text || (await ports.writeText(path, text));
+}
+
+/**
+ * Whether `main` passes `herdr-app check` as the tab bar copy: written with the
+ * shipped mod.json into the candidate folder outside `mods/`, and checked
+ * there. A check that cannot run does not pass.
+ */
+async function candidatePasses(d: TabsCloneDeps, main: string): Promise<boolean> {
+  const { ports } = d;
+  const dir = [d.appHome, ...CANDIDATE_DIR].join(ports.sep);
+  const modJson = (await ports.readText([d.appHome, "mods", "tabs", "mod.json"].join(ports.sep))) ?? CANDIDATE_MOD_JSON;
+  if (
+    !(await put(ports, [dir, "mod.json"].join(ports.sep), modJson)) ||
+    !(await put(ports, [dir, "main.js"].join(ports.sep), main))
+  ) {
+    return false;
+  }
+  try {
+    const checked = await ports.exec("herdr-app", ["check", dir], { timeout: CHECK_TIMEOUT_MS });
+    return checked.code === 0;
+  } catch {
+    return false;
+  }
+}
+
 /**
  * Makes sure `mods/suspender-tabs/main.js` is the patch of the shipped
- * tabs/main.js and passes `herdr-app check`. Never throws.
+ * tabs/main.js, and that this text passed `herdr-app check` before it was
+ * written there. Never throws.
  */
 export async function ensureTabsClone(d: TabsCloneDeps): Promise<TabsOutcome> {
   const { ports } = d;
@@ -107,6 +156,18 @@ export async function ensureTabsClone(d: TabsCloneDeps): Promise<TabsOutcome> {
   const cloneDir = path("mods", CLONE_NAME);
   const clonePath = [cloneDir, "main.js"].join(ports.sep);
   let current = await ports.readText(clonePath);
+  if (
+    current !== null &&
+    current !== want &&
+    !ours(current, await ports.readText([cloneDir, "mod.json"].join(ports.sep)))
+  ) {
+    return { mode: "builtin", why: "foreign" };
+  }
+  // Checked before anything under mods/ changes: the live copy only ever gets this text.
+  if (!(await candidatePasses(d, want))) {
+    return { mode: "builtin", why: "check-failed" };
+  }
+
   if (current === null) {
     try {
       d.cloneMod();
@@ -120,8 +181,6 @@ export async function ensureTabsClone(d: TabsCloneDeps): Promise<TabsOutcome> {
     if (current === null) {
       return { mode: "builtin", why: "clone-failed" };
     }
-  } else if (current !== want && !ours(current, await ports.readText([cloneDir, "mod.json"].join(ports.sep)))) {
-    return { mode: "builtin", why: "foreign" };
   }
 
   let why: "fresh" | "written" | "written-elsewhere" = "fresh";
@@ -137,14 +196,116 @@ export async function ensureTabsClone(d: TabsCloneDeps): Promise<TabsOutcome> {
     current = await ports.readText(clonePath);
     why = "written-elsewhere";
   }
-
-  try {
-    const checked = await ports.exec("herdr-app", ["check", cloneDir], { timeout: CHECK_TIMEOUT_MS });
-    if (checked.code !== 0) {
-      return { mode: "builtin", why: "check-failed" };
-    }
-  } catch {
-    return { mode: "builtin", why: "check-failed" };
-  }
   return { mode: "clone", why };
+}
+
+/**
+ * How long a check of the tab bar copy may go without a sign of life (a read,
+ * a write, a wait for `mod.clone` ending) before it is taken for lost: its
+ * task belonged to a copy of the mod that closed. A running `herdr-app check`
+ * is alive until its own timeout has passed as well.
+ */
+export const TABS_CHECK_STALE_MS = 90_000;
+/** `exec`'s own timeout when none is given (herdr.d.ts). */
+const EXEC_DEFAULT_TIMEOUT_MS = 30_000;
+
+export interface TabsKeeperDeps {
+  ports: Ports;
+  appHome: string;
+  /** Herdr's own copy: `run("mod.clone", { name: "tabs", as: CLONE_NAME })`. May throw. */
+  cloneMod(): void;
+  /** The running Herdr's version ("" when it does not say). */
+  herdrVersion(): string;
+  /** Versions already told about, shared with the layout sync of this window. */
+  warned: Set<string>;
+  now(): number;
+}
+
+/** One run of ensureTabsClone: its answer, and until when it may still be at work. */
+interface Attempt {
+  result: Promise<TabsOutcome>;
+  settled: boolean;
+  aliveUntil: number;
+}
+
+/**
+ * The tab bar for this module load: the first call makes or rebuilds the copy
+ * once and checks it (ensureTabsClone), later calls share that answer. A run
+ * that went quiet (its copy closed) is started again, but never while its
+ * `herdr-app check` may still be running: only once that check's timeout has
+ * passed. Every call then keeps layouts/suspender.json built around the tab
+ * bar it got. A copy that cannot be used says so in one short toast. Waiting
+ * for `mod.clone` sleeps in the task of the caller that asked first. Never
+ * throws.
+ */
+export function tabsKeeper(
+  d: TabsKeeperDeps,
+): (sleep: (ms: number) => Promise<void>, toast: (text: string) => void) => Promise<TabsOutcome> {
+  let attempt: Attempt | null = null;
+
+  const start = (sleep: (ms: number) => Promise<void>, toast: (text: string) => void): Attempt => {
+    const run: Attempt = {
+      result: Promise.resolve({ mode: "builtin", why: "check-failed" }),
+      settled: false,
+      aliveUntil: 0,
+    };
+    const alive = (forMs: number): void => {
+      run.aliveUntil = Math.max(run.aliveUntil, d.now() + forMs);
+    };
+    // Every step of the run is a sign of life; a running check lives until its timeout.
+    const step =
+      <A extends unknown[], R>(f: (...args: A) => Promise<R>) =>
+      async (...args: A): Promise<R> => {
+        alive(TABS_CHECK_STALE_MS);
+        try {
+          return await f(...args);
+        } finally {
+          alive(TABS_CHECK_STALE_MS);
+        }
+      };
+    const ports: Ports = {
+      ...d.ports,
+      readText: step(d.ports.readText),
+      writeText: step(d.ports.writeText),
+      exec: async (cmd, args, opts): Promise<ExecResult> => {
+        alive((opts?.timeout ?? EXEC_DEFAULT_TIMEOUT_MS) + TABS_CHECK_STALE_MS);
+        try {
+          return await d.ports.exec(cmd, args, opts);
+        } finally {
+          alive(TABS_CHECK_STALE_MS);
+        }
+      },
+    };
+    alive(TABS_CHECK_STALE_MS);
+    run.result = ensureTabsClone({ ports, appHome: d.appHome, cloneMod: d.cloneMod, sleep: step(sleep) })
+      .catch((): TabsOutcome => ({ mode: "builtin", why: "check-failed" }))
+      .then((out) => {
+        run.settled = true;
+        if (out.mode === "builtin") {
+          tabsFallbackNotice({ herdrVersion: d.herdrVersion(), toast, warned: d.warned });
+        }
+        return out;
+      });
+    return run;
+  };
+
+  return async (sleep, toast) => {
+    if (attempt === null || (!attempt.settled && d.now() > attempt.aliveUntil)) {
+      attempt = start(sleep, toast);
+    }
+    const out = await attempt.result;
+    try {
+      await syncLayout({
+        ports: d.ports,
+        appHome: d.appHome,
+        herdrVersion: d.herdrVersion(),
+        toast,
+        warned: d.warned,
+        tabs: out.mode,
+      });
+    } catch {
+      // The mod works without its layout.
+    }
+    return out;
+  };
 }

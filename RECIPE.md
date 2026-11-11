@@ -131,8 +131,11 @@ changes, each at an anchor that must occur exactly once:
    `.child(panelButton("suspender", String(shared("suspender.tabLabel") ?? "Sessions"), "mods/suspender/icons/moon.svg"))`
 
 The first line is `// suspender-tabs: from tabs/main.js sha256=<sha of the shipped file> patch=1`. On every load
-the mod compares the copy with the patch of the current shipped file and writes it again when they differ, then
-runs `herdr-app check` on the copy. In the layout the `tabs` block shows `suspender-tabs` instead of `tabs`, and
+the mod builds the patch of the current shipped file and runs `herdr-app check` on it in
+`<app home>/suspender/tabs-check/suspender-tabs` (the patched `main.js` and the shipped `mod.json`), outside
+`mods/`, because Herdr reloads anything written under `mods/` and would show it at once. Only when that passes
+does it write the copy, and only when the copy differs. Only `main.js` is ever written: the copy's other files
+stay as `mod.clone` made them. In the layout the `tabs` block shows `suspender-tabs` instead of `tabs`, and
 the side panel stack `panel-body` gets a third child, `{id: "suspender", content: {mod: "suspender", props:
 {role: "panel"}}}`; `suspender_generated.tabs` records which tab bar the layout was built for (`clone` or
 `builtin`). The label comes from the engine as the shared value `suspender.tabLabel`, set only when its text
@@ -170,14 +173,18 @@ Always do the whole `split`, `swap`, `close` sequence; without the swap the clos
 neighbour. Insert the sleeping panel before stopping the agent and close the terminal last.
 
 Keys reach only a mod that is shown somewhere in the window. The restart check runs when the first copy of the
-mod is shown. Every shown copy gets a key's command, so `suspender.panel` acts once per second at most.
+mod is shown. Every shown copy gets a key's command, once each, so `suspender.panel` acts once per press: a
+copy that has not had the current press yet is getting that one, and a copy that has had it is getting the next
+press. Two quick presses open and close.
 
 The tab bar copy falls back to Herdr's own tab bar, with the mod's button left of the tabs and its own column,
 when the shipped `tabs/main.js` is missing, an anchor is gone or there twice, `mod.clone` makes nothing within
 5 s, a `suspender-tabs` is there that is neither a clone of `tabs` nor ours, the write keeps being refused, or
-`herdr-app check` fails or cannot run. One toast says `Sessions moved left of the tabs` (a toast title is cut
+`herdr-app check` of the new text fails or cannot run (the copy is then left as it was). One toast says `Sessions moved left of the tabs` (a toast title is cut
 at about 280 px). Two copies of the mod writing the copy at once is normal: a refused write is read back, and
-if it already holds the patch that counts as done. Put the button right of the tab bar block and it lands
+if it already holds the patch that counts as done. There is one check per load for the whole window; a check
+whose copy of the mod closed half way is started again, but never while its `herdr-app check` may still be
+running (before that check's 60 s timeout has passed). Put the button right of the tab bar block and it lands
 after the window buttons.
 
 Herdr has no uninstall hook. Removing the mod means switching layouts first, then deleting

@@ -19,8 +19,8 @@ import { SHIPPED_MAIN, SHIPPED_MAIN_VERSION } from "./core/shippedMain.js";
 import { herdrPorts } from "./platform/ports.js";
 import { Engine, newCoordinator, TICK_MS } from "./runtime/engine.js";
 import { herdrHost } from "./runtime/herdrHost.js";
-import { syncLayout, tabsFallbackNotice } from "./runtime/layoutSync.js";
-import { CLONE_NAME, ensureTabsClone } from "./runtime/tabsClone.js";
+import { syncLayout } from "./runtime/layoutSync.js";
+import { CLONE_NAME, tabsKeeper } from "./runtime/tabsClone.js";
 import { PanelView } from "./ui/panel.js";
 import { PillView } from "./ui/pill.js";
 import { PopupView } from "./ui/popup.js";
@@ -47,67 +47,60 @@ function herdrVersion() {
 }
 /**
  * Builds or refreshes layouts/suspender.json from Herdr's main.json, around
- * the given tab bar (omitted: the one the layout has); never throws (the
- * layout is a convenience).
+ * the tab bar the layout has; never throws (the layout is a convenience).
  */
-async function keepLayout(toast, tabs) {
+async function keepLayout(toast) {
     try {
-        const version = herdrVersion() ?? "";
         await syncLayout({
             ports: herdrPorts(),
             appHome: appHome(),
-            herdrVersion: version,
+            herdrVersion: herdrVersion() ?? "",
             toast,
             warned: layoutWarned,
-            ...(tabs ? { tabs } : {}),
         });
     }
     catch {
         // The mod works without its layout.
     }
 }
-/** A check of the tab bar copy that has not settled after this long is taken for lost (its copy closed). */
-const TABS_CHECK_STALE_MS = 90_000;
-/** One check of the tab bar copy per module load, shared by the copies of this window. */
-let tabsCheck = null;
-/**
- * Whether the layout can show the live copy of the tab bar: makes or rebuilds
- * `mods/suspender-tabs` once and checks it. A copy that cannot be used says so
- * in one short toast. Waiting for `mod.clone` sleeps in the task of the copy
- * that asked first.
- */
-function tabsMode(sleep, toast) {
-    if (tabsCheck === null || (!tabsCheck.settled() && Date.now() - tabsCheck.started > TABS_CHECK_STALE_MS)) {
-        let settled = false;
-        const result = ensureTabsClone({
-            ports: herdrPorts(),
-            appHome: appHome(),
-            cloneMod: () => {
-                run("mod.clone", { name: "tabs", as: CLONE_NAME });
-            },
-            sleep,
-        })
-            .catch(() => ({ mode: "builtin", why: "check-failed" }))
-            .then((outcome) => {
-            settled = true;
-            if (outcome.mode === "builtin") {
-                tabsFallbackNotice({ herdrVersion: herdrVersion() ?? "", toast, warned: layoutWarned });
-            }
-            return outcome;
-        });
-        tabsCheck = { result, started: Date.now(), settled: () => settled };
-    }
-    return tabsCheck.result;
+/** The tab bar copy and the layout around it, for the copies of this window (made when one first shows). */
+let keepTabs = null;
+function tabsAndLayout(sleep, toast) {
+    keepTabs ??= tabsKeeper({
+        ports: herdrPorts(),
+        appHome: appHome(),
+        cloneMod: () => {
+            run("mod.clone", { name: "tabs", as: CLONE_NAME });
+        },
+        herdrVersion: () => herdrVersion() ?? "",
+        warned: layoutWarned,
+        now: () => Date.now(),
+    });
+    return keepTabs(sleep, toast);
 }
-/** When the last `suspender.panel` was carried out: every shown copy gets the press, one acts on it. */
-let lastPanelPress = Number.NEGATIVE_INFINITY;
-/** The command `suspender.panel`: opens or closes Sessions, the way its button in this layout does. */
-function togglePanel() {
+/**
+ * The copies of one press arrive together. A press this old is over even for
+ * the copies it never reached (they were not shown then), so a copy that only
+ * came on screen since then does not take the next press for a copy of it.
+ */
+const PRESS_SPREAD_MS = 250;
+/** The press of `suspender.panel` being handed out: the copies it has reached, and when the first one got it. */
+let press = null;
+/**
+ * The command `suspender.panel`, as copy `copy` received it: opens or closes
+ * Sessions, the way its button in this layout does. Herdr hands each press to
+ * every shown copy, once each: a copy that has not had the current press yet
+ * is getting that press, and one that has had it is getting the next one. So
+ * one press acts once however many copies are shown, and the second of two
+ * quick presses still acts.
+ */
+export function togglePanel(copy) {
     const now = Date.now();
-    if (now - lastPanelPress < 1_000) {
+    if (press !== null && !press.copies.has(copy) && now - press.at < PRESS_SPREAD_MS) {
+        press.copies.add(copy);
         return;
     }
-    lastPanelPress = now;
+    press = { copies: new Set([copy]), at: now };
     for (const step of sessionsToggle(layout())) {
         run(step.command, step.args);
     }
@@ -159,7 +152,8 @@ export default class Suspender extends View {
         const ports = herdrPorts();
         // Beside the layouts it belongs with: another HERDR_APP_HOME is another window with its own sessions.
         const storePath = [appHome(), "suspender", "sessions.json"].join(ports.sep);
-        const engine = new Engine({ host, ports, id: copyId(), coordinator, storePath });
+        const id = copyId();
+        const engine = new Engine({ host, ports, id, coordinator, storePath });
         this.engine = engine;
         const key = typeof props.key === "string" ? props.key : null;
         if (props.role === "sleep" && key !== null) {
@@ -189,8 +183,7 @@ export default class Suspender extends View {
         if (this.popup === null && this.confirm === null) {
             cx.spawn(async (cx) => {
                 const toast = (text) => host.notify(text, "warning");
-                const tabs = await tabsMode((ms) => cx.sleep(ms), toast);
-                await keepLayout(toast, tabs.mode);
+                await tabsAndLayout((ms) => cx.sleep(ms), toast);
             });
         }
         // Redraw only for news: a write in this window already redraws every copy
@@ -222,7 +215,7 @@ export default class Suspender extends View {
                 }
                 cx.spawn(async (cx) => {
                     if (command === "panel") {
-                        togglePanel();
+                        togglePanel(id);
                     }
                     else if (command === "toggle-focused") {
                         await engine.toggleFocused();

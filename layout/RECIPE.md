@@ -43,7 +43,8 @@ them.
 made from, the generator version (3), and `tabs`, the tab bar it was built for. Insertions are found by block
 id or mod name, never by position.
 
-With the copied tab bar (`tabs: "clone"`, what the mod builds once the copy passes `herdr-app check`):
+With the copied tab bar (`tabs: "clone"`, what the mod builds once the copy's text has passed `herdr-app check`,
+which runs in `suspender/tabs-check` before anything under `mods/` is written):
 
 - the `tabs` block shows `suspender-tabs` instead of `tabs`, everything else about it unchanged;
 - the stack `panel-body` gets a third child after `files` and `changes`:

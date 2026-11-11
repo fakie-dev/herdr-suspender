@@ -61,9 +61,11 @@ The Sessions button in the tab bar needs one copied mod. Herdr's tab bar is a sh
 are not edited, so the mod makes its own copy with Herdr's `mod.clone`: `mods/suspender-tabs`. Its `main.js`
 is Herdr's `tabs/main.js` with two small changes (Sessions added to the panels, and its button after Changes),
 and its first line records which `tabs/main.js` it was made from. When a Herdr update changes the tab bar, the
-next start writes the copy again from the new file. Before the layout uses the copy, `herdr-app check` must pass
-on it. If the changes no longer fit Herdr's tab bar, or the check fails, the layout goes back to Herdr's own tab
-bar with a Sessions button left of the tabs, and a short notice says so.
+next start writes the copy again from the new file. Herdr picks up whatever lands in `mods/` at once, so the new
+file is first tried with `herdr-app check` in a folder of the mod's own (`suspender/tabs-check`), and only a file
+that passed replaces the copy. If the changes no longer fit Herdr's tab bar, or the check fails, the copy stays
+as it was, the layout goes back to Herdr's own tab bar with a Sessions button left of the tabs, and a short
+notice says so.
 
 Without the layout the mod still works. Sleep and Resume work, sleeping tabs are restored, and Sessions opens
 as a window. One difference: the restart check runs when a copy of the mod is first shown, and with the layout
@@ -100,7 +102,8 @@ order:
 2. Delete `~/.config/herdr-app/layouts/suspender.json`.
 3. Delete `~/.config/herdr-app/mods/suspender` and `~/.config/herdr-app/mods/suspender-tabs`.
 4. Remove the `suspender.*` keys and the `layout:suspender` section from your `keys.json`.
-5. If you want the saved sessions gone too, delete `~/.config/herdr-app/suspender/`.
+5. If you want the saved sessions gone too, delete `~/.config/herdr-app/suspender/` (it also holds
+   `tabs-check`, where the tab bar copy is tried before it is used).
 
 Only `layouts/suspender.json` shows `suspender-tabs`, so no other layout gets a Sessions button that leads
 nowhere. While the mod is installed it puts both back: the layout when it loads, the copy when one of its blocks

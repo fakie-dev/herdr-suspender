@@ -94,6 +94,12 @@ export const home = () => ${JSON.stringify(home)};
 export const updates = () => ({ app: { version: "0.1.14", ready: null, updates: false } });
 export const window = () => { throw new Error("no window while loading"); };
 export const notify = () => null;
+// A test may play the window: globalThis.suspenderWindow = { layout(), run(name, args) }.
+export const layout = () => globalThis.suspenderWindow?.layout() ?? null;
+export const run = (name, args) => {
+  globalThis.suspenderWindow?.run(name, args);
+  return null;
+};
 export const readTextFile = ${options.readsHang ? `() => ${hang}` : `async (path) => (fs.existsSync(path) ? fs.readFileSync(path, "utf8") : null)`};
 // Herdr writes off its UI thread: the write lands a moment after the call.
 export const writeTextFile = async (path, text, expected) => {
