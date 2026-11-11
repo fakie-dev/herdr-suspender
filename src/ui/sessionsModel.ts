@@ -8,7 +8,7 @@ import { fitSegments, type Segment } from "../core/fit.ts";
 import type { AgentId, SessionInfo, SessionKey, SessionRecord, SessionState } from "../core/model.ts";
 import { homePath, midId, repoPath, type Sep, shortBranch, shortId } from "../core/paths.ts";
 import { t } from "../i18n/index.ts";
-import { clock } from "./format.ts";
+import { clock, measureAt } from "./format.ts";
 
 // ---- states and groups
 
@@ -203,7 +203,11 @@ export interface PopupFacts {
   /** The state word, with the time for a sleeper ("asleep · 14:20"). */
   state: string;
   tone: Tone;
+  /** The whole name (the tooltip shows it when the lines cut it). */
   title: string | null;
+  /** The name as the popup draws it: up to TITLE_MAX_LINES lines, an ellipsis only past the last. */
+  titleLines: string[];
+  titleCut: boolean;
   prompt: string | null;
   reply: string | null;
   context: { pct: number; label: string; detail: string | null } | null;
@@ -280,6 +284,7 @@ export function popupFacts(
     state: stateText(rec, o.now),
     tone: TONE[rec.state],
     title: present(info.title),
+    ...titleLayout(present(info.title)),
     prompt: present(info.firstPrompt),
     reply: present(info.lastReply),
     context: pct === null ? null : { pct, label: t("popup.context", { pct }), detail: present(info.contextText) },
@@ -293,23 +298,37 @@ export const POPUP_WIDTH = 344;
 const POPUP_PAD = 12;
 const POPUP_GAP = 9;
 const HEADER_PX = 18;
-const TITLE_PX = 38;
-const QUOTE_PX = 36;
+/** The popup's text column. */
+const POPUP_TEXT_PX = POPUP_WIDTH - 2 * POPUP_PAD;
+/** The name: 13.5 px semibold, a fixed line height so whole lines fit, up to three of them. */
+export const TITLE_TEXT = 13.5;
+export const TITLE_LINE_PX = 19;
+export const TITLE_MAX_LINES = 3;
+/**
+ * measureAt's estimate, a little large: Herdr drew "Перевести авторизацию
+ * портала на" (32 characters, semibold 13.5) 246 px wide, measureAt says 242.
+ */
+const TITLE_MEASURE = measureAt(TITLE_TEXT * 1.03);
+/** A prompt or reply: two lines of 12 px at this height, so the second is never cut through. */
+export const QUOTE_LINE_PX = 18;
+const QUOTE_PX = 2 * QUOTE_LINE_PX;
 const CONTEXT_PX = 28;
 const TOKENS_PX = 16;
-const FACT_ROW_PX = 18;
+/** A fact row (Branch, Model, … Session): its height and the space between two rows. */
+export const FACT_ROW_PX = 18;
+export const FACT_GAP_PX = 3;
 const FACTS_PAD_PX = 9;
 
-/** The popup's height: the blocks it shows, each at its widest (two lines for a title or a quote). */
+/** The popup's height: the blocks it shows, the name at its lines, a quote at its widest (two lines). */
 export function popupHeight(facts: PopupFacts): number {
   const blocks = [
     HEADER_PX,
-    facts.title === null ? 0 : TITLE_PX,
+    facts.titleLines.length * TITLE_LINE_PX,
     facts.prompt === null ? 0 : QUOTE_PX,
     facts.reply === null ? 0 : QUOTE_PX,
     facts.context === null ? 0 : CONTEXT_PX,
     facts.tokens === null ? 0 : TOKENS_PX,
-    FACTS_PAD_PX + facts.rows.length * FACT_ROW_PX,
+    FACTS_PAD_PX + facts.rows.length * FACT_ROW_PX + Math.max(0, facts.rows.length - 1) * FACT_GAP_PX,
   ].filter((px) => px > 0);
   return POPUP_PAD * 2 + blocks.reduce((sum, px) => sum + px, 0) + (blocks.length - 1) * POPUP_GAP;
 }
@@ -384,4 +403,62 @@ export function pillAgent<T extends { state: string }>(
   detect: (terminal: T) => AgentId | null,
 ): AgentId | null {
   return terminal === null || terminal.state !== "live" ? null : detect(terminal);
+}
+
+/** The name's lines in the popup's text column. */
+function titleLayout(title: string | null): { titleLines: string[]; titleCut: boolean } {
+  if (title === null) {
+    return { titleLines: [], titleCut: false };
+  }
+  const titleLines = wrapLines(title, POPUP_TEXT_PX, TITLE_MAX_LINES, TITLE_MEASURE);
+  return { titleLines, titleCut: titleLines.join(" ") !== title.replace(/\s+/g, " ").trim() };
+}
+
+const ELLIPSIS = "…";
+
+/**
+ * `text` in lines no wider than `width` (by `measure`), broken at spaces, or
+ * inside a word longer than a line. Past `max` lines the last one ends with an
+ * ellipsis.
+ */
+export function wrapLines(text: string, width: number, max: number, measure: (text: string) => number): string[] {
+  const lines: string[] = [];
+  let line = "";
+  const words = text.split(/\s+/).filter((w) => w !== "");
+  for (let i = 0; i < words.length; i++) {
+    let word = words[i] ?? "";
+    const tried = line === "" ? word : `${line} ${word}`;
+    if (measure(tried) <= width) {
+      line = tried;
+      continue;
+    }
+    if (line !== "") {
+      lines.push(line);
+      line = "";
+    }
+    // A word wider than a line: as much of it as fits, the rest on the next lines.
+    while (measure(word) > width) {
+      const chars = [...word];
+      let n = 1;
+      while (n < chars.length && measure(chars.slice(0, n + 1).join("")) <= width) {
+        n++;
+      }
+      lines.push(chars.slice(0, n).join(""));
+      word = chars.slice(n).join("");
+    }
+    line = word;
+  }
+  if (line !== "") {
+    lines.push(line);
+  }
+  if (lines.length <= max) {
+    return lines;
+  }
+  const kept = lines.slice(0, max);
+  let last = lines.slice(max - 1).join(" ");
+  while (last !== "" && measure(last + ELLIPSIS) > width) {
+    last = [...last].slice(0, -1).join("");
+  }
+  kept[max - 1] = last.trimEnd() + ELLIPSIS;
+  return kept;
 }

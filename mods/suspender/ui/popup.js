@@ -11,7 +11,7 @@ import { closeOverlay, openOverlay } from "herdr";
 import { t } from "../i18n/index.js";
 import { MOD_NAME } from "../runtime/engine.js";
 import { agentTile, icon, palette, TONE_COLOR } from "./kit.js";
-import { POPUP_WIDTH, popupFacts, popupHeight, popupPosition } from "./sessionsModel.js";
+import { FACT_GAP_PX, FACT_ROW_PX, POPUP_WIDTH, popupFacts, popupHeight, popupPosition, QUOTE_LINE_PX, TITLE_LINE_PX, TITLE_TEXT, } from "./sessionsModel.js";
 /** How long the pointer rests on a row or a strip before its popup opens. */
 export const SHOW_DELAY_MS = 350;
 /** From one row to the next while a popup is open. */
@@ -174,7 +174,13 @@ export class PopupView {
             .items_start()
             .text_size(12)
             .child(div().w(52).flex_none().text_color(color("dim")).child(label))
-            .child(div().flex_1().min_w(0).max_h(36).overflow_hidden().child(text));
+            .child(div()
+            .flex_1()
+            .min_w(0)
+            .line_height(`${QUOTE_LINE_PX}px`)
+            .max_h(2 * QUOTE_LINE_PX)
+            .overflow_hidden()
+            .child(text));
         root.child(h_flex()
             .gap(7)
             .items_center()
@@ -182,14 +188,17 @@ export class PopupView {
             .child(agentTile(facts.agent, color))
             .child(div().child(facts.agentName))
             .child(div().ml_auto().px(8).rounded(10).bg(color("raised")).text_color(tone).whitespace_nowrap().child(facts.state)));
-        if (facts.title !== null) {
-            root.child(div()
-                .max_h(38)
-                .overflow_hidden()
-                .text_size(13.5)
+        if (facts.titleLines.length > 0) {
+            // Whole lines, wrapped by sessionsModel (the popup's height counts them);
+            // the full name in a tooltip when even three lines cut it.
+            root.child(v_flex()
+                .id("popup-title")
+                .flex_none()
+                .text_size(TITLE_TEXT)
                 .font_semibold()
                 .text_color(color("foreground"))
-                .child(facts.title));
+                .when(facts.titleCut && facts.title !== null, (el) => el.tooltip(facts.title ?? ""))
+                .children(facts.titleLines.map((line) => div().h(TITLE_LINE_PX).line_height(`${TITLE_LINE_PX}px`).truncate().child(line))));
         }
         if (facts.prompt !== null) {
             root.child(quote(t("popup.prompt"), facts.prompt));
@@ -202,6 +211,7 @@ export class PopupView {
             root.child(v_flex()
                 .gap(4)
                 .text_size(11.5)
+                .line_height("16px")
                 .when(facts.context !== null, (el) => el
                 .child(h_flex()
                 .justify_between()
@@ -228,12 +238,14 @@ export class PopupView {
                 .child(facts.tokens ?? "")))));
         }
         root.child(v_flex()
-            .gap(3)
+            .gap(FACT_GAP_PX)
             .pt(8)
             .border_t(1)
             .border_color(color("border"))
             .text_size(11.5)
             .children(facts.rows.map((row) => h_flex()
+            .h(FACT_ROW_PX)
+            .line_height(`${FACT_ROW_PX}px`)
             .gap(12)
             .items_center()
             .child(div().w(66).flex_none().text_color(color("dim")).child(row.label))

@@ -3,7 +3,10 @@
 // variant B of sleep-ui.html with the strip of session-info.html v4. Also the
 // question for a working agent (role "confirm"), opened as a dialog.
 //
-// Colours only from theme(); the only motion is the native spinner.
+// The last screen is laid out on the terminal's own cell grid (format.ts:
+// screenLook / screenMarks), so it lines up with the live terminal it replaced,
+// and the strip lies over its bottom rows, as in the mockup. Colours only from
+// theme(); the only motion is the native spinner.
 
 import { h_flex, v_flex } from "gpui-base";
 import { type AsyncContext, type Color, type Context, div, type Element, svg } from "gpui-kit";
@@ -14,7 +17,21 @@ import { t } from "../i18n/index.ts";
 import type { Ports } from "../platform/ports.ts";
 import type { Choice, Engine } from "../runtime/engine.ts";
 import type { Host } from "../runtime/host.ts";
-import { measureAt, screenLines, stripActions, stripSegments, stripStatus, wakeSteps } from "./format.ts";
+import {
+  measureAt,
+  mixColor,
+  SCREEN_DIM,
+  type ScreenLook,
+  type ScreenMark,
+  screenGrid,
+  screenLines,
+  screenLook,
+  screenMarks,
+  stripActions,
+  stripSegments,
+  stripStatus,
+  wakeSteps,
+} from "./format.ts";
 import { anchorRect, factsFor, hoverPopup } from "./popup.ts";
 
 const ICONS = "mods/suspender/icons";
@@ -23,8 +40,6 @@ const STATUS_TEXT = 12;
 /** Room the strip keeps for the moon, gaps and padding besides the info line and the buttons. */
 const STRIP_CHROME_PX = 60;
 const BUTTON_PX = 96;
-/** Lines of the last screen when the pane's height is not known yet. */
-const DEFAULT_LINES = 30;
 
 /** A theme colour by name (theme() names every one the mod uses; a missing one draws nothing). */
 function palette(): (name: string) => Color {
@@ -32,8 +47,29 @@ function palette(): (name: string) => Color {
   return (name) => (th[name] ?? "#00000000") as Color;
 }
 
-const num = (value: unknown, fallback: number): number =>
-  typeof value === "number" && Number.isFinite(value) ? value : fallback;
+/** One piece of the last screen, placed in px from the first cell. */
+function markElement(m: ScreenMark, l: ScreenLook, shade: (share: number) => Color): Element {
+  const at = div().absolute().left(m.x).top(m.y);
+  switch (m.kind) {
+    case "text":
+      return at.h(l.cellH).line_height(`${l.cellH}px`).text_size(m.size).whitespace_nowrap().child(m.text);
+    case "fill":
+      return at.w(m.w).h(m.h).bg(shade(m.shade));
+    case "arc": {
+      const el = at.w(m.w).h(m.h).border_color(shade(1));
+      if (m.corner === "tl") {
+        return el.border_t(l.stroke).border_l(l.stroke).rounded_tl(m.radius);
+      }
+      if (m.corner === "tr") {
+        return el.border_t(l.stroke).border_r(l.stroke).rounded_tr(m.radius);
+      }
+      if (m.corner === "bl") {
+        return el.border_b(l.stroke).border_l(l.stroke).rounded_bl(m.radius);
+      }
+      return el.border_b(l.stroke).border_r(l.stroke).rounded_br(m.radius);
+    }
+  }
+}
 
 export class SleepPane {
   private size = { width: 0, height: 0 };
@@ -126,12 +162,11 @@ export class SleepPane {
   render(_cx: Context): Element {
     const color = palette();
     const rec = this.rec();
-    const look = settings();
-    const fontSize = num(look["font_size"], 14);
-    const fontFamily = typeof look["font_family"] === "string" ? look["font_family"] : "monospace";
-    const root = v_flex()
+    const root = div()
       .id("sleep-root")
+      .relative()
       .size_full()
+      .overflow_hidden()
       .bg(color("background"))
       .on_size_change((size, cx) => {
         this.size = size;
@@ -141,27 +176,36 @@ export class SleepPane {
       return root;
     }
 
-    const lineHeight = fontSize * 1.45;
-    const rows = this.size.height > 0 ? Math.max(0, Math.floor((this.size.height - 70) / lineHeight)) : DEFAULT_LINES;
-    const screen = v_flex()
-      .flex_1()
-      .min_h(0)
-      .overflow_hidden()
-      .px(14)
-      .py(8)
-      .font_family(fontFamily)
-      .text_size(fontSize)
-      .text_color(color("foreground"))
-      .opacity(0.3)
-      .children(
-        screenLines(rec.lastScreen, rows).map((line) =>
-          div()
-            .whitespace_nowrap()
-            .child(line === "" ? " " : line),
-        ),
-      );
+    return root.child(this.screen(rec)).child(this.strip(rec));
+  }
 
-    return root.child(screen).child(this.strip(rec));
+  /**
+   * The last screen, dimmed, where the terminal had it: the same cells, the
+   * same padding, its first row where the terminal's was. Rows that no longer
+   * fit go from the top, as in a terminal made shorter. `hc read` gives text
+   * only, so the screen keeps no colours.
+   */
+  private screen(rec: SessionRecord): Element {
+    const color = palette();
+    const shade = (share: number): Color =>
+      mixColor(color("background"), color("foreground"), SCREEN_DIM * share) as Color;
+    const look = screenLook(settings());
+    const grid = screenGrid(this.size.height, look);
+    const marks = screenMarks(screenLines(rec.lastScreen, grid.rows), look);
+    return div()
+      .absolute()
+      .top(0)
+      .left(0)
+      .size_full()
+      .child(
+        div()
+          .absolute()
+          .left(look.padX)
+          .top(grid.top)
+          .font_family(look.font)
+          .text_color(shade(1))
+          .children(marks.map((m) => markElement(m, look, shade))),
+      );
   }
 
   private strip(rec: SessionRecord): Element {
@@ -273,6 +317,10 @@ export class SleepPane {
     return (
       v_flex()
         .id("strip")
+        .absolute()
+        .left(0)
+        .right(0)
+        .bottom(0)
         // Hovering the strip opens the session's popup (popup.ts decides when).
         .on_mouse_move((e, cx) =>
           hoverPopup.enter(

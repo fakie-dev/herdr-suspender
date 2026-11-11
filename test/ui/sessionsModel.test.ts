@@ -16,6 +16,9 @@ import {
   popupPosition,
   rowMemory,
   sleepingCount,
+  TITLE_LINE_PX,
+  TITLE_MAX_LINES,
+  wrapLines,
 } from "../../src/ui/sessionsModel.ts";
 import { HOME, rec } from "./helpers.ts";
 
@@ -453,5 +456,61 @@ describe("pillAgent: the agent the pill offers to sleep", () => {
       pillAgent({ state: "finished" }, () => "claude"),
       null,
     );
+  });
+});
+
+describe("the session's name in the popup (user: the name is often cut off horizontally)", () => {
+  // Fixed width per character, so the lines are known by hand.
+  const seven = (text: string): number => [...text].length * 7;
+
+  it("wraps at spaces into lines that fit, keeping every word", () => {
+    // 70 px = 10 characters a line.
+    assert.deepEqual(wrapLines("Fix the login page fast", 70, 3, seven), ["Fix the", "login page", "fast"]);
+  });
+
+  it("breaks a word longer than a line inside the word", () => {
+    assert.deepEqual(wrapLines("abcdefghijklmnop", 70, 3, seven), ["abcdefghij", "klmnop"]);
+  });
+
+  it("ends with an ellipsis only past the last line it may use", () => {
+    const lines = wrapLines("one two three four five six seven eight", 70, 2, seven);
+    assert.equal(lines.length, 2);
+    assert.equal(lines[0], "one two");
+    const last = lines[1] ?? "";
+    assert.ok(last.endsWith("…"), last);
+    assert.ok(seven(last) <= 70, last);
+    assert.deepEqual(wrapLines("short", 70, 2, seven), ["short"]);
+  });
+
+  const base = { agentName: "Claude Code", home: HOME, sep: "\\" as const, now: 0, usedMb: null };
+  // A 77-character name, in the 344 px popup: one line used to show, the second cut through.
+  const long = "Перевести авторизацию портала на refresh-токены и device flow для телевизоров";
+  const named = (title: string) => popupFacts(rec("n", "asleep", { info: { title } }), base);
+
+  it("shows a long name whole, on up to three lines, and makes the popup taller by those lines", () => {
+    const f = named(long);
+    assert.ok(f.titleLines.length > 1 && f.titleLines.length <= TITLE_MAX_LINES, f.titleLines.join(" | "));
+    assert.equal(f.titleLines.join(" "), long);
+    assert.equal(f.titleCut, false);
+    assert.equal(popupHeight(f) - popupHeight(named("Short name")), (f.titleLines.length - 1) * TITLE_LINE_PX);
+  });
+
+  it("counts the 3 px between fact rows, so the last row (Session) is not cut off", () => {
+    // Live: with a three-line name the Session row went under the popup's edge,
+    // 12 px short for six rows. A row is 18 px, and 3 px lie between rows.
+    const withMemory = popupFacts(rec("n", "asleep", { memFreedMb: 900, info: { title: "x" } }), base);
+    const without = popupFacts(rec("n", "asleep", { memFreedMb: null, info: { title: "x" } }), base);
+    assert.equal(withMemory.rows.length, without.rows.length + 1);
+    assert.equal(popupHeight(withMemory) - popupHeight(without), 18 + 3);
+  });
+
+  it("cuts only a name longer than three lines, and keeps the whole name for the tooltip", () => {
+    // The live test session's name, 109 characters: four lines' worth.
+    const huge = `${long}, с ретраями и понятными ошибками`;
+    const f = named(huge);
+    assert.equal(f.titleLines.length, TITLE_MAX_LINES);
+    assert.ok(f.titleLines.at(-1)?.endsWith("…"));
+    assert.equal(f.titleCut, true);
+    assert.equal(f.title, huge);
   });
 });

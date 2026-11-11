@@ -151,3 +151,504 @@ export function measureAt(size: number): (text: string) => number {
     return units * size;
   };
 }
+
+// ---------------------------------------------------------------------------
+// The last screen, on the terminal's own grid.
+//
+// Herdr's terminal draws every character in a cell of whole device pixels:
+// width = round(font size x zoom x the font's advance), height = round(font
+// size x zoom x the font's line height (ascent + descent + gap)). Measured on
+// Herdr 0.1.15 for JetBrains Mono, Geist Mono, Consolas and Cascadia Mono at
+// 11 to 20 px and at zoom 1.1. It draws lines and blocks itself, edge to edge,
+// so tables, frames and the Claude Code logo join without gaps. A mod's text
+// keeps the font's own advance and GPUI's line height of 1.618, which is why
+// the screen used to look spaced out. Here every piece goes to its cell.
+
+/** A font's advance and line height, in em. */
+interface FontMetrics {
+  advance: number;
+  height: number;
+}
+
+/** Measured fonts (their hhea metrics; Herdr's cells match them at every size tried). */
+const FONTS: Record<string, FontMetrics> = {
+  "jetbrains mono": { advance: 0.6, height: 1.32 },
+  "geist mono": { advance: 0.6, height: 1.3 },
+  consolas: { advance: 1126 / 2048, height: 2398 / 2048 },
+  "cascadia mono": { advance: 1200 / 2048, height: 2380 / 2048 },
+};
+/** Herdr falls back to JetBrains Mono for a font the machine lacks; any other font is guessed as it. */
+const FALLBACK_FONT = "JetBrains Mono";
+const FALLBACK_METRICS: FontMetrics = { advance: 0.6, height: 1.32 };
+
+/** How the terminal lays out text, in the mod's px (Herdr applies the zoom). */
+export interface ScreenLook {
+  font: string;
+  /** The terminal's font size: characters drawn one by one. */
+  glyph: number;
+  /** The size at which the font's advance is exactly one cell: runs of plain text. */
+  run: number;
+  cellW: number;
+  cellH: number;
+  /** terminal_padding: [horizontal, vertical]. */
+  padX: number;
+  padY: number;
+  /** A light line's thickness. */
+  stroke: number;
+}
+
+/** A light line's thickness per px of font (measured on JetBrains Mono: 1 px at 14, 2 at 24 and 30, 3 at 40). */
+const LINE_WEIGHT = 0.075;
+/** Lines of the last screen when the pane's height is not known yet. */
+export const DEFAULT_ROWS = 30;
+/** How much of the foreground the dimmed screen keeps. */
+export const SCREEN_DIM = 0.3;
+
+const positive = (value: unknown, fallback: number): number =>
+  typeof value === "number" && Number.isFinite(value) && value > 0 ? value : fallback;
+
+const nonNegative = (value: unknown, fallback: number): number =>
+  typeof value === "number" && Number.isFinite(value) && value >= 0 ? value : fallback;
+
+/** From `settings()`: the shown layout's terminal font, size, padding and the zoom. */
+export function screenLook(look: Record<string, unknown>): ScreenLook {
+  const named = look["font_family"];
+  const font = typeof named === "string" && named !== "" ? named : FALLBACK_FONT;
+  const size = positive(look["font_size"], 14);
+  const zoom = positive(look["zoom"], 1);
+  const metrics = FONTS[font.toLowerCase()] ?? FALLBACK_METRICS;
+  const device = size * zoom;
+  const cellW = Math.max(1, Math.round(device * metrics.advance)) / zoom;
+  const cellH = Math.max(1, Math.round(device * metrics.height)) / zoom;
+  const pad = look["terminal_padding"];
+  const padX = nonNegative(Array.isArray(pad) ? pad[0] : pad, 0);
+  const padY = nonNegative(Array.isArray(pad) ? (pad[1] ?? pad[0]) : pad, 0);
+  return {
+    font,
+    glyph: size,
+    run: cellW / metrics.advance,
+    cellW,
+    cellH,
+    padX,
+    padY,
+    stroke: Math.max(1, Math.round(device * LINE_WEIGHT)) / zoom,
+  };
+}
+
+/** Rows that fit a pane `height` px tall, and where the first starts: what is left under the last row is shared above and below, as the terminal does. */
+export function screenGrid(height: number, l: ScreenLook): { rows: number; top: number } {
+  if (height <= 0) {
+    return { rows: DEFAULT_ROWS, top: l.padY };
+  }
+  const inside = Math.max(0, height - 2 * l.padY);
+  const rows = Math.floor(inside / l.cellH + 1e-9);
+  return { rows, top: l.padY + Math.floor((inside - rows * l.cellH) / 2) };
+}
+
+type Range = readonly [number, number];
+
+const ZERO_WIDTH: readonly Range[] = [
+  [0x0300, 0x036f],
+  [0x0483, 0x0489],
+  [0x0591, 0x05bd],
+  [0x0610, 0x061a],
+  [0x064b, 0x065f],
+  [0x0e31, 0x0e31],
+  [0x0e34, 0x0e3a],
+  [0x1ab0, 0x1aff],
+  [0x1dc0, 0x1dff],
+  [0x200b, 0x200f],
+  [0x2028, 0x202e],
+  [0x2060, 0x2064],
+  [0x20d0, 0x20ff],
+  [0xfe00, 0xfe0f],
+  [0xfe20, 0xfe2f],
+  [0xfeff, 0xfeff],
+  [0x1f3fb, 0x1f3ff],
+  [0xe0000, 0xe0fff],
+];
+
+/** East Asian wide and full-width characters and emoji shown as pictures (Unicode 15). */
+const WIDE: readonly Range[] = [
+  [0x1100, 0x115f],
+  [0x231a, 0x231b],
+  [0x2329, 0x232a],
+  [0x23e9, 0x23ec],
+  [0x23f0, 0x23f0],
+  [0x23f3, 0x23f3],
+  [0x25fd, 0x25fe],
+  [0x2614, 0x2615],
+  [0x2648, 0x2653],
+  [0x267f, 0x267f],
+  [0x2693, 0x2693],
+  [0x26a1, 0x26a1],
+  [0x26aa, 0x26ab],
+  [0x26bd, 0x26be],
+  [0x26c4, 0x26c5],
+  [0x26ce, 0x26ce],
+  [0x26d4, 0x26d4],
+  [0x26ea, 0x26ea],
+  [0x26f2, 0x26f3],
+  [0x26f5, 0x26f5],
+  [0x26fa, 0x26fa],
+  [0x26fd, 0x26fd],
+  [0x2705, 0x2705],
+  [0x270a, 0x270b],
+  [0x2728, 0x2728],
+  [0x274c, 0x274c],
+  [0x274e, 0x274e],
+  [0x2753, 0x2755],
+  [0x2757, 0x2757],
+  [0x2795, 0x2797],
+  [0x27b0, 0x27b0],
+  [0x27bf, 0x27bf],
+  [0x2b1b, 0x2b1c],
+  [0x2b50, 0x2b50],
+  [0x2b55, 0x2b55],
+  [0x2e80, 0x303e],
+  [0x3041, 0x33ff],
+  [0x3400, 0x4dbf],
+  [0x4e00, 0x9fff],
+  [0xa000, 0xa4cf],
+  [0xa960, 0xa97f],
+  [0xac00, 0xd7a3],
+  [0xf900, 0xfaff],
+  [0xfe10, 0xfe19],
+  [0xfe30, 0xfe6f],
+  [0xff00, 0xff60],
+  [0xffe0, 0xffe6],
+  [0x16fe0, 0x16fe4],
+  [0x17000, 0x18cff],
+  [0x1b000, 0x1b2ff],
+  [0x1f004, 0x1f004],
+  [0x1f0cf, 0x1f0cf],
+  [0x1f18e, 0x1f18e],
+  [0x1f191, 0x1f19a],
+  [0x1f200, 0x1f202],
+  [0x1f210, 0x1f23b],
+  [0x1f240, 0x1f248],
+  [0x1f250, 0x1f251],
+  [0x1f260, 0x1f265],
+  [0x1f300, 0x1f320],
+  [0x1f32d, 0x1f335],
+  [0x1f337, 0x1f37c],
+  [0x1f37e, 0x1f393],
+  [0x1f3a0, 0x1f3ca],
+  [0x1f3cf, 0x1f3d3],
+  [0x1f3e0, 0x1f3f0],
+  [0x1f3f4, 0x1f3f4],
+  [0x1f3f8, 0x1f43e],
+  [0x1f440, 0x1f440],
+  [0x1f442, 0x1f4fc],
+  [0x1f4ff, 0x1f53d],
+  [0x1f54b, 0x1f54e],
+  [0x1f550, 0x1f567],
+  [0x1f57a, 0x1f57a],
+  [0x1f595, 0x1f596],
+  [0x1f5a4, 0x1f5a4],
+  [0x1f5fb, 0x1f64f],
+  [0x1f680, 0x1f6c5],
+  [0x1f6cc, 0x1f6cc],
+  [0x1f6d0, 0x1f6d2],
+  [0x1f6d5, 0x1f6d7],
+  [0x1f6dc, 0x1f6df],
+  [0x1f6eb, 0x1f6ec],
+  [0x1f6f4, 0x1f6fc],
+  [0x1f7e0, 0x1f7eb],
+  [0x1f7f0, 0x1f7f0],
+  [0x1f90c, 0x1f93a],
+  [0x1f93c, 0x1f945],
+  [0x1f947, 0x1f9ff],
+  [0x1fa70, 0x1faff],
+  [0x20000, 0x2fffd],
+  [0x30000, 0x3fffd],
+];
+
+function inRanges(cp: number, ranges: readonly Range[]): boolean {
+  let lo = 0;
+  let hi = ranges.length - 1;
+  while (lo <= hi) {
+    const mid = (lo + hi) >> 1;
+    const r = ranges[mid];
+    if (r === undefined) {
+      return false;
+    }
+    if (cp < r[0]) {
+      hi = mid - 1;
+    } else if (cp > r[1]) {
+      lo = mid + 1;
+    } else {
+      return true;
+    }
+  }
+  return false;
+}
+
+/** How many cells a character takes in the terminal: marks and joiners none, CJK and emoji two. */
+export function cellWidth(cp: number): 0 | 1 | 2 {
+  if (inRanges(cp, ZERO_WIDTH)) {
+    return 0;
+  }
+  return inRanges(cp, WIDE) ? 2 : 1;
+}
+
+/** Characters every terminal font carries at its own advance: they can share one piece of text. */
+function plain(cp: number): boolean {
+  return (cp >= 0x20 && cp <= 0x7e) || (cp >= 0xa0 && cp <= 0x52f) || (cp >= 0x2010 && cp <= 0x2027);
+}
+
+export type Corner = "tl" | "tr" | "bl" | "br";
+
+/** What to draw, in px from the first cell's corner. `shade`: the share of the dimmed foreground. */
+export type ScreenMark =
+  | { kind: "text"; x: number; y: number; text: string; size: number }
+  | { kind: "fill"; x: number; y: number; w: number; h: number; shade: number }
+  | { kind: "arc"; corner: Corner; x: number; y: number; w: number; h: number; radius: number };
+
+type TextMark = Extract<ScreenMark, { kind: "text" }>;
+
+// Light lines: which halves of the cell's middle lines a character has.
+const L = 1;
+const R = 2;
+const U = 4;
+const D = 8;
+const LINES = new Map<number, number>([
+  [0x2500, L | R],
+  [0x2502, U | D],
+  [0x250c, R | D],
+  [0x2510, L | D],
+  [0x2514, R | U],
+  [0x2518, L | U],
+  [0x251c, U | D | R],
+  [0x2524, U | D | L],
+  [0x252c, L | R | D],
+  [0x2534, L | R | U],
+  [0x253c, L | R | U | D],
+  [0x2574, L],
+  [0x2575, U],
+  [0x2576, R],
+  [0x2577, D],
+]);
+const ARCS = new Map<number, Corner>([
+  [0x256d, "tl"],
+  [0x256e, "tr"],
+  [0x256f, "br"],
+  [0x2570, "bl"],
+]);
+// Quadrants: upper left, upper right, lower left, lower right.
+const UL = 1;
+const UR = 2;
+const LL = 4;
+const LR = 8;
+const QUADRANTS = new Map<number, number>([
+  [0x2596, LL],
+  [0x2597, LR],
+  [0x2598, UL],
+  [0x2599, UL | LL | LR],
+  [0x259a, UL | LR],
+  [0x259b, UL | UR | LL],
+  [0x259c, UL | UR | LR],
+  [0x259d, UR],
+  [0x259e, UR | LL],
+  [0x259f, UR | LL | LR],
+]);
+const FULL_BLOCK = 0x2588;
+const RULE = 0x2500;
+
+function fill(x: number, y: number, w: number, h: number, shade = 1): ScreenMark {
+  return { kind: "fill", x, y, w, h, shade };
+}
+
+/** A light line or its rounded corner in the cell at (x, y), through the cell's middles. */
+function line(cp: number, x: number, y: number, l: ScreenLook): ScreenMark[] | null {
+  const { cellW: w, cellH: h, stroke: s } = l;
+  const mx = Math.floor(w / 2) - Math.floor(s / 2);
+  const my = Math.floor(h / 2) - Math.floor(s / 2);
+  const sides = LINES.get(cp);
+  if (sides !== undefined) {
+    const out: ScreenMark[] = [];
+    if (sides & L && sides & R) {
+      out.push(fill(x, y + my, w, s));
+    } else if (sides & L) {
+      out.push(fill(x, y + my, mx + s, s));
+    } else if (sides & R) {
+      out.push(fill(x + mx, y + my, w - mx, s));
+    }
+    if (sides & U && sides & D) {
+      out.push(fill(x + mx, y, s, h));
+    } else if (sides & U) {
+      out.push(fill(x + mx, y, s, my + s));
+    } else if (sides & D) {
+      out.push(fill(x + mx, y + my, s, h - my));
+    }
+    return out;
+  }
+  const corner = ARCS.get(cp);
+  if (corner === undefined) {
+    return null;
+  }
+  const left = corner === "tl" || corner === "bl";
+  const top = corner === "tl" || corner === "tr";
+  return [
+    {
+      kind: "arc",
+      corner,
+      x: left ? x + mx : x,
+      y: top ? y + my : y,
+      w: left ? w - mx : mx + s,
+      h: top ? h - my : my + s,
+      radius: Math.max(1, Math.round(Math.min(w, h) * 0.4)),
+    },
+  ];
+}
+
+/** A block element in the cell at (x, y): halves, eighths, quadrants, shades. */
+function block(cp: number, x: number, y: number, l: ScreenLook): ScreenMark[] | null {
+  const { cellW: w, cellH: h } = l;
+  const hw = Math.floor(w / 2);
+  const hh = Math.floor(h / 2);
+  const quad = QUADRANTS.get(cp);
+  if (quad !== undefined) {
+    const out: ScreenMark[] = [];
+    if (quad & UL) {
+      out.push(fill(x, y, hw, hh));
+    }
+    if (quad & UR) {
+      out.push(fill(x + hw, y, w - hw, hh));
+    }
+    if (quad & LL) {
+      out.push(fill(x, y + hh, hw, h - hh));
+    }
+    if (quad & LR) {
+      out.push(fill(x + hw, y + hh, w - hw, h - hh));
+    }
+    return out;
+  }
+  if (cp === 0x2580) {
+    return [fill(x, y, w, hh)];
+  }
+  if (cp >= 0x2581 && cp <= 0x2587) {
+    const part = cp === 0x2584 ? h - hh : Math.round((h * (cp - 0x2580)) / 8);
+    return [fill(x, y + h - part, w, part)];
+  }
+  if (cp === FULL_BLOCK) {
+    return [fill(x, y, w, h)];
+  }
+  if (cp >= 0x2589 && cp <= 0x258f) {
+    const part = cp === 0x258c ? hw : Math.round((w * (0x2590 - cp)) / 8);
+    return [fill(x, y, part, h)];
+  }
+  if (cp === 0x2590) {
+    return [fill(x + hw, y, w - hw, h)];
+  }
+  if (cp >= 0x2591 && cp <= 0x2593) {
+    return [fill(x, y, w, h, (cp - 0x2590) / 4)];
+  }
+  if (cp === 0x2594) {
+    return [fill(x, y, w, Math.round(h / 8))];
+  }
+  if (cp === 0x2595) {
+    const part = Math.round(w / 8);
+    return [fill(x + w - part, y, part, h)];
+  }
+  return null;
+}
+
+/** The marks of one line of the screen, `row` rows down. */
+function lineMarks(text: string, row: number, l: ScreenLook): ScreenMark[] {
+  const marks: ScreenMark[] = [];
+  const y = row * l.cellH;
+  const chars = [...text];
+  let col = 0;
+  // The run of plain text being gathered, and the last text mark (a combining mark joins it).
+  let run: { col: number; text: string } | null = null;
+  let last: TextMark | null = null;
+  const endRun = (): void => {
+    const done = run?.text.trimEnd() ?? "";
+    if (run !== null && done !== "") {
+      last = { kind: "text", x: run.col * l.cellW, y, text: done, size: l.run };
+      marks.push(last);
+    }
+    run = null;
+  };
+  for (let i = 0; i < chars.length; i++) {
+    const ch = chars[i] ?? "";
+    const cp = ch.codePointAt(0) ?? 0;
+    if (cp < 0x20 || (cp >= 0x7f && cp < 0xa0)) {
+      continue;
+    }
+    const width = cellWidth(cp);
+    if (width === 0) {
+      if (run !== null) {
+        run.text += ch;
+      } else if (last !== null) {
+        last.text += ch;
+      }
+      continue;
+    }
+    if (width === 1 && plain(cp)) {
+      if (run === null && cp !== 0x20) {
+        run = { col, text: "" };
+      }
+      if (run !== null) {
+        run.text += ch;
+      }
+      col += 1;
+      continue;
+    }
+    endRun();
+    last = null;
+    const x = col * l.cellW;
+    if (cp === FULL_BLOCK || cp === RULE) {
+      // A row of full blocks or of rules is one rectangle.
+      let n = 1;
+      while (chars[i + n] === ch) {
+        n++;
+      }
+      const one = (cp === RULE ? line(cp, x, y, l) : block(cp, x, y, l))?.[0];
+      if (one?.kind === "fill") {
+        marks.push({ ...one, w: one.w + (n - 1) * l.cellW });
+      }
+      i += n - 1;
+      col += n;
+      continue;
+    }
+    const drawn = width === 1 ? (line(cp, x, y, l) ?? block(cp, x, y, l)) : null;
+    if (drawn !== null) {
+      marks.push(...drawn);
+    } else {
+      last = { kind: "text", x, y, text: ch, size: l.glyph };
+      marks.push(last);
+    }
+    col += width;
+  }
+  endRun();
+  return marks;
+}
+
+/**
+ * Every line of the screen as pieces on the terminal's grid: runs of plain
+ * text (one piece each, at the size where a character is exactly one cell),
+ * any other character on its own at its cell and the terminal's size, lines
+ * and blocks as rectangles. Wide characters take two cells, marks none.
+ */
+export function screenMarks(lines: readonly string[], l: ScreenLook): ScreenMark[] {
+  return lines.flatMap((text, row) => lineMarks(text, row, l));
+}
+
+/** `#rrggbb` `t` of the way from `from` to `to` (an alpha pair, if any, is dropped). */
+export function mixColor(from: string, to: string, t: number): string {
+  const rgb = (c: string): number[] => {
+    const hex = c.replace("#", "");
+    return [0, 2, 4].map((i) => Number.parseInt(hex.slice(i, i + 2), 16) || 0);
+  };
+  const a = rgb(from);
+  const b = rgb(to);
+  return `#${a
+    .map((v, i) =>
+      Math.round(v + ((b[i] ?? 0) - v) * t)
+        .toString(16)
+        .padStart(2, "0"),
+    )
+    .join("")}`;
+}
