@@ -3,7 +3,7 @@
 A mod for [Herdr App](https://herdr.dev) that puts idle Claude Code and Codex sessions to sleep and wakes them
 in the same tab, even after Herdr or the whole computer has restarted.
 
-![A sleeping tab: the last screen of the agent, dimmed, with a strip under it](preview.png)
+![Suspender in Herdr: the Sessions panel next to Files and Changes, a session's details and a sleeping tab with Resume](preview.png)
 
 An idle Claude Code session holds somewhere between 0.6 and 0.9 GB of memory. With seven projects open that
 adds up, but closing the agent means losing track of where the conversation stood. Suspender stops the agent
@@ -185,3 +185,6 @@ notes in [`AGENTS.md`](AGENTS.md) describe the folders.
 ## License
 
 MIT.
+
+The icons in the preview images (the moon-and-stars mark, the puzzle piece, the prompt and the code
+brackets) come from [Phosphor Icons](https://phosphoricons.com) (MIT), recoloured.
