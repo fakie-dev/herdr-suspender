@@ -22,7 +22,8 @@ First release.
   model, folder and session id.
 - A check that the session is not open elsewhere before resuming, and a clear strip when the conversation is
   gone ("Start new session" or "Forget").
-- A generated `layouts/suspender.json`, rebuilt from Herdr's own `main.json` whenever that changes, and a
+- A generated `layouts/suspender.json`, created when the mod loads and rebuilt from Herdr's own `main.json`
+  whenever that changes, and a
   ready-made layout card in `layout/`.
 - A privacy check (`scripts/check-privacy.ts`) that runs in `pnpm check` and, over the whole git history, in CI.
 - `RECIPE.md` for the mod and for the layout, `ROADMAP.md`, architecture notes and decision records.
@@ -30,7 +31,6 @@ First release.
 ### Known limits
 
 - Tested on Windows only. macOS and Linux are expected to work and are covered by CI tests.
-- Codex support is covered by tests on synthetic data; it has not been run by hand on a real session yet.
 - The strip does not warn about text typed into the prompt but not sent.
 - The interface is English only.
 

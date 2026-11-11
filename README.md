@@ -48,8 +48,10 @@ By hand it is the same thing: copy `mods/suspender` to `~/.config/herdr-app/mods
 
 For the whole window with the Sessions button and panel already in place there is a second card in this
 repository, [`layout/`](layout/RECIPE.md): a layout and the mod together. The layout is also kept up to date
-by the mod itself: it rebuilds `layouts/suspender.json` from Herdr's current `main.json` whenever that file
-changes, so a Herdr update reaches you without cloning anything.
+by the mod itself. When the mod loads, and when `herdr-app check` runs on it, `layouts/suspender.json` is
+created if it is missing (from a built-in copy of Herdr 0.1.14's `main.json`). The first copy of the mod that is
+shown then rebuilds it from your live `main.json`, and again whenever that file or Herdr's version changes, so
+a Herdr update reaches you without cloning anything.
 
 Without the layout the mod still works. Sleep and Resume work, sleeping tabs are restored, and Sessions opens
 as a window. One difference: the restart check runs when a copy of the mod is first shown, and with the layout
@@ -109,9 +111,13 @@ Tested on Windows. macOS and Linux should work, as nothing in the core is Window
 path code sits in one module, but they have not been tried: testers are welcome, and CI runs the tests on all
 three systems.
 
-Claude Code has been tried by hand through sleep, resume, a session open elsewhere, a missing transcript, Forget
-and Resume all. Recovery after a real reboot is covered by tests and has not been tried on a real restart yet. The Codex adapter is covered by tests on synthetic
-rollout files; a full by-hand run on a real Codex session is still to be done.
+Both agents have been run by hand on Windows through sleep, resume, a session open elsewhere, a missing
+transcript, Start new session, Forget, Resume all, leaving the agent with `/exit` or `/quit`, and an agent killed
+from outside (the tab becomes "interrupted"). Recovery after a real reboot is covered by tests and has not been
+tried on a real restart yet.
+
+One thing the mod cannot do: if an agent shows its own dialog when it starts (Codex asks about updates and about
+trusting a new folder), the resumed agent waits behind that dialog until you answer it.
 
 Known limits: the strip cannot warn about unsent text in the prompt (neither adapter can see the prompt yet), and Codex has
 no event for "closed elsewhere", so its check runs every five seconds while the strip is on screen.

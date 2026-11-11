@@ -99,8 +99,9 @@ window, also what `mod.open` gives with no role). `mod.json` is `{"place": "none
 "overlay": {"kind": "window", "key": "suspender", "width": 400, "height": 560}}`: `place: none` keeps Herdr
 from docking a copy by itself.
 
-The layout it needs is [`layout/`](layout/RECIPE.md); the mod writes `layouts/suspender.json` itself from Herdr's
-`layouts/main.json` and rebuilds it when that changes. The shipped mods are not cloned or edited.
+The layout it needs is [`layout/`](layout/RECIPE.md); the mod writes `layouts/suspender.json` itself: it creates the file
+when the mod loads or `herdr-app check` runs (from a built-in copy of Herdr 0.1.14's `main.json`), and the first
+shown copy rebuilds it from the live `layouts/main.json`, again whenever that changes. The shipped mods are not cloned or edited.
 
 Herdr calls it makes: `pane.split` (with `mod` and `props`), `pane.swap`, `pane.close`, `terminal.kill`,
 `tab` and `terminal` reads, `shared` values (`suspender.leader`, `suspender.rev`, `suspender.progress`),

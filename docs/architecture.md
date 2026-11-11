@@ -97,7 +97,8 @@ newest one for the terminal's folder that is not older than the process. See
 ## The layout
 
 `layouts/suspender.json` is generated from Herdr's `main.json` by `core/layout.ts` and kept current by
-`runtime/layoutSync.ts`: any shown copy compares the hash of `main.json`, the Herdr version and the generator
+`runtime/layoutSync.ts`. Loading the module, and `herdr-app check`, creates the file from `core/shippedMain.ts` (a
+copy of the 0.1.14 `main.json`) if it is missing, so a fresh install has a layout. Any shown copy then compares the hash of `main.json`, the Herdr version and the generator
 version with the record inside the file, and rebuilds if they differ. The generator finds blocks by id and mod
 name. If it cannot, the last working file stays and a toast says so. See
 [ADR 2](adr/0002-living-layout.md). `scripts/build-layout.ts` renders the same generator against a fixture
