@@ -99,17 +99,6 @@
           },
           "children": [
             {
-              "id": "tabs",
-              "type": "block",
-              "window_drag": true,
-              "content": {
-                "mod": "tabs"
-              },
-              "size": {
-                "weight": 1
-              }
-            },
-            {
               "id": "suspender-toggle",
               "type": "block",
               "size": {
@@ -120,6 +109,17 @@
                 "props": {
                   "role": "toggle"
                 }
+              }
+            },
+            {
+              "id": "tabs",
+              "type": "block",
+              "window_drag": true,
+              "content": {
+                "mod": "tabs"
+              },
+              "size": {
+                "weight": 1
               }
             }
           ]
@@ -239,6 +239,7 @@
   ],
   "suspender_generated": {
     "from": "5ae0c5da8ee9ed7ebde11f1ee0ab2710fba0970b4159cc6c88b00e6bdcf757f9",
-    "generator": 2
+    "generator": 3,
+    "tabs": "builtin"
   }
 }

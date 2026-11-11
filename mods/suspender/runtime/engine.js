@@ -17,6 +17,7 @@ import { isAgentId, sessionKey, } from "../core/model.js";
 import { defaultStorePath, parseStore, readStore, STORE_ATTEMPTS, StoreConflictError, serializeStore, } from "../core/store.js";
 import { hasMessage, t } from "../i18n/index.js";
 import { allProcesses, processDetails, subtree } from "../platform/proc.js";
+import { sleepingCount } from "../ui/sessionsModel.js";
 import { normalizeTerminal, toTerminalView } from "./host.js";
 /** The mod's folder name: what `pane.split {mod}` asks for. */
 export const MOD_NAME = "suspender";
@@ -25,6 +26,8 @@ export const LEADER_KEY = "suspender.leader";
 export const REV_KEY = "suspender.rev";
 /** Bumped when a wake moves to its next step, so the sleep pane redraws. */
 export const PROGRESS_KEY = "suspender.progress";
+/** "Sessions · N" for the live copy of the tab bar, which reads it with shared() (runtime/tabsClone.ts). */
+export const TAB_LABEL_KEY = "suspender.tabLabel";
 /** The terminal's own pid when it was bound: a restart gives it a new one. */
 export const LABEL_PID = "suspender.pid";
 export const LEADER_STALE_MS = 15_000;
@@ -212,9 +215,11 @@ export class Engine {
     async tick() {
         if (!this.claim()) {
             await this.load();
+            this.publishTabLabel();
             return;
         }
         await this.load();
+        this.publishTabLabel();
         if (!this.host.ready()) {
             return;
         }
@@ -223,6 +228,16 @@ export class Engine {
             await this.observe(term);
         }
         await this.reconcile(terms);
+    }
+    /**
+     * "Sessions · N" for the live copy of the tab bar. Setting a shared value
+     * redraws every mod in the window, so only a changed text is set.
+     */
+    publishTabLabel() {
+        const label = t("toggle.label", { count: sleepingCount(this.records()) });
+        if (this.host.shared(TAB_LABEL_KEY) !== label) {
+            this.host.setShared(TAB_LABEL_KEY, label);
+        }
     }
     claim() {
         const now = this.ports.now();
@@ -1415,6 +1430,7 @@ export class Engine {
                 const rev = `${this.id}:${++this.revSeq}`;
                 this.co.storeRev = rev;
                 this.host.setShared(REV_KEY, rev);
+                this.publishTabLabel();
                 return;
             }
         }

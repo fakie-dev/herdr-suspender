@@ -23,8 +23,10 @@ interrupt it and sleep, or cancel.
 The strip of a sleeping tab has Resume. While the agent starts, the strip shows each step (found session,
 starting, ready); if the start fails, it says why and offers Retry. Nothing retries by itself.
 
-The Sessions panel sits on the right, like Files and Changes. It lists every session of every project, grouped
-by space, with the memory each one freed or is using, and "Resume all in project" wakes a whole space one
+With the layout, Sessions is the third button in the tab bar, right after Files and Changes and drawn the same
+way (`+  Files  Changes  ☾ Sessions · 3  ─ □ ×`, the number counts sleeping sessions). Its list opens in the
+same side panel, switches with Files and Changes, and each space remembers which one was open. It lists every
+session of every project, grouped by space, with the memory each one freed or is using, and "Resume all in project" wakes a whole space one
 session at a time. Hovering over a strip or a row opens a popup with the first prompt, the last reply, the
 message count, context use, tokens, branch, model, folder and session id; the folder and the id can be copied.
 
@@ -53,7 +55,15 @@ repository, [`layout/`](layout/RECIPE.md): a layout and the mod together. The la
 by the mod itself. When the mod loads, and when `herdr-app check` runs on it, `layouts/suspender.json` is
 created if it is missing (from a built-in copy of Herdr 0.1.14's `main.json`). The first copy of the mod that is
 shown then rebuilds it from your live `main.json`, and again whenever that file or Herdr's version changes, so
-a Herdr update reaches you without cloning anything.
+a Herdr update reaches you without cloning any layout.
+
+The Sessions button in the tab bar needs one copied mod. Herdr's tab bar is a shipped mod, and shipped mods
+are not edited, so the mod makes its own copy with Herdr's `mod.clone`: `mods/suspender-tabs`. Its `main.js`
+is Herdr's `tabs/main.js` with two small changes (Sessions added to the panels, and its button after Changes),
+and its first line records which `tabs/main.js` it was made from. When a Herdr update changes the tab bar, the
+next start writes the copy again from the new file. Before the layout uses the copy, `herdr-app check` must pass
+on it. If the changes no longer fit Herdr's tab bar, or the check fails, the layout goes back to Herdr's own tab
+bar with a Sessions button left of the tabs, and a short notice says so.
 
 Without the layout the mod still works. Sleep and Resume work, sleeping tabs are restored, and Sessions opens
 as a window. One difference: the restart check runs when a copy of the mod is first shown, and with the layout
@@ -66,8 +76,8 @@ that happens at once because the Sessions button is always on screen.
 | `Ctrl+Shift+S` | Opens or closes the Sessions panel (a window if you do not use the layout) |
 | `Alt+Shift+S`  | Sleeps the agent in the focused tab, or resumes the focused sleeping tab   |
 
-Both come from `keys.json` and can be changed there. Commands for your own bindings: `suspender.toggle-focused`,
-`suspender.resume-all`, `suspender.forget`, `suspender.start-new`, and for the question dialog
+Both come from `keys.json` and can be changed there. Commands for your own bindings: `suspender.panel` (what
+`Ctrl+Shift+S` does in the layout), `suspender.toggle-focused`, `suspender.resume-all`, `suspender.forget`, `suspender.start-new`, and for the question dialog
 `suspender.sleep-when-done`, `suspender.interrupt-and-sleep`, `suspender.cancel`.
 
 Keys only reach a mod that is shown somewhere in the window. With the layout that is always so.
@@ -75,6 +85,27 @@ Keys only reach a mod that is shown somewhere in the window. With the layout tha
 Sessions are stored in `~/.config/herdr-app/suspender/sessions.json`, outside the mod folder, so updating or
 reinstalling the mod keeps them. Closing a sleeping tab or pressing Forget removes its entry; the agent's own
 transcript is never touched.
+
+If you bound `Ctrl+Shift+S` with an earlier version, your `keys.json` may still say
+`{ "command": "layout.toggle", "args": { "id": "suspender-panel" } }` under `layout:suspender`. That column
+exists only when the layout falls back to Herdr's own tab bar, so change it to `"suspender.panel"`, which works
+both ways.
+
+## Removing it
+
+Herdr tells a mod nothing when its folder is deleted, so the mod cannot clean up after itself. Remove it in this
+order:
+
+1. Switch to another layout (`Ctrl+Shift+L`, or `herdr-app do layout.switch --name main`).
+2. Delete `~/.config/herdr-app/layouts/suspender.json`.
+3. Delete `~/.config/herdr-app/mods/suspender` and `~/.config/herdr-app/mods/suspender-tabs`.
+4. Remove the `suspender.*` keys and the `layout:suspender` section from your `keys.json`.
+5. If you want the saved sessions gone too, delete `~/.config/herdr-app/suspender/`.
+
+Only `layouts/suspender.json` shows `suspender-tabs`, so no other layout gets a Sessions button that leads
+nowhere. While the mod is installed it puts both back: the layout when it loads, the copy when one of its blocks
+is shown. If you delete the mod folder but keep the layout and stay in it, the tab bar keeps a Sessions button
+without its moon, and its panel says "suspender did not load" (seen on Herdr 0.1.15).
 
 ## How it works
 
@@ -92,7 +123,7 @@ types it into a shell. Terminals carry labels (`suspender.agent`, `suspender.ses
 so they survive a lost terminal, and the store keeps everything else.
 
 [`docs/architecture.md`](docs/architecture.md) has the details and [`docs/adr/`](docs/adr) the reasons behind
-the four decisions that shaped it.
+the five decisions that shaped it.
 
 ### Adding an agent
 
@@ -141,6 +172,7 @@ Codex has no event for "closed elsewhere", so while its strip is on screen it is
 pnpm install
 pnpm check      # biome, tsc, tests, fresh build, layout copy, privacy scan
 pnpm build      # compiles src/ into mods/suspender/ and refreshes layout/
+pnpm bench      # how fast a 50 MB transcript is read; kept out of check, where a busy machine fails it
 ```
 
 The compiled JavaScript in `mods/suspender/` is committed because Herdr runs plain JS, and `pnpm check` fails

@@ -1,5 +1,7 @@
-// The Sessions panel (role "panel": the hidden right column of the living
-// layout; role "window": the same list in a window, for a layout without it):
+// The Sessions panel (role "panel": in the living layout, the side panel's
+// third child beside Files and Changes, or our own hidden right column when the
+// tab bar is Herdr's own; role "window": the same list in a window, for a
+// layout without it):
 // every session of every space, grouped by space, running before asleep before
 // interrupted, with "memory freed" on top and "Resume all in project" per
 // group. A row shows what the approved mockup (session-info.html v4) shows and
@@ -11,14 +13,14 @@ import { h_flex, v_flex } from "gpui-base";
 import { div } from "gpui-kit";
 import { closeOverlay, layout, spaces } from "herdr";
 import { SEPARATOR } from "../core/fit.js";
-import { PANEL_ID } from "../core/layout.js";
+import { sessionsShown } from "../core/layout.js";
 import { t } from "../i18n/index.js";
 import { allProcesses, processDetails } from "../platform/proc.js";
 import { subtree } from "../runtime/engine.js";
 import { measureAt } from "./format.js";
 import { agentTile, icon, palette, TONE_COLOR } from "./kit.js";
 import { anchorRect, factsFor, hoverPopup } from "./popup.js";
-import { fitRow, groupSessions, isSleeping, MemoryPolicy, memoryFreedText, panelShown, rowMemory, stateWord, } from "./sessionsModel.js";
+import { fitRow, groupSessions, isSleeping, MemoryPolicy, memoryFreedText, rowMemory, stateWord, } from "./sessionsModel.js";
 /** Running sessions' memory is read at most this often, and only while the panel is shown. */
 export const MEMORY_EVERY_MS = 30_000;
 const DEFAULT_WIDTH = 320;
@@ -34,7 +36,7 @@ export class PanelView {
         this.o = o;
     }
     shown() {
-        return this.o.mode === "window" || panelShown(layout(), PANEL_ID);
+        return this.o.mode === "window" || sessionsShown(layout());
     }
     /** Every round (TICK_MS): measure the running sessions' memory if the panel is open and 30 s have passed. */
     tick(cx) {

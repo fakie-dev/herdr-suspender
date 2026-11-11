@@ -1,12 +1,19 @@
 // The "living" layout `layouts/suspender.json`: Herdr's current shipped
-// `main.json` plus three insertions, rebuilt whenever main.json changes, so a
-// Herdr update reaches the person without cloning or editing anything shipped.
+// `main.json` plus a few insertions, rebuilt whenever main.json changes, so a
+// Herdr update reaches the person without cloning or editing any shipped
+// layout. Two ways to show Sessions (TabsMode):
 //
-//  - `suspender-toggle`: the "Sessions · N" button, in a row beside the tabs
-//    block (right of it: the tab bar draws the window buttons at its right edge,
-//    so the button ends the strip, after them);
-//  - `suspender-panel`: a hidden Sessions column, rightmost in the work row;
-//  - `suspender-pill`: a floating "Sleep" drawer over the tab block.
+//  - clone (the usual one): the tabs block shows `suspender-tabs`, the live
+//    copy of Herdr's tab bar with a "Sessions · N" button beside Files and
+//    Changes (runtime/tabsClone.ts), and the Sessions list is the side panel
+//    stack's third child, `suspender`, so it opens, switches and is remembered
+//    per space exactly like Files and Changes;
+//  - builtin (when the copy cannot be used): Herdr's own tab bar, our own
+//    `suspender-toggle` button in a row left of it (its right edge holds the
+//    window buttons) and our own hidden column `suspender-panel`, rightmost in
+//    the work row.
+//
+// Both float `suspender-pill`, the "Sleep" drawer, over the tab block.
 //
 // Blocks are found by id or mod, never by position. A main.json the
 // insertions do not fit is reported, not thrown: the caller keeps the last
@@ -14,11 +21,15 @@
 import { sha256Hex } from "./sha256.js";
 export const LAYOUT_NAME = "suspender";
 /** Bumped when the insertions change, so existing living layouts are rebuilt. */
-export const GENERATOR_VERSION = 2;
+export const GENERATOR_VERSION = 3;
 export const TOGGLE_ID = "suspender-toggle";
 export const TOPBAR_ID = "suspender-topbar";
 export const PANEL_ID = "suspender-panel";
 export const PILL_ID = "suspender-pill";
+/** The live copy of Herdr's tab bar with the Sessions button (runtime/tabsClone.ts). */
+export const TABS_CLONE = "suspender-tabs";
+/** The Sessions panel's id among the side panel's children (`panel-body`), and the copy's button id. */
+export const SESSIONS_CHILD = "suspender";
 const MOD = "suspender";
 const TOGGLE_WIDTH_PX = 110;
 const PANEL_SIZE = { px: 320 };
@@ -55,8 +66,7 @@ export function layoutHash(main) {
     return sha256Hex(JSON.stringify(main));
 }
 function insertToggle(root) {
-    const hit = find(root, (node) => node.id === "tabs" && node.type === "block") ??
-        find(root, (node) => contentOf(node)?.mod === "tabs");
+    const hit = findTabs(root);
     const parent = hit?.path.at(-1);
     if (!(hit && parent && Array.isArray(parent.children))) {
         return "no tabs block";
@@ -71,7 +81,7 @@ function insertToggle(root) {
     const siblings = parent.children;
     const at = siblings.indexOf(tabs);
     if (parent.type === "row") {
-        siblings.splice(at + 1, 0, toggle);
+        siblings.splice(at, 0, toggle);
         return null;
     }
     // In a column: wrap the tabs block in a row that takes its place and size.
@@ -83,11 +93,15 @@ function insertToggle(root) {
         }
     }
     tabs.size = { weight: 1 };
-    topbar.children = [tabs, toggle];
+    topbar.children = [toggle, tabs];
     siblings[at] = topbar;
     return null;
 }
-function insertPanelAndPill(root) {
+function findTabs(root) {
+    return (find(root, (node) => node.id === "tabs" && node.type === "block") ??
+        find(root, (node) => contentOf(node)?.mod === "tabs"));
+}
+function insertPanel(root) {
     const hit = find(root, (node) => contentOf(node)?.tab === "active");
     if (!hit) {
         return "no tab block (content.tab: active)";
@@ -105,6 +119,32 @@ function insertPanelAndPill(root) {
         max: PANEL_MAX_PX,
         content: { mod: MOD, props: { role: "panel" } },
     });
+    return null;
+}
+/** The copy in the tabs block, Sessions as the side panel stack's third child. */
+function useClone(root) {
+    const tabs = findTabs(root)?.node;
+    const content = tabs ? contentOf(tabs) : null;
+    if (!(tabs && content)) {
+        return "no tabs block";
+    }
+    const body = find(root, (node) => node.id === "panel-body" && node.type === "stack");
+    if (!(body && Array.isArray(body.node.children))) {
+        return "no panel-body stack for Sessions";
+    }
+    content.mod = TABS_CLONE;
+    body.node.children.push({
+        id: SESSIONS_CHILD,
+        type: "block",
+        content: { mod: MOD, props: { role: "panel" } },
+    });
+    return null;
+}
+function insertPill(root) {
+    const hit = find(root, (node) => contentOf(node)?.tab === "active");
+    if (!hit) {
+        return "no tab block (content.tab: active)";
+    }
     const floating = Array.isArray(hit.node.floating) ? hit.node.floating : [];
     hit.node.floating = [
         ...floating,
@@ -119,7 +159,7 @@ function insertPanelAndPill(root) {
     return null;
 }
 /** `main` with `cloned_from` right after `type`, as Herdr's own clones have it. */
-function withOrigin(layout, mainVersion, hash) {
+function withOrigin(layout, mainVersion, hash, tabs) {
     const out = {};
     for (const [field, value] of Object.entries(layout)) {
         if (field === "cloned_from" || field === "suspender_generated") {
@@ -133,32 +173,84 @@ function withOrigin(layout, mainVersion, hash) {
     if (!("cloned_from" in out)) {
         out.cloned_from = { name: "main", version: mainVersion };
     }
-    out.suspender_generated = { from: hash, generator: GENERATOR_VERSION };
+    out.suspender_generated = { from: hash, generator: GENERATOR_VERSION, tabs };
     return out;
 }
-export function buildLivingLayout(main, mainVersion) {
+export function buildLivingLayout(main, mainVersion, tabs = "builtin") {
     if (!isObject(main) || typeof main.type !== "string" || !Array.isArray(main.children)) {
         return { ok: false, reason: "main.json is not a layout tree" };
     }
     // main came from JSON, so a JSON round trip is a full copy (and needs no runtime API).
     const layout = JSON.parse(JSON.stringify(main));
-    for (const id of [TOGGLE_ID, TOPBAR_ID, PANEL_ID, PILL_ID]) {
+    for (const id of [TOGGLE_ID, TOPBAR_ID, PANEL_ID, PILL_ID, SESSIONS_CHILD]) {
         if (hasId(layout, id)) {
             return { ok: false, reason: `main.json already has a node "${id}"` };
         }
     }
-    const problem = insertToggle(layout) ?? insertPanelAndPill(layout);
+    const problem = tabs === "clone"
+        ? (useClone(layout) ?? insertPill(layout))
+        : (insertToggle(layout) ?? insertPanel(layout) ?? insertPill(layout));
     if (problem !== null) {
         return { ok: false, reason: problem };
     }
-    return { ok: true, layout: withOrigin(layout, mainVersion, layoutHash(main)) };
+    return { ok: true, layout: withOrigin(layout, mainVersion, layoutHash(main), tabs) };
 }
-/** Whether `current` (the living layout on disk, or null) is out of date for this main.json and Herdr version. */
-export function needsRebuild(main, mainVersion, current) {
+/** The tab bar mode a living layout was built with (null: none, or not one of ours). */
+export function tabsModeOf(current) {
+    const generated = isObject(current) && isObject(current.suspender_generated) ? current.suspender_generated : null;
+    const tabs = generated?.["tabs"];
+    return tabs === "clone" || tabs === "builtin" ? tabs : null;
+}
+/**
+ * Whether `current` (the living layout on disk, or null) is out of date for
+ * this main.json, Herdr version and tab bar mode.
+ */
+export function needsRebuild(main, mainVersion, current, tabs = "builtin") {
     if (!isObject(current)) {
         return true;
     }
     const generated = isObject(current.suspender_generated) ? current.suspender_generated : null;
     const origin = isObject(current.cloned_from) ? current.cloned_from : null;
-    return (generated?.from !== layoutHash(main) || generated.generator !== GENERATOR_VERSION || origin?.version !== mainVersion);
+    return (generated?.from !== layoutHash(main) ||
+        generated.generator !== GENERATOR_VERSION ||
+        tabsModeOf(current) !== tabs ||
+        origin?.version !== mainVersion);
+}
+/** The node with this id in a live layout tree (`layout()`), or null. */
+function nodeById(root, id) {
+    return isObject(root) ? (find(root, (node) => node.id === id)?.node ?? null) : null;
+}
+/**
+ * Whether the Sessions list is on screen in a live layout tree: our own
+ * column shown (builtin), or the side panel shown with Sessions on top (clone).
+ */
+export function sessionsShown(layout) {
+    const column = nodeById(layout, PANEL_ID);
+    if (column !== null) {
+        return column.hidden !== true;
+    }
+    const panel = nodeById(layout, "panel");
+    const body = nodeById(layout, "panel-body");
+    return panel !== null && panel.hidden !== true && body?.active === SESSIONS_CHILD;
+}
+/**
+ * The commands that open or close Sessions in a live layout tree, the way its
+ * own button would: the copy's button opens the side panel on Sessions (or
+ * closes it when Sessions is on top), ours toggles our column. Nothing for a
+ * layout without Sessions.
+ */
+export function sessionsToggle(layout) {
+    if (nodeById(layout, PANEL_ID) !== null) {
+        return [{ command: "layout.toggle", args: { id: PANEL_ID } }];
+    }
+    if (nodeById(layout, SESSIONS_CHILD) === null || nodeById(layout, "panel") === null) {
+        return [];
+    }
+    if (sessionsShown(layout)) {
+        return [{ command: "layout.hide", args: { id: "panel" } }];
+    }
+    return [
+        { command: "layout.select", args: { stack: "panel-body", child: SESSIONS_CHILD } },
+        { command: "layout.show", args: { id: "panel" } },
+    ];
 }

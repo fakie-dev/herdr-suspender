@@ -3,8 +3,15 @@
 // a Herdr update that changed main.json (or its version) is picked up with no
 // action from the person. When the insertions do not fit the new main.json,
 // the last working file stays and one toast says so.
-import { buildLivingLayout, LAYOUT_NAME, needsRebuild } from "../core/layout.js";
+//
+// The tab bar mode (core/layout.ts, TabsMode) comes from the copy's check of
+// the live tab bar copy (runtime/tabsClone.ts). Without one (the module just
+// loaded, no copy has looked yet) the layout keeps the mode it has. A main.json
+// with no place for Sessions beside Files and Changes gets the shipped tab bar.
+import { buildLivingLayout, LAYOUT_NAME, needsRebuild, tabsModeOf } from "../core/layout.js";
 import { t } from "../i18n/index.js";
+/** Writes refused because another copy wrote in between, before leaving the file to it. */
+export const SYNC_ATTEMPTS = 3;
 function parse(text) {
     if (text === null) {
         return null;
@@ -16,6 +23,18 @@ function parse(text) {
         return null;
     }
 }
+/** Says something once per Herdr version and kind, across the copies of one window. */
+function once(d, kind, text) {
+    const key = `${kind}:${d.herdrVersion}`;
+    if (!d.warned.has(key)) {
+        d.warned.add(key);
+        d.toast(text);
+    }
+}
+/** The one short toast for "Sessions is back left of the tabs" (the copy cannot be used). */
+export function tabsFallbackNotice(d) {
+    once(d, "tabs", t("notice.tabsFallback"));
+}
 export async function syncLayout(d) {
     const dir = [d.appHome, "layouts"].join(d.ports.sep);
     const mainText = await d.ports.readText([dir, "main.json"].join(d.ports.sep));
@@ -24,19 +43,30 @@ export async function syncLayout(d) {
         return "no-main";
     }
     const livingPath = [dir, `${LAYOUT_NAME}.json`].join(d.ports.sep);
-    const currentText = await d.ports.readText(livingPath);
-    if (!needsRebuild(main, d.herdrVersion, parse(currentText))) {
-        return "fresh";
-    }
-    const built = buildLivingLayout(main, d.herdrVersion);
-    if (!built.ok) {
-        if (!d.warned.has(d.herdrVersion)) {
-            d.warned.add(d.herdrVersion);
-            d.toast(t("notice.layoutOutdated", { version: d.herdrVersion }));
+    for (let attempt = 0; attempt < SYNC_ATTEMPTS; attempt++) {
+        const currentText = await d.ports.readText(livingPath);
+        const current = parse(currentText);
+        let tabs = d.tabs ?? tabsModeOf(current) ?? "builtin";
+        let built = buildLivingLayout(main, d.herdrVersion, tabs);
+        if (!built.ok && tabs === "clone") {
+            // No place for Sessions beside Files and Changes: Herdr's own tab bar, our own button.
+            tabs = "builtin";
+            built = buildLivingLayout(main, d.herdrVersion, tabs);
+            if (built.ok) {
+                tabsFallbackNotice(d);
+            }
         }
-        return "kept";
+        if (!needsRebuild(main, d.herdrVersion, current, tabs)) {
+            return "fresh";
+        }
+        if (!built.ok) {
+            once(d, "layout", t("notice.layoutOutdated", { version: d.herdrVersion }));
+            return "kept";
+        }
+        // Only if nobody changed the file since we read it: another copy may be doing the same.
+        if (await d.ports.writeText(livingPath, `${JSON.stringify(built.layout, null, 2)}\n`, currentText)) {
+            return "rebuilt";
+        }
     }
-    // Only if nobody changed the file since we read it: another copy may be doing the same.
-    const written = await d.ports.writeText(livingPath, `${JSON.stringify(built.layout, null, 2)}\n`, currentText);
-    return written ? "rebuilt" : "kept";
+    return "kept";
 }

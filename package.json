@@ -24,6 +24,7 @@
     "format": "biome check --write .",
     "sync-types": "node scripts/sync-types.ts",
     "test": "node --test \"test/**/*.test.ts\"",
+    "bench": "node --test \"test/**/*.bench.ts\"",
     "privacy": "node scripts/check-privacy.ts",
     "privacy:history": "node scripts/check-privacy.ts --history"
   },

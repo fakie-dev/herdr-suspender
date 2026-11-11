@@ -78,4 +78,5 @@ export const en = {
     "reason.badId": "its session id is not one a shell can be given safely",
     "notice.skippedElsewhere": "Some sessions are open elsewhere and were skipped",
     "notice.layoutOutdated": "Suspender couldn't update its layout for Herdr {version}",
+    "notice.tabsFallback": "Sessions moved left of the tabs",
 };

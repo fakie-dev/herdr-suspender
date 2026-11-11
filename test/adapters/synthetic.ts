@@ -185,6 +185,31 @@ export function scriptExec(ports: FakePorts, script: (cmd: string, args: string[
   return ports;
 }
 
+/**
+ * A 50 MB Claude transcript: a first request, `fillers` × (2 KB of noise + a
+ * reply with its own id), a late title and a last reply with usage.
+ */
+export function bigClaudeTranscript(): { text: string; fillers: number } {
+  const head = jsonl(claude.prompt("Synthetic first request", { origin: "human" }), claude.aiTitle("Early title"));
+  const filler = (i: number) =>
+    jsonl(claude.noise(2000), claude.reply("middle", { id: `mid-${i}`, usage: { input: 1, output: 1 } }));
+  const tail = jsonl(
+    claude.aiTitle("Late title"),
+    claude.reply("Synthetic last answer", {
+      model: "claude-synthetic-2",
+      branch: "release/1.2",
+      usage: { input: 1, cacheRead: 300_000, output: 5 },
+    }),
+  );
+  const fillers = Math.ceil((50 * 1024 * 1024) / filler(0).length);
+  const parts = [head];
+  for (let i = 0; i < fillers; i++) {
+    parts.push(filler(i));
+  }
+  parts.push(tail);
+  return { text: parts.join(""), fillers };
+}
+
 export const ok = (stdout: string, code = 0): ExecResult => ({ code, stdout, stderr: "" });
 
 /**

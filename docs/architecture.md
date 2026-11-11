@@ -107,11 +107,21 @@ newest one for the terminal's folder that is not older than the process. See
 
 `layouts/suspender.json` is generated from Herdr's `main.json` by `core/layout.ts` and kept current by
 `runtime/layoutSync.ts`. Loading the module, and `herdr-app check`, creates the file from `core/shippedMain.ts` (a
-copy of the 0.1.14 `main.json`) if it is missing, so a fresh install has a layout. Any shown copy then compares the hash of `main.json`, the Herdr version and the generator
-version with the record inside the file, and rebuilds if they differ. The generator finds blocks by id and mod
-name. If it cannot, the last working file stays and a toast says so. See
-[ADR 2](adr/0002-living-layout.md). `scripts/build-layout.ts` renders the same generator against a fixture
-`main.json` into `layout/`, the ready-made card, and `pnpm check` compares it.
+copy of the 0.1.14 `main.json`) if it is missing, so a fresh install has a layout. Any shown copy then compares
+the hash of `main.json`, the Herdr version, the generator version and the tab bar mode with the record inside
+the file, and rebuilds if they differ. A write refused because another copy wrote first is read back and
+retried, up to three times. The generator finds blocks by id and mod name. If it cannot, the last working file
+stays and a toast says so. See [ADR 2](adr/0002-living-layout.md). `scripts/build-layout.ts` renders the same
+generator against a fixture `main.json` into `layout/`, the ready-made card, and `pnpm check` compares it.
+
+The tab bar mode comes from `runtime/tabsClone.ts`, run once per module load by the first copy that is shown.
+It keeps `mods/suspender-tabs` (made with `mod.clone`) equal to Herdr's `tabs/main.js` plus two insertions that
+add Sessions to the panel buttons, and checks it with `herdr-app check`. When that works the layout shows the
+copy in the `tabs` block and puts the Sessions list in the side panel stack `panel-body` as its third child;
+when it does not, Herdr's own tab bar stays, with our toggle block left of it and our own column. The copy reads
+its label from `shared("suspender.tabLabel")`, which the engine sets after each round and each store write, only
+when the text changes. `suspender.panel` opens and closes Sessions in either mode (`sessionsToggle`). See
+[ADR 5](adr/0005-live-copy-of-tabs.md).
 
 ## Cost
 
@@ -145,3 +155,6 @@ Tests live in `test/`, run directly on the TypeScript with `node --test`, and us
 (`test/adapters/synthetic.ts` builds transcripts that have the real record shapes but made-up text).
 `test/runtime/sim.ts` is a simulated Herdr that the engine tests drive. `pnpm check` adds a build comparison
 (the committed JavaScript must equal a fresh compile), a comparison of `layout/`, and the privacy scan.
+Nothing in `pnpm check` is timed by the clock: how fast a 50 MB transcript is read is `pnpm bench`
+(`test/**/*.bench.ts`), and the tests check what is read instead. The tab bar patch is tested against verbatim
+copies of two Herdr releases' `tabs/main.js` in `test/fixtures/`.

@@ -1,9 +1,8 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { claudeAdapter } from "../../src/adapters/claude.ts";
-import type { SessionInfo } from "../../src/core/model.ts";
 import { fakePorts } from "../fakePorts.ts";
-import { claude, claudePidFile, jsonl, metered, ok, scriptExec, terminal } from "./synthetic.ts";
+import { bigClaudeTranscript, claude, claudePidFile, jsonl, metered, ok, scriptExec, terminal } from "./synthetic.ts";
 
 const HOME = "/home/tester";
 const CWD = "/home/tester/dev/app";
@@ -186,61 +185,15 @@ describe("claude: snapshot", () => {
     assert.equal((await claudeAdapter.snapshot(SID, CWD, p)).title, "fix-ci");
   });
 
-  /** 50 MB: a first request, `fillers` × (2 KB of noise + a reply with its own id), a last reply. */
-  function bigTranscript(): { text: string; fillers: number } {
-    const head = jsonl(claude.prompt("Synthetic first request", { origin: "human" }), claude.aiTitle("Early title"));
-    const filler = (i: number) =>
-      jsonl(claude.noise(2000), claude.reply("middle", { id: `mid-${i}`, usage: { input: 1, output: 1 } }));
-    const tail = jsonl(
-      claude.aiTitle("Late title"),
-      claude.reply("Synthetic last answer", {
-        model: "claude-synthetic-2",
-        branch: "release/1.2",
-        usage: { input: 1, cacheRead: 300_000, output: 5 },
-      }),
-    );
-    const fillers = Math.ceil((50 * 1024 * 1024) / filler(0).length);
-    const parts = [head];
-    for (let i = 0; i < fillers; i++) {
-      parts.push(filler(i));
-    }
-    parts.push(tail);
-    return { text: parts.join(""), fillers };
-  }
-
-  /**
-   * The fastest of up to `tries` snapshots, each reading the file from scratch.
-   * One slow run says only that the machine was busy (every test file runs at
-   * once, a CI box is shared, the first run also compiles the parser); the
-   * claim is about the code, so it fails only if every run is slow.
-   */
-  async function fastest(
-    run: () => Promise<SessionInfo>,
-    limitMs: number,
-    tries = 5,
-  ): Promise<{ info: SessionInfo; ms: number }> {
-    let best = Number.POSITIVE_INFINITY;
-    let info: SessionInfo | null = null;
-    for (let i = 0; i < tries && best >= limitMs; i++) {
-      const started = performance.now();
-      info = await run();
-      best = Math.min(best, performance.now() - started);
-    }
-    assert.ok(info);
-    return { info, ms: best };
-  }
-
-  it("counts a 50 MB transcript exactly, in under 200 ms, when reads are whole anyway (Herdr, D01)", async () => {
+  // How fast these run is measured by `pnpm bench` (claude.bench.ts), not here:
+  // a wall-clock limit in the full run fails whenever the machine is busy.
+  it("counts a 50 MB transcript exactly, with one whole read, when reads are whole anyway (Herdr, D01)", async () => {
     const p = fakePorts();
     const meter = metered(p);
     p.wholeReads = true;
-    const { text, fillers } = bigTranscript();
+    const { text, fillers } = bigClaudeTranscript();
     p.files.set(TRANSCRIPT, text);
-    const { info, ms } = await fastest(() => {
-      meter.bytes = 0;
-      return claudeAdapter.snapshot(SID, CWD, p);
-    }, 200);
-    assert.ok(ms < 200, `took ${ms.toFixed(0)} ms at best`);
+    const info = await claudeAdapter.snapshot(SID, CWD, p);
     assert.equal(meter.bytes, text.length, "one read of the file, not two");
     // 1 request + one reply per filler + the last reply.
     assert.equal(info.messages, fillers + 2);
@@ -251,15 +204,11 @@ describe("claude: snapshot", () => {
     assert.equal(info.contextPct, 30);
   });
 
-  it("reads a 50 MB transcript from its ends when reads can be partial: under 200 ms and 2 MB", async () => {
+  it("reads a 50 MB transcript from its ends when reads can be partial: under 2 MB, never whole", async () => {
     const p = fakePorts();
     const meter = metered(p);
-    p.files.set(TRANSCRIPT, bigTranscript().text);
-    const { info, ms } = await fastest(() => {
-      meter.bytes = 0;
-      return claudeAdapter.snapshot(SID, CWD, p);
-    }, 200);
-    assert.ok(ms < 200, `took ${ms.toFixed(0)} ms at best`);
+    p.files.set(TRANSCRIPT, bigClaudeTranscript().text);
+    const info = await claudeAdapter.snapshot(SID, CWD, p);
     assert.ok(meter.bytes < 2 * 1024 * 1024, `read ${meter.bytes} bytes`);
     assert.equal(meter.whole, 0, "never reads the transcript whole");
     assert.equal(info.firstPrompt, "Synthetic first request");

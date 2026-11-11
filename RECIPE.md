@@ -26,11 +26,20 @@ forcefully, conversation kept`, `This session is open elsewhere — close it the
 `Conversation no longer exists on disk`. A session that was changed while it slept adds `Updated after sleep ·
 <time> · +N messages`.
 
-**The Sessions button.** A block 110 px wide at the right end of the tab strip, after the window buttons, with
-a 26 px tall button reading `Sessions · N` (N is the number of sleeping sessions) at 12 px: `muted` on `chrome`,
-`foreground` on `selected` while the panel is open, `hover` under the pointer. It opens and closes the panel.
+**The Sessions button.** The third panel button of the tab bar, right after Files and Changes and before the
+window buttons: `+  Files  Changes  ☾ Sessions · N  ─ □ ×`, N being the number of sleeping sessions. It is drawn
+by the tab bar's own `panelButton`, so it matches Changes to the pixel: 26 px tall, 8 px padding, 5 px between
+a 14 px moon and the 12 px label, radius 6, `muted` on `chrome`, `foreground` on `selected` while Sessions is the
+open panel, `hover` under the pointer. A click opens the side panel on Sessions, or closes it when Sessions is
+already open. The moon has the label's color; the tab bar tints every panel icon that way.
 
-**The Sessions panel.** A column on the right, 320 px wide (200 to 700), hidden until opened. A header with
+When that tab bar cannot be used (see Watch out), the button is a block of the mod's own, 110 px wide, left of
+the tabs, looking the same, and the moon turns `accent` while N is above zero.
+
+**The Sessions panel.** The side panel's third page, beside Files and Changes, in the same column (368 px in
+Herdr 0.1.14): switching between the three keeps the column open, and each space remembers which page it had
+open. With Herdr's own tab bar it is a column of its own on the right, 320 px wide (200 to 700), hidden until
+opened. A header with
 `Sessions` and the total memory freed (`4.0 GB memory freed`). Below it the spaces in upper case, each with a
 `Resume all in project` link. Each session is two lines: the title and a state word (`running`, `asleep`,
 `interrupted`, `open elsewhere`, `conversation gone`), then branch, model, folder and a short id, cut from the
@@ -100,7 +109,8 @@ looked up in the process list only when its terminal changes, and on Windows at 
 ## Built from
 
 One mod, `mods/suspender` (`main.js`, `mod.json`, `icons/*.svg`, compiled from `src/`), with one View whose
-copy is chosen by `props.role`: `toggle` (the button), `panel` (the list), `pill`, `sleep` (a sleeping tab,
+copy is chosen by `props.role`: `toggle` (our own button, only without the tab bar copy), `panel` (the list),
+`pill`, `sleep` (a sleeping tab,
 `props.key` is the session key), `confirm` (the question, an overlay), `popup`, and `window` (the list in a
 window, also what `mod.open` gives with no role). `mod.json` is `{"place": "none", "title": "Sessions",
 "overlay": {"kind": "window", "key": "suspender", "width": 400, "height": 560}}`: `place: none` keeps Herdr
@@ -108,25 +118,45 @@ from docking a copy by itself.
 
 The layout it needs is [`layout/`](layout/RECIPE.md); the mod writes `layouts/suspender.json` itself: it creates the file
 when the mod loads or `herdr-app check` runs (from a built-in copy of Herdr 0.1.14's `main.json`), and the first
-shown copy rebuilds it from the live `layouts/main.json`, again whenever that changes. The shipped mods are not cloned or edited.
+shown copy rebuilds it from the live `layouts/main.json`, again whenever that changes. No layout is cloned.
+
+The tab bar is a copy of the shipped `tabs` mod, `mods/suspender-tabs`, made by the mod with
+`mod.clone {name: "tabs", as: "suspender-tabs"}` the first time a copy of the mod is shown. Its `main.js` is
+the shipped `tabs/main.js` with paths left as they are (the window-button icons stay `mods/tabs/...`) and two
+changes, each at an anchor that must occur exactly once:
+
+1. `const enabled = shared("workspace.panels") ?? ["files", "changes"];` becomes
+   `const enabled = [...(shared("workspace.panels") ?? ["files", "changes"]), "suspender"];`
+2. before `.when(w?.buttons,` goes
+   `.child(panelButton("suspender", String(shared("suspender.tabLabel") ?? "Sessions"), "mods/suspender/icons/moon.svg"))`
+
+The first line is `// suspender-tabs: from tabs/main.js sha256=<sha of the shipped file> patch=1`. On every load
+the mod compares the copy with the patch of the current shipped file and writes it again when they differ, then
+runs `herdr-app check` on the copy. In the layout the `tabs` block shows `suspender-tabs` instead of `tabs`, and
+the side panel stack `panel-body` gets a third child, `{id: "suspender", content: {mod: "suspender", props:
+{role: "panel"}}}`; `suspender_generated.tabs` records which tab bar the layout was built for (`clone` or
+`builtin`). The label comes from the engine as the shared value `suspender.tabLabel`, set only when its text
+changes (every set redraws every mod).
 
 Herdr calls it makes: `pane.split` (with `mod` and `props`), `pane.swap`, `pane.close`, `terminal.kill`,
-`tab` and `terminal` reads, `shared` values (`suspender.leader`, `suspender.rev`, `suspender.progress`),
-`watchFolder`, `writeTextFile` with an expected value, `openOverlay`, and `hc` (`get`, `read`, `label`, `keys`,
-`run`). Commands: `suspender.toggle-focused`, `resume-all`, `forget`, `start-new`, `sleep-when-done`,
-`interrupt-and-sleep`, `cancel`. Programs it starts: `hc`; for process memory and liveness on Windows `tasklist`
+`tab` and `terminal` reads, `shared` values (`suspender.leader`, `suspender.rev`, `suspender.progress`,
+`suspender.tabLabel`), `watchFolder`, `writeTextFile` with an expected value, `openOverlay`, `mod.clone`,
+`layout.select`, `layout.show`, `layout.hide`, `layout.toggle`, and `hc` (`get`, `read`, `label`, `keys`, `run`).
+Commands: `suspender.panel`, `toggle-focused`, `resume-all`, `forget`, `start-new`, `sleep-when-done`,
+`interrupt-and-sleep`, `cancel`. Programs it starts: `hc`, `herdr-app check` on the tab bar copy once per load;
+for process memory and liveness on Windows `tasklist`
 and `robocopy /L` (file size and time), on macOS and Linux `ps` and `stat`; PowerShell only in rare cases of
 ambiguity. It reads `~/.claude/projects`, `~/.claude/sessions`, `~/.codex/sessions` and Herdr's
-`layouts/main.json`. It writes two files: `~/.config/herdr-app/suspender/sessions.json`, and
+`layouts/main.json` and `mods/tabs/main.js`. It writes three files: `~/.config/herdr-app/suspender/sessions.json`,
 `~/.config/herdr-app/layouts/suspender.json`, which it creates when missing and rebuilds when `main.json` or
-Herdr's version changes. No network.
+Herdr's version changes, and `~/.config/herdr-app/mods/suspender-tabs/main.js`. No network.
 
 One of the copies of the mod leads (a `suspender.leader` stamp, taken over after 15 s of silence): it binds
 sessions to terminals and recognizes restarts; the others only draw.
 
 Keys, merged into `keys.json`: `Ctrl+Shift+S` opens the Sessions window (`mod.open:suspender`, `global`) or, in
-the `suspender` layout, toggles the panel (`layout.toggle` with `id: suspender-panel`); `Alt+Shift+S` is
-`suspender.toggle-focused`.
+the `suspender` layout, opens and closes the panel (`suspender.panel`: the side panel on Sessions with the tab bar
+copy, our own column without it); `Alt+Shift+S` is `suspender.toggle-focused`.
 
 ## Watch out
 
@@ -140,7 +170,19 @@ Always do the whole `split`, `swap`, `close` sequence; without the swap the clos
 neighbour. Insert the sleeping panel before stopping the agent and close the terminal last.
 
 Keys reach only a mod that is shown somewhere in the window. The restart check runs when the first copy of the
-mod is shown.
+mod is shown. Every shown copy gets a key's command, so `suspender.panel` acts once per second at most.
+
+The tab bar copy falls back to Herdr's own tab bar, with the mod's button left of the tabs and its own column,
+when the shipped `tabs/main.js` is missing, an anchor is gone or there twice, `mod.clone` makes nothing within
+5 s, a `suspender-tabs` is there that is neither a clone of `tabs` nor ours, the write keeps being refused, or
+`herdr-app check` fails or cannot run. One toast says `Sessions moved left of the tabs` (a toast title is cut
+at about 280 px). Two copies of the mod writing the copy at once is normal: a refused write is read back, and
+if it already holds the patch that counts as done. Put the button right of the tab bar block and it lands
+after the window buttons.
+
+Herdr has no uninstall hook. Removing the mod means switching layouts first, then deleting
+`layouts/suspender.json`, `mods/suspender` and `mods/suspender-tabs`; a layout left pointing at the copy keeps
+a Sessions button whose panel says the mod did not load.
 
 Limits: Claude Code and Codex only. Sleep does not warn about a draft in the prompt; it empties the prompt before
 the exit command. The text of the last screen is the screen at the moment of sleep, not a live view. The UI is
@@ -158,5 +200,10 @@ English only; all texts are in `src/i18n/en.ts`.
 - `Forget`, or closing a sleeping tab, removes its entry from `sessions.json`.
 - Sessions groups by space, shows freed memory, and `Resume all in project` skips a session that is open
   elsewhere.
+- The tab bar reads `+ Files Changes ☾ Sessions · N ─ □ ×`; the Sessions button's height, background, text color
+  and corners match Changes pixel for pixel; Files, Changes and Sessions switch the same side panel, and each space
+  reopens the page it had.
+- After a change to the shipped `tabs/main.js`, the copy's first line carries the new sha; with an anchor
+  removed the layout shows Herdr's own tab bar with the button left of the tabs and one toast.
 - `herdr-app check mods/suspender` passes and with the panel closed and the strips idle the mod starts no
   process in 60 seconds.

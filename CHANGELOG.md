@@ -3,6 +3,25 @@
 All notable changes are listed here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and the project uses [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Changed
+
+- Sessions is now a third button in Herdr's tab bar, after Files and Changes and before the window buttons,
+  drawn the same way, and its list is a third page of the same side panel, remembered per space. The tab bar is
+  `mods/suspender-tabs`, a copy of Herdr's `tabs` made with `mod.clone` and kept equal to Herdr's own file plus
+  the Sessions button; it is written again when Herdr's tab bar changes and checked with `herdr-app check`
+  before the layout uses it.
+- When the copy cannot be used, the layout keeps Herdr's own tab bar with the Sessions button left of the tabs
+  (it used to sit right of the window buttons), and a short toast says so.
+- `Ctrl+Shift+S` in the `suspender` layout is the new command `suspender.panel`. A `keys.json` that still
+  toggles `suspender-panel` should switch to it.
+- The 50 MB transcript speed test moved out of `pnpm check` into `pnpm bench`; the tests check what is read.
+
+### Added
+
+- README and recipes say how to remove the mod, its tab bar copy and its layout.
+
 ## [0.1.0] - 2026-11-11
 
 First release.

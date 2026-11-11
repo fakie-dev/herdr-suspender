@@ -2,7 +2,14 @@ import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { describe, it } from "node:test";
-import { buildLivingLayout, LAYOUT_NAME, needsRebuild } from "../src/core/layout.ts";
+import {
+  buildLivingLayout,
+  LAYOUT_NAME,
+  needsRebuild,
+  sessionsShown,
+  sessionsToggle,
+  type TabsMode,
+} from "../src/core/layout.ts";
 
 // A verbatim copy of Herdr 0.1.14's shipped layouts/main.json.
 const MAIN_TEXT = readFileSync(new URL("./fixtures/main-0.1.14.json", import.meta.url), "utf8");
@@ -27,8 +34,8 @@ const parentOf = (root: LayoutNode, node: LayoutNode): LayoutNode | undefined =>
   nodes(root).find((n) => n.children?.includes(node));
 const tabBlock = (root: LayoutNode): LayoutNode | undefined => nodes(root).find((n) => n.content?.tab === "active");
 
-function build(source: unknown = main(), version = "0.1.14"): LayoutNode {
-  const out = buildLivingLayout(source, version);
+function build(source: unknown = main(), version = "0.1.14", tabs?: TabsMode): LayoutNode {
+  const out = buildLivingLayout(source, version, tabs);
   assert.ok(out.ok, out.ok ? "" : out.reason);
   return out.layout as LayoutNode;
 }
@@ -52,14 +59,14 @@ describe("buildLivingLayout from the real main.json", () => {
     assert.equal(Math.abs(siblings.indexOf(toggle) - siblings.indexOf(tabs)), 1);
   });
 
-  it("puts the Sessions button after the tabs block, past the window buttons the tab bar draws", () => {
+  it("puts the Sessions button left of the tabs block, clear of the window buttons the tab bar ends with", () => {
     const layout = build();
     const toggle = byId(layout, "suspender-toggle");
     const tabs = byId(layout, "tabs");
     assert.ok(toggle && tabs);
     const siblings = parentOf(layout, toggle)?.children ?? [];
-    assert.equal(siblings.indexOf(toggle), siblings.indexOf(tabs) + 1);
-    assert.equal(siblings.at(-1), toggle);
+    assert.equal(siblings.indexOf(toggle), siblings.indexOf(tabs) - 1);
+    assert.equal(siblings[0], toggle);
   });
 
   it("keeps the shipped tabs block as it was, only sized to share the row", () => {
@@ -120,6 +127,139 @@ describe("buildLivingLayout from the real main.json", () => {
   });
 });
 
+describe("buildLivingLayout with the live copy of the tab bar (clone)", () => {
+  const clone = (source: unknown = main()): LayoutNode => build(source, "0.1.14", "clone");
+
+  it("shows the copy in the tabs block, which keeps everything else it had", () => {
+    const tabs = byId(clone(), "tabs");
+    const shipped = byId(main() as LayoutNode, "tabs");
+    assert.ok(tabs && shipped);
+    assert.deepEqual(tabs.content, { mod: "suspender-tabs" });
+    assert.deepEqual({ ...tabs, content: null }, { ...shipped, content: null });
+  });
+
+  it("makes Sessions the side panel's third child, after Files and Changes", () => {
+    const body = byId(clone(), "panel-body");
+    assert.equal(body?.type, "stack");
+    assert.deepEqual(
+      body?.children?.map((n) => n.id),
+      ["files", "changes", "suspender"],
+    );
+    assert.deepEqual(body?.children?.[2], {
+      id: "suspender",
+      type: "block",
+      content: { mod: "suspender", props: { role: "panel" } },
+    });
+  });
+
+  it("has no button block and no column of its own, but keeps the Sleep pill", () => {
+    const layout = clone();
+    for (const id of ["suspender-toggle", "suspender-topbar", "suspender-panel"]) {
+      assert.equal(byId(layout, id), undefined, id);
+    }
+    assert.deepEqual(
+      ((tabBlock(layout)?.floating ?? []) as { id: string }[]).map((f) => f.id),
+      ["suspender-pill"],
+    );
+  });
+
+  it("records the mode and the generator it was built by", () => {
+    const generated = clone().suspender_generated as { tabs?: unknown; generator?: unknown };
+    assert.equal(generated.tabs, "clone");
+    assert.equal(generated.generator, 3);
+    assert.equal((build().suspender_generated as { tabs?: unknown }).tabs, "builtin");
+  });
+
+  it("reports a reason when there is no side panel stack to add Sessions to", () => {
+    const source = main() as LayoutNode;
+    const panel = byId(source, "panel");
+    assert.ok(panel?.children);
+    panel.children = [{ id: "files", type: "block", content: { mod: "files" } }];
+    const out = buildLivingLayout(source, "0.1.14", "clone");
+    assert.equal(out.ok, false);
+    assert.match(out.ok ? "" : out.reason, /panel-body/);
+  });
+
+  it("keeps every shipped node and adds only Sessions", () => {
+    const shippedIds = nodes(main() as LayoutNode).map((n) => n.id);
+    const added = nodes(clone())
+      .map((n) => n.id)
+      .filter((id) => !shippedIds.includes(id));
+    assert.deepEqual(added, ["suspender"]);
+  });
+});
+
+describe("sessionsShown", () => {
+  /** The live tree as `layout()` gives it: `panel` shown or hidden, `panel-body` on one child. */
+  const live = (layout: LayoutNode, shown: boolean, active: string): LayoutNode => {
+    const copy = JSON.parse(JSON.stringify(layout)) as LayoutNode;
+    const panel = byId(copy, "panel");
+    const body = byId(copy, "panel-body");
+    assert.ok(panel && body);
+    panel.hidden = !shown;
+    body.active = active;
+    return copy;
+  };
+
+  it("with the copy: open while the side panel shows Sessions, and only then", () => {
+    const layout = build(main(), "0.1.14", "clone");
+    assert.equal(sessionsShown(live(layout, true, "suspender")), true);
+    assert.equal(sessionsShown(live(layout, false, "suspender")), false, "the panel is closed");
+    assert.equal(sessionsShown(live(layout, true, "files")), false, "Files is on top");
+    assert.equal(sessionsShown(live(layout, true, "changes")), false, "Changes is on top");
+  });
+
+  it("with Herdr's own tab bar: open while our column shows, whatever the side panel does", () => {
+    const layout = build();
+    assert.equal(sessionsShown(live(layout, true, "suspender")), false);
+    const column = byId(layout, "suspender-panel");
+    assert.ok(column);
+    column.hidden = false;
+    assert.equal(sessionsShown(live(layout, false, "files")), true);
+  });
+
+  it("is false for no layout at all", () => {
+    assert.equal(sessionsShown(null), false);
+  });
+});
+
+describe("sessionsToggle (the suspender.panel command)", () => {
+  const live = (layout: LayoutNode, shown: boolean, active: string): LayoutNode => {
+    const copy = JSON.parse(JSON.stringify(layout)) as LayoutNode;
+    const panel = byId(copy, "panel");
+    const body = byId(copy, "panel-body");
+    assert.ok(panel && body);
+    panel.hidden = !shown;
+    body.active = active;
+    return copy;
+  };
+  const withCopy = build(main(), "0.1.14", "clone");
+
+  it("with the copy, opens the side panel on Sessions, as the tab bar's button does", () => {
+    const open = [
+      { command: "layout.select", args: { stack: "panel-body", child: "suspender" } },
+      { command: "layout.show", args: { id: "panel" } },
+    ];
+    assert.deepEqual(sessionsToggle(live(withCopy, false, "files")), open);
+    assert.deepEqual(sessionsToggle(live(withCopy, true, "changes")), open, "Changes on top: switch to Sessions");
+  });
+
+  it("with the copy, closes the side panel while it shows Sessions", () => {
+    assert.deepEqual(sessionsToggle(live(withCopy, true, "suspender")), [
+      { command: "layout.hide", args: { id: "panel" } },
+    ]);
+  });
+
+  it("with Herdr's own tab bar, toggles our column", () => {
+    assert.deepEqual(sessionsToggle(build()), [{ command: "layout.toggle", args: { id: "suspender-panel" } }]);
+  });
+
+  it("does nothing in a layout without Sessions", () => {
+    assert.deepEqual(sessionsToggle(main()), []);
+    assert.deepEqual(sessionsToggle(null), []);
+  });
+});
+
 describe("buildLivingLayout finds blocks by id and mod, not by position", () => {
   it("finds the tabs block by its id when its mod has another name", () => {
     const source = main() as LayoutNode;
@@ -152,6 +292,11 @@ describe("buildLivingLayout finds blocks by id and mod, not by position", () => 
     const toggle = byId(layout, "suspender-toggle");
     assert.ok(toggle);
     assert.equal(parentOf(layout, toggle)?.id, "bar");
+    assert.deepEqual(
+      parentOf(layout, toggle)?.children?.map((n) => n.id),
+      ["suspender-toggle", "tabs"],
+      "left of the tabs there too",
+    );
     assert.equal(byId(layout, "suspender-topbar"), undefined);
   });
 
@@ -228,6 +373,21 @@ describe("needsRebuild", () => {
     const current = build();
     (current.suspender_generated as { generator: number }).generator = 1;
     assert.equal(needsRebuild(main(), "0.1.14", current), true);
+  });
+
+  it("is true for a layout made by generator 2, which put the button after the window buttons", () => {
+    const current = build();
+    (current.suspender_generated as { generator: number }).generator = 2;
+    assert.equal(needsRebuild(main(), "0.1.14", current), true);
+  });
+
+  it("is true when the tab bar mode changed, either way, and false when it did not", () => {
+    const withCopy = build(main(), "0.1.14", "clone");
+    const withShipped = build(main(), "0.1.14", "builtin");
+    assert.equal(needsRebuild(main(), "0.1.14", withCopy, "builtin"), true, "the copy broke: back to the shipped bar");
+    assert.equal(needsRebuild(main(), "0.1.14", withShipped, "clone"), true, "the copy works again");
+    assert.equal(needsRebuild(main(), "0.1.14", withCopy, "clone"), false);
+    assert.equal(needsRebuild(main(), "0.1.14", withShipped, "builtin"), false);
   });
 
   it("is true for a layout made by an older generator from the same main.json", () => {

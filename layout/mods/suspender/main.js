@@ -9,14 +9,18 @@
 // layouts/suspender.json fresh against Herdr's main.json, and so does loading
 // the module itself: Herdr loads it as soon as it sees the mod's folder (and
 // `herdr-app check` does), so installing the mod is enough for the layout.
+// The first such copy also makes sure the live copy of the tab bar
+// (`mods/suspender-tabs`, runtime/tabsClone.ts) is right, and the layout is
+// built around it, or around Herdr's own tab bar when the copy cannot be used.
 import { div, View } from "gpui-kit";
-import { appHome, props as herdrProps, nextCommand, notify, updates, writeTextFile } from "herdr";
-import { buildLivingLayout, LAYOUT_NAME } from "./core/layout.js";
+import { appHome, props as herdrProps, layout, nextCommand, notify, run, updates, writeTextFile } from "herdr";
+import { buildLivingLayout, LAYOUT_NAME, sessionsToggle } from "./core/layout.js";
 import { SHIPPED_MAIN, SHIPPED_MAIN_VERSION } from "./core/shippedMain.js";
 import { herdrPorts } from "./platform/ports.js";
 import { Engine, newCoordinator, TICK_MS } from "./runtime/engine.js";
 import { herdrHost } from "./runtime/herdrHost.js";
-import { syncLayout } from "./runtime/layoutSync.js";
+import { syncLayout, tabsFallbackNotice } from "./runtime/layoutSync.js";
+import { CLONE_NAME, ensureTabsClone } from "./runtime/tabsClone.js";
 import { PanelView } from "./ui/panel.js";
 import { PillView } from "./ui/pill.js";
 import { PopupView } from "./ui/popup.js";
@@ -41,14 +45,71 @@ function herdrVersion() {
         return null;
     }
 }
-/** Builds or refreshes layouts/suspender.json from Herdr's main.json; never throws (the layout is a convenience). */
-async function keepLayout(toast) {
+/**
+ * Builds or refreshes layouts/suspender.json from Herdr's main.json, around
+ * the given tab bar (omitted: the one the layout has); never throws (the
+ * layout is a convenience).
+ */
+async function keepLayout(toast, tabs) {
     try {
         const version = herdrVersion() ?? "";
-        await syncLayout({ ports: herdrPorts(), appHome: appHome(), herdrVersion: version, toast, warned: layoutWarned });
+        await syncLayout({
+            ports: herdrPorts(),
+            appHome: appHome(),
+            herdrVersion: version,
+            toast,
+            warned: layoutWarned,
+            ...(tabs ? { tabs } : {}),
+        });
     }
     catch {
         // The mod works without its layout.
+    }
+}
+/** A check of the tab bar copy that has not settled after this long is taken for lost (its copy closed). */
+const TABS_CHECK_STALE_MS = 90_000;
+/** One check of the tab bar copy per module load, shared by the copies of this window. */
+let tabsCheck = null;
+/**
+ * Whether the layout can show the live copy of the tab bar: makes or rebuilds
+ * `mods/suspender-tabs` once and checks it. A copy that cannot be used says so
+ * in one short toast. Waiting for `mod.clone` sleeps in the task of the copy
+ * that asked first.
+ */
+function tabsMode(sleep, toast) {
+    if (tabsCheck === null || (!tabsCheck.settled() && Date.now() - tabsCheck.started > TABS_CHECK_STALE_MS)) {
+        let settled = false;
+        const result = ensureTabsClone({
+            ports: herdrPorts(),
+            appHome: appHome(),
+            cloneMod: () => {
+                run("mod.clone", { name: "tabs", as: CLONE_NAME });
+            },
+            sleep,
+        })
+            .catch(() => ({ mode: "builtin", why: "check-failed" }))
+            .then((outcome) => {
+            settled = true;
+            if (outcome.mode === "builtin") {
+                tabsFallbackNotice({ herdrVersion: herdrVersion() ?? "", toast, warned: layoutWarned });
+            }
+            return outcome;
+        });
+        tabsCheck = { result, started: Date.now(), settled: () => settled };
+    }
+    return tabsCheck.result;
+}
+/** When the last `suspender.panel` was carried out: every shown copy gets the press, one acts on it. */
+let lastPanelPress = Number.NEGATIVE_INFINITY;
+/** The command `suspender.panel`: opens or closes Sessions, the way its button in this layout does. */
+function togglePanel() {
+    const now = Date.now();
+    if (now - lastPanelPress < 1_000) {
+        return;
+    }
+    lastPanelPress = now;
+    for (const step of sessionsToggle(layout())) {
+        run(step.command, step.args);
     }
 }
 /**
@@ -126,8 +187,10 @@ export default class Suspender extends View {
             this.panel = new PanelView({ engine, host, ports, mode: "window", overlay });
         }
         if (this.popup === null && this.confirm === null) {
-            cx.spawn(async () => {
-                await keepLayout((text) => host.notify(text, "warning"));
+            cx.spawn(async (cx) => {
+                const toast = (text) => host.notify(text, "warning");
+                const tabs = await tabsMode((ms) => cx.sleep(ms), toast);
+                await keepLayout(toast, tabs.mode);
             });
         }
         // Redraw only for news: a write in this window already redraws every copy
@@ -158,7 +221,10 @@ export default class Suspender extends View {
                     continue;
                 }
                 cx.spawn(async (cx) => {
-                    if (command === "toggle-focused") {
+                    if (command === "panel") {
+                        togglePanel();
+                    }
+                    else if (command === "toggle-focused") {
                         await engine.toggleFocused();
                     }
                     else if (command === "resume-all") {

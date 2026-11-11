@@ -1,7 +1,8 @@
-// "Sessions · N": the button beside the tab bar (role "toggle", the block of the
-// living layout). N is how many sessions sleep. It opens and closes the right
-// panel, drawn like the tab bar's Files and Changes buttons. Colours only from
-// theme().
+// "Sessions · N": our own button left of Herdr's tab bar (role "toggle", a block
+// of the living layout when the live copy of the tab bar cannot be used; the
+// copy draws its own button beside Files and Changes). N is how many sessions
+// sleep. It opens and closes our right column, drawn like the tab bar's Files
+// and Changes buttons. Colours only from theme().
 
 import { h_flex } from "gpui-base";
 import type { Context, Element } from "gpui-kit";

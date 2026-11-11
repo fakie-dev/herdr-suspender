@@ -4,6 +4,6 @@
     "alt-shift-s": "suspender.toggle-focused"
   },
   "layout:suspender": {
-    "ctrl-shift-s": { "command": "layout.toggle", "args": { "id": "suspender-panel" } }
+    "ctrl-shift-s": "suspender.panel"
   }
 }

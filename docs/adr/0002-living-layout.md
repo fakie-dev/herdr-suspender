@@ -1,6 +1,7 @@
 # 2. A generated layout instead of clones
 
-Status: accepted.
+Status: accepted. The toggle block beside `tabs` is replaced by [ADR 5](0005-live-copy-of-tabs.md), which
+keeps it only as the fallback.
 
 ## Context
 

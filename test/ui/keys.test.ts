@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { describe, it } from "node:test";
-import { LAYOUT_NAME, PANEL_ID } from "../../src/core/layout.ts";
+import { LAYOUT_NAME } from "../../src/core/layout.ts";
 
 const keys = JSON.parse(readFileSync(new URL("../../keys.json", import.meta.url), "utf8")) as Record<
   string,
@@ -11,10 +11,9 @@ const keys = JSON.parse(readFileSync(new URL("../../keys.json", import.meta.url)
 describe("keys.json snippet", () => {
   it("opens Sessions on ctrl-shift-s: a window anywhere, the panel in the suspender layout", () => {
     assert.equal(keys["global"]?.["ctrl-shift-s"], "mod.open:suspender");
-    assert.deepEqual(keys[`layout:${LAYOUT_NAME}`]?.["ctrl-shift-s"], {
-      command: "layout.toggle",
-      args: { id: PANEL_ID },
-    });
+    // The mod's own command: the panel is the side panel's Sessions child with the
+    // live tab bar copy, and our own column without it (core/layout.ts, sessionsToggle).
+    assert.equal(keys[`layout:${LAYOUT_NAME}`]?.["ctrl-shift-s"], "suspender.panel");
   });
 
   it("sleeps or resumes the agent in focus on alt-shift-s", () => {
