@@ -18,7 +18,7 @@ import { defaultStorePath, parseStore, readStore, STORE_ATTEMPTS, StoreConflictE
 import { hasMessage, t } from "../i18n/index.js";
 import { allProcesses, processDetails, subtree, treesMemoryMb } from "../platform/proc.js";
 import { sleepingCount } from "../ui/sessionsModel.js";
-import { normalizeTerminal, toTerminalView } from "./host.js";
+import { normalizeTerminal, toTerminalView, } from "./host.js";
 /** The mod's folder name: what `pane.split {mod}` asks for. */
 export const MOD_NAME = "suspender";
 export const LEADER_KEY = "suspender.leader";
@@ -83,6 +83,11 @@ const FRAME_MS = 16;
  * 1.5 s, up to 3.4 s with six listings at once on a machine busy on every core).
  */
 export const MEMORY_WAIT_MS = 5_000;
+/**
+ * How long a round waits for one step (a terminal, a record) before it goes
+ * on without it. Longer than any flow a step may carry out (a whole Sleep).
+ */
+export const STEP_LIMIT_MS = 120_000;
 const MEMORY_POLL_MS = 50;
 export function newCoordinator() {
     return {
@@ -103,6 +108,7 @@ export function newCoordinator() {
         confirmed: new Set(),
         confirmedNews: false,
         twins: new Map(),
+        told: new Set(),
     };
 }
 const RUNNING = ["running", "working", "confirming"];
@@ -162,6 +168,8 @@ export class Engine {
     absentSince = new Map();
     bindTried = new Map();
     flowSince = new Map();
+    /** A round is under way in this copy (`tick`). */
+    ticking = false;
     /** The last `hc get` of a terminal Herdr does not list (look). */
     looked = new Map();
     /** When a bound agent's process was found gone while Herdr still showed its status (by terminal address). */
@@ -217,6 +225,22 @@ export class Engine {
             this.co.confirmedNews = true;
         }
     }
+    /**
+     * Where the session is on screen right now, as Herdr shows it: its sleeping
+     * pane's tab, else its terminal's. Null when neither is in a tab: the ids in
+     * the record may be of a tab that is gone, and selecting one fails.
+     */
+    placeNow(key) {
+        const rec = this.record(key);
+        if (rec === null) {
+            return null;
+        }
+        const panes = this.host.panes();
+        const pane = (rec.pane !== null ? panes.find((p) => p.pane === rec.pane) : undefined) ??
+            (rec.terminal !== null ? panes.find((p) => p.terminal === rec.terminal) : undefined);
+        const tab = pane === undefined ? undefined : this.host.tabs().find((x) => x.id === pane.tab);
+        return tab === undefined ? null : { spaceId: tab.space, tabId: tab.id };
+    }
     freshness(key) {
         return this.co.fresh.get(key) ?? null;
     }
@@ -257,8 +281,29 @@ export class Engine {
         }
     }
     // ---- the leader's round
-    /** Every copy calls this every TICK_MS; only the leader does more than read. */
+    /**
+     * Every copy calls this every TICK_MS; only the leader does more than read.
+     * A copy runs one round at a time: the timer fires again while a slow round
+     * still waits, and that tick does nothing.
+     */
     async tick() {
+        if (this.ticking) {
+            return;
+        }
+        this.ticking = true;
+        try {
+            await this.round();
+        }
+        finally {
+            this.ticking = false;
+        }
+    }
+    /**
+     * Each terminal and each record is a step of its own (`guarded`): one that
+     * throws or does not answer is told once and skipped, and the others are
+     * still looked at.
+     */
+    async round() {
         if (!this.claim()) {
             await this.load();
             this.publishTabLabel();
@@ -271,11 +316,13 @@ export class Engine {
         }
         const terms = this.host.terminals().filter((x) => x.parent === null && !x.address.includes("/"));
         for (const term of terms) {
-            await this.observe(term);
+            await this.guarded("observe", () => this.observe(term));
         }
-        await this.lateSplits();
+        await this.guarded("panes", () => this.lateSplits());
         await this.reconcile(terms);
-        this.sweepStrays();
+        await this.guarded("panes", async () => {
+            this.sweepStrays();
+        });
         if (this.co.confirmedNews) {
             // Once per round that confirmed something: setting a shared value redraws every copy.
             this.co.confirmedNews = false;
@@ -502,53 +549,107 @@ export class Engine {
         }
         await this.act(key, () => this.dispatch(key, { t: "lostOnRestart" }));
     }
-    /** Records whose terminal or pane went away; flows nobody carries on. */
-    async reconcile(terms) {
-        const live = new Set(terms.filter((x) => x.state === "live").map((x) => x.address));
-        const panes = new Set(this.host.panes().map((p) => p.pane));
-        const now = this.ports.now();
-        for (const rec of this.records()) {
-            const key = rec.key;
-            if (this.busy(key)) {
-                this.flowSince.delete(key);
-                continue;
-            }
-            let gone = false;
-            if (RUNNING.includes(rec.state)) {
-                gone = live.size > 0 && (rec.terminal === null || !live.has(rec.terminal));
-            }
-            else if (SLEEPING.includes(rec.state)) {
-                gone = rec.pane === null ? !this.awaitingPane(key) : !panes.has(rec.pane);
-                if (rec.pane !== null && !gone) {
-                    this.co.sleepPanes.set(rec.pane, key);
-                }
-                if (!gone && unfinished(rec)) {
-                    await this.finishSleep(rec);
-                    continue;
-                }
-            }
-            else {
-                const since = this.flowSince.get(key) ?? now;
-                this.flowSince.set(key, since);
-                if (now - since >= STALE_FLOW_MS) {
-                    this.flowSince.delete(key);
-                    await this.recover(rec, live);
-                }
-                continue;
-            }
-            const mark = `record:${key}`;
-            if (!gone) {
-                this.absentSince.delete(mark);
-                continue;
-            }
-            const since = this.absentSince.get(mark) ?? now;
-            this.absentSince.set(mark, since);
-            if (now - since >= GONE_GRACE_MS) {
-                this.absentSince.delete(mark);
-                await this.removeRecord(key);
-                this.giveBack(await this.letGoOfSpaceName(key, rec.spaceName));
+    /**
+     * A step of the round, bounded: a throw or a step still waiting after
+     * STEP_LIMIT_MS is told once per kind (not every round) and the round goes on.
+     * A step that is let go may still finish later; flows hold their session
+     * (`act`), so nothing else acts on it meanwhile.
+     */
+    async guarded(kind, step) {
+        const limit = this.host.deadline(STEP_LIMIT_MS);
+        try {
+            const outcome = await Promise.race([step().then(() => "done"), limit.done.then(() => "late")]);
+            if (outcome === "late") {
+                this.tellOnce(kind, t("reason.noAnswer"));
             }
         }
+        catch (error) {
+            this.tellOnce(kind, error instanceof Error ? error.message : String(error));
+        }
+        finally {
+            limit.cancel();
+        }
+    }
+    /** One toast per kind of failure while the module is loaded: a broken round repeats every five seconds. */
+    tellOnce(kind, reason) {
+        if (this.co.told.has(kind)) {
+            return;
+        }
+        this.co.told.add(kind);
+        this.host.notify(t(`notice.roundFailed.${kind}`, { reason }), "warning");
+    }
+    /** Records whose terminal or pane went away; flows nobody carries on. Each record is its own step. */
+    async reconcile(terms) {
+        const live = new Set(terms.filter((x) => x.state === "live").map((x) => x.address));
+        const panes = this.host.panes();
+        const paneIds = new Set(panes.map((p) => p.pane));
+        const tabs = this.host.tabs();
+        for (const rec of this.records()) {
+            await this.guarded("record", () => this.reconcileOne(rec, live, paneIds, panes, tabs));
+        }
+    }
+    async reconcileOne(rec, live, paneIds, panes, tabs) {
+        const key = rec.key;
+        const now = this.ports.now();
+        if (this.busy(key)) {
+            this.flowSince.delete(key);
+            return;
+        }
+        let gone = false;
+        if (RUNNING.includes(rec.state)) {
+            // Also with no terminal left at all: Herdr's layout is loaded (ready), and the grace
+            // below covers a list that lags. Before, such a record said "running" (or "checking") for good.
+            gone = rec.terminal === null || !live.has(rec.terminal);
+        }
+        else if (SLEEPING.includes(rec.state)) {
+            gone = rec.pane === null ? !this.awaitingPane(key) : !paneIds.has(rec.pane);
+            if (rec.pane !== null && !gone) {
+                this.co.sleepPanes.set(rec.pane, key);
+                await this.followPane(rec, panes, tabs);
+            }
+            if (!gone && unfinished(rec)) {
+                await this.finishSleep(rec);
+                return;
+            }
+        }
+        else {
+            const since = this.flowSince.get(key) ?? now;
+            this.flowSince.set(key, since);
+            if (now - since >= STALE_FLOW_MS) {
+                this.flowSince.delete(key);
+                await this.recover(rec, live);
+            }
+            return;
+        }
+        const mark = `record:${key}`;
+        if (!gone) {
+            this.absentSince.delete(mark);
+            return;
+        }
+        const since = this.absentSince.get(mark) ?? now;
+        this.absentSince.set(mark, since);
+        if (now - since >= GONE_GRACE_MS) {
+            this.absentSince.delete(mark);
+            await this.removeRecord(key);
+            this.giveBack(await this.letGoOfSpaceName(key, rec.spaceName));
+        }
+    }
+    /**
+     * A sleeping session is where its pane is: a tab moved to another space (a
+     * mod that groups spaces), or the pane moved to another tab, takes the record
+     * along, so its row is in the right group, Resume all finds it and a click
+     * goes to a tab that exists.
+     */
+    async followPane(rec, panes, tabs) {
+        const tabId = panes.find((p) => p.pane === rec.pane)?.tab;
+        const spaceId = tabs.find((x) => x.id === tabId)?.space;
+        if (tabId === undefined || spaceId === undefined || (rec.tabId === tabId && rec.spaceId === spaceId)) {
+            return;
+        }
+        await this.patch(rec.key, (r) => {
+            r.tabId = tabId;
+            r.spaceId = spaceId;
+        });
     }
     /**
      * Sleeping panes whose session no longer owns them, in a tab a session

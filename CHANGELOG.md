@@ -39,6 +39,14 @@ and the project uses [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- One terminal the mod could not look at (an `hc` call that failed or never answered, a store that kept changing)
+  no longer stops it from checking every other session: each terminal and each session is checked on its own, a
+  failure is told once in a toast, and a slow round is never doubled by the next one.
+- A sleeping session whose tab was moved to another space (by hand or by a mod that groups spaces) is listed under
+  that space and woken by its Resume all. Clicking a row goes to the tab the session is in now; a row whose tab is
+  gone says so instead of "tab.select failed: no such tab".
+- A running session whose terminal is gone leaves Sessions after the usual grace even when Herdr has no terminal
+  left at all; before, it stayed "running" for good.
 - A session that sleeps in one tab and is opened again in another tab of Herdr (`/resume` there, or by hand) now
   runs in that tab: its row follows it and its old sleeping pane closes. Before, a `/resume` dropped the tab's
   own session from Sessions (Sleep then did nothing there), and a session opened by hand stayed "open elsewhere"

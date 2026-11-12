@@ -504,8 +504,14 @@ export class PanelView {
       .cursor_pointer()
       .hover((s) => s.bg(color("hover")))
       .on_click(() => {
-        host.runOnScreen("space.select", { id: rec.spaceId });
-        host.runOnScreen("tab.select", { id: rec.tabId });
+        // Where it is now, not where the record last said: a tab moves between spaces, or is gone.
+        const place = engine.placeNow(rec.key);
+        if (place === null) {
+          host.notify(t("notice.tabGone"), "info");
+          return;
+        }
+        host.runOnScreen("space.select", { id: place.spaceId });
+        host.runOnScreen("tab.select", { id: place.tabId });
       })
       .on_mouse_move((e, cx) =>
         hoverPopup.enter(

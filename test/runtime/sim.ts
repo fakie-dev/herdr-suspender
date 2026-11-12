@@ -523,6 +523,27 @@ export class Sim implements Host {
   async sleep(ms: number): Promise<void> {
     await this.advance(ms);
   }
+  /**
+   * A time limit. A step that answers does so within the microtasks already
+   * queued (everything here is in memory); one still waiting when they ran out
+   * never answers, and the clock moves on to the limit.
+   */
+  deadline(ms: number): { done: Promise<void>; cancel(): void } {
+    let cancelled = false;
+    const done = new Promise<void>((resolve) => {
+      setImmediate(() => {
+        if (!cancelled) {
+          void this.advance(ms).then(resolve);
+        }
+      });
+    });
+    return {
+      done,
+      cancel: () => {
+        cancelled = true;
+      },
+    };
+  }
   notify(text: string, level: NoticeLevel): void {
     this.notices.push({ text, level });
   }

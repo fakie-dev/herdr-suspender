@@ -82,6 +82,7 @@ export const en = {
   "error.startFailed": "Couldn't start {agent}: {reason}",
   "error.startTimeout": "{agent} didn't start within 30 seconds",
   // Why a start failed: the {reason} of error.startFailed (a session's `error` holds one of these keys).
+  "reason.noAnswer": "no answer",
   "reason.timeout": "no answer within 30 seconds",
   "reason.wrongCommand": "Herdr started a different command",
   "reason.exited": "it exited right away",
@@ -90,6 +91,10 @@ export const en = {
   "reason.noPane": "its tab is gone",
   "reason.interrupted": "the start was interrupted",
   "reason.badId": "its session id is not one a shell can be given safely",
+  "notice.roundFailed.observe": "Suspender skipped a terminal it could not look at: {reason}",
+  "notice.roundFailed.record": "Suspender skipped a session it could not check: {reason}",
+  "notice.roundFailed.panes": "Suspender skipped tidying its panes: {reason}",
+  "notice.tabGone": "This session's tab is gone; it leaves the list in a few seconds",
   "notice.skippedElsewhere": "Some sessions are open elsewhere and were skipped",
   "notice.layoutOutdated": "Suspender couldn't update its layout for Herdr {version}",
   "notice.tabsFallback": "Sessions moved left of the tabs",

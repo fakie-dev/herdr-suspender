@@ -29,6 +29,11 @@ watches for restarts and writes the store. Every copy may carry out an action so
 press on Resume works in whatever copy contains the button. Store writes are conditional (see below), so two
 copies never overwrite each other. See [ADR 1](adr/0001-roles-through-props.md).
 
+A round looks at each terminal and each record as a step of its own: a step that throws, or does not answer
+within two minutes, is told once in a toast and skipped, and the others go on. A copy runs one round at a time. A
+sleeping record takes its place (tab and space) from its pane every round, and a click on a row goes to the tab
+Herdr shows the session in at that moment, never to ids from the record alone.
+
 ## States
 
 `core/machine.ts` is the only place states change. A session is one of `running`, `working`, `confirming`,

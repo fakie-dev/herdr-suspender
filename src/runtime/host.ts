@@ -96,6 +96,11 @@ export interface Host {
   shared(key: string): unknown;
   setShared(key: string, value: unknown): void;
   sleep(ms: number): Promise<void>;
+  /**
+   * A time limit: `done` resolves after `ms` unless `cancel` came first. Not one
+   * of a flow's waits (`sleep`): it only bounds how long a round waits for a step.
+   */
+  deadline(ms: number): { done: Promise<void>; cancel(): void };
   notify(text: string, level: NoticeLevel): void;
   /** Shows the question for a working agent ("Sleep when done" / "Interrupt and sleep" / "Cancel"). */
   askConfirm(key: SessionKey): void;

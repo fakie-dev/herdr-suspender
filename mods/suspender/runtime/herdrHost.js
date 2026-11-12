@@ -43,6 +43,8 @@ export function herdrHost(clock) {
             setShared(key, value);
         },
         sleep: (ms) => clock.sleep(ms),
+        // A copy's sleep cannot be called off; a limit that is no longer needed just ends unheard.
+        deadline: (ms) => ({ done: clock.sleep(ms), cancel: () => undefined }),
         notify: (text, level) => {
             notify({ title: text, level });
         },
