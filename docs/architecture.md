@@ -43,15 +43,22 @@ touches Herdr.
 1. Snapshot: the adapter reads the transcript (title, first prompt, last reply, branch, model, message count,
    context and tokens), and the engine saves `hc read` of the terminal as the last screen.
 2. The sleeping panel is placed first: `pane.split` with `mod` and `props` next to the terminal, `pane.swap`
-   with it, and only then the stop steps run. The split, swap and close sequence is always done in full: with
-   the swap left out, the closed pane's share of the space goes to a neighbour unless the pane was first in
-   its parent along the parent's axis. With it, the new panel has exactly the old slot and the same size,
-   which was measured in several positions.
-3. Stop steps from the adapter: Claude Code sends Escape, waits up to 10 seconds for the idle status, presses
-   Ctrl+C and types `/exit`; Codex presses Ctrl+C and types `/quit`. Ctrl+C on an idle prompt empties it, so a
-   draft is not sent together with the exit command. If the process is still alive 10 seconds after the last
-   step the terminal is killed and the record says `forced`.
-4. The terminal is closed and the record becomes `asleep` with the memory that was freed.
+   with it, and in the same step `terminal.park` takes the terminal's pane away. The agent keeps running out
+   of sight and the panel alone holds the slot, so the tab never shows the panel beside the live agent for
+   longer than a few frames ([ADR 9](adr/0009-stop-out-of-sight.md)). The split, swap and park sequence is
+   always done in full: with the swap left out, the removed pane's share of the space goes to a neighbour
+   unless the pane was first in its parent along the parent's axis. With it, the new panel has exactly the old
+   slot and the same size, which was measured in several positions. Herdr lists the new panel only after its
+   next update, so it is looked for every 16 ms. If it has not shown after the waits, the terminal is not
+   parked and the agent is stopped in view.
+3. Stop steps from the adapter, sent to the parked terminal by its address (it still takes keys and reports its
+   status): Claude Code sends Escape, waits up to 10 seconds for the idle status, presses Ctrl+C and types
+   `/exit`; Codex presses Ctrl+C and types `/quit`. Ctrl+C on an idle prompt empties it, so a draft is not sent
+   together with the exit command. If the process is still alive 10 seconds after the last step the terminal
+   is killed and the record says `forced`.
+4. What is left of the terminal is ended: the shell the agent ran in, still running out of sight, with
+   `terminal.kill`; a terminal that kept its pane (park failed and Herdr showed a toast) by closing the pane, as
+   before. Then `hc rm`, and the record becomes `asleep` with the memory that was freed.
 
 Stop commands are typed with `hc keys`, not `hc send`: `send` wraps text in a tag when `HC_TERMINAL_ID` is
 inherited, and the agent would receive the tag.
@@ -174,15 +181,21 @@ On Windows, with both agents in a throwaway folder:
 - Codex: sleep and resume into the same conversation, "sleep when done", a session open elsewhere, a missing
   conversation with Start new session, Forget, Resume all skipping a session that is open elsewhere, `/quit`
   (no sleeping tab is made), and `codex.exe` killed from outside (interrupted).
+- Stopping out of sight (ADR 9), Claude Code only: an idle agent beside another pane and alone in its tab, and
+  a working one stopped with "Interrupt and sleep". Each time the slot showed only the sleeping pane from
+  about half a second after the press, the hidden agent left on `/exit`, and nothing was left in the core.
 
-Covered by tests only so far: "updated after sleep" with Codex, a draft left in Codex's prompt, and a real
-reboot of the PC.
+Covered by tests only so far: "updated after sleep" with Codex, a draft left in Codex's prompt, a real reboot
+of the PC, Codex stopped out of sight, and an agent stopped out of sight that ignores its exit command (the
+kill of a parked terminal itself was tried by hand).
 
 ## Limits
 
 - If an agent shows its own dialog when it starts (Codex asks about updates and about trusting a new folder),
   the resumed agent waits behind that dialog until you answer it. The mod cannot see or answer it.
 - Sleep does not warn about a draft in the prompt: it empties the prompt before the exit command.
+- For a few frames after Sleep (about 80 ms measured) the agent and the sleeping pane share the slot: Herdr
+  lists the new pane only after its next update, and it cannot be swapped in before that (ADR 9).
 - Codex has no event for "closed elsewhere", so while its strip is on screen it is checked every five seconds
   (see Cost).
 

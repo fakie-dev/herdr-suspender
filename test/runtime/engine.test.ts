@@ -116,12 +116,12 @@ describe("going to sleep", () => {
 
     // Claude's steps: Esc, Ctrl+C (empties the prompt), then /exit typed as keys (`hc send` would
     // wrap it in an <hc from=…> tag when Herdr runs inside a terminal, and the agent would read a
-    // message); no kill.
+    // message). The agent is never killed: the one kill ends the shell it left, out of sight (ADR 9).
     assert.deepEqual(hcOf(sim, "keys")[0], ["keys", agent.address, "esc"]);
     assert.deepEqual(hcOf(sim, "keys")[1], ["keys", agent.address, "ctrl+c"]);
     assert.deepEqual(hcOf(sim, "keys")[2], ["keys", agent.address, "/", "e", "x", "i", "t", "enter"]);
     assert.equal(hcOf(sim, "send").length, 0);
-    assert.equal(commandsOf(sim, "terminal.kill").length, 0);
+    assert.deepEqual(sim.killed, [{ address: agent.address, agent: false }]);
   });
 
   it("a slow process listing (memory freed) does not hold up the stop", async () => {

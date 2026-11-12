@@ -75,6 +75,12 @@ export class Sim implements Host {
   runStartsShell = false;
   /** Herdr adopts terminals started with `hc run` (lists them, gives them a pane). */
   adopts = true;
+  /** Herdr carries out `terminal.park`; false: it fails in the background (a toast), the pane stays. */
+  parks = true;
+  /** Terminals `terminal.park` took out of their tab, in order. */
+  parked: string[] = [];
+  /** Terminals `terminal.kill` ended, and whether an agent still ran in each then. */
+  killed: { address: string; agent: boolean }[] = [];
   /** A command typed into a shell starts nothing (a typo, a missing program). */
   typedStartsNothing = false;
   /** What the shell really runs for a typed line (a mangled line, an alias). */
@@ -306,8 +312,22 @@ export class Sim implements Host {
       }
       case "terminal.kill": {
         const address = String(args["terminal"]);
+        this.killed.push({ address, agent: this.terms.get(address)?.agent != null });
         this.finish(address, "killed");
         this.removePaneOf(address);
+        return;
+      }
+      case "terminal.park": {
+        // Measured (Herdr 0.1.15): the pane goes as a closed one does (its share to the pane before it),
+        // Herdr's labels go, the terminal keeps running and stays in terminals() with its status.
+        const t = this.terms.get(String(args["terminal"]));
+        if (!this.parks || t?.state !== "live") {
+          return;
+        }
+        this.removePaneOf(t.address);
+        delete t.labels["herdr.space"];
+        delete t.labels["herdr.tab"];
+        this.parked.push(t.address);
         return;
       }
       case "tab.new": {

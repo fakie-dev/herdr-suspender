@@ -5,6 +5,12 @@ and the project uses [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Changed
+
+- Sleep no longer shows the sleeping tab next to the live agent while the agent is stopped. The sleeping tab
+  takes the agent's place at once, at the same size, and the agent is stopped out of sight (it is gone from the
+  Agents list too). Before, both stood side by side for a few seconds and then the agent's pane closed by itself.
+
 ## [0.1.1] - 2026-11-12
 
 Mostly fixes from an independent run on a clean 0.1.0 install, plus a shorter README.

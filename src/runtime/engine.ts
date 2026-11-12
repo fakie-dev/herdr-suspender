@@ -89,6 +89,12 @@ const POLL_MS = 250;
 /** A terminal Herdr does not list is looked up with `hc get` at most this often. */
 const LOOK_EVERY_MS = 1_000;
 const PANE_WAIT_MS = 3_000;
+/**
+ * How often the sleeping pane is looked for after the split: Herdr lists a
+ * mod's new pane only after its next update, and until the park the agent is
+ * squeezed beside it (ADR 9). One frame; only during a sleep, at most PANE_WAIT_MS.
+ */
+const FRAME_MS = 16;
 
 export type WakeStep = "found" | "starting" | "ready";
 export interface Freshness {
@@ -1466,7 +1472,11 @@ export class Engine {
     return kb > 0 ? Math.round(kb / 1024) : null;
   }
 
-  /** The adapter's graceful stop, with our pane already in the terminal's slot (an exit may close its pane). */
+  /**
+   * The adapter's graceful stop, with our pane already in the terminal's slot
+   * and the terminal out of sight (prepare): the steps reach it by its address,
+   * and its status is still in terminals().
+   */
   private async stop(rec: SessionRecord, adapter: AgentAdapter, flow: Flow): Promise<Outcome> {
     const address = rec.terminal;
     if (address === null || !this.alive(address)) {
@@ -1500,7 +1510,17 @@ export class Engine {
     return { next: { t: "stopped", forced: false } };
   }
 
-  /** split → swap: our pane takes the terminal's slot (experiments.md E1); the terminal is closed later. */
+  /**
+   * split → swap: our pane takes the terminal's slot (experiments.md E1). Then
+   * `terminal.park` takes the terminal's pane away at once (ADR 9): its share
+   * goes to ours, the terminal keeps running out of sight and is stopped there,
+   * so the tab shows the sleeping pane beside the live agent only until Herdr
+   * lists our pane (a few frames: it does so after its next update, hence
+   * FRAME_MS). Once listed, nothing is awaited until the park, so no other task
+   * of the mod runs in between. Without our pane in place the terminal stays
+   * where it is (a hole in the tab would be worse). If park fails (Herdr shows
+   * a toast and the pane stays), placeSleepPane closes the pane at the end.
+   */
   private async prepare(key: SessionKey, flow: Flow): Promise<void> {
     if (flow.prepared !== null) {
       return;
@@ -1510,12 +1530,13 @@ export class Engine {
       return;
     }
     const target = rec.terminal !== null ? this.paneOf(rec.terminal) : null;
-    const pane = await this.newSleepPane(rec, target, flow);
+    const pane = this.splitSleepPane(rec, target, flow) ?? (await this.newSleepPane(rec, target, flow));
     if (pane === null) {
       return;
     }
-    if (target !== null) {
+    if (target !== null && rec.terminal !== null) {
       this.host.run("pane.swap", { pane, target });
+      this.host.run("terminal.park", { terminal: rec.terminal });
     }
     flow.prepared = pane;
     const tab = this.host.panes().find((p) => p.pane === pane)?.tab ?? rec.tabId;
@@ -1530,6 +1551,21 @@ export class Engine {
    * tab of the space). Once per flow: a later call waits for the same pane.
    */
   private async newSleepPane(rec: SessionRecord, anchor: string | null, flow: Flow): Promise<string | null> {
+    const shown = this.splitSleepPane(rec, anchor, flow);
+    if (shown !== null) {
+      return shown;
+    }
+    const split = this.co.splits.get(rec.key);
+    const pane = await this.waitFor(() => (split === undefined ? null : this.splitPane(split)), PANE_WAIT_MS, FRAME_MS);
+    if (pane !== null) {
+      this.co.splits.delete(rec.key);
+      this.co.sleepPanes.set(pane, rec.key);
+    }
+    return pane;
+  }
+
+  /** Asks for our pane once per flow (newSleepPane), and returns it if Herdr already shows it. Never waits. */
+  private splitSleepPane(rec: SessionRecord, anchor: string | null, flow: Flow): string | null {
     if (flow.splitFrom === null) {
       flow.splitFrom = new Set(this.host.panes().map((p) => p.pane));
       const props = { role: "sleep", key: rec.key };
@@ -1545,7 +1581,7 @@ export class Engine {
       this.co.splits.set(rec.key, { tab, before: flow.splitFrom, tabs, at: this.ports.now() });
     }
     const split = this.co.splits.get(rec.key);
-    const pane = await this.waitFor(() => (split === undefined ? null : this.splitPane(split)), PANE_WAIT_MS);
+    const pane = split === undefined ? null : this.splitPane(split);
     if (pane !== null) {
       this.co.splits.delete(rec.key);
       this.co.sleepPanes.set(pane, rec.key);
@@ -1621,7 +1657,11 @@ export class Engine {
     if (address !== null) {
       const pane = this.paneOf(address);
       if (pane !== null) {
+        // Still in view (park failed, or our pane never showed): closing its pane ends it.
         this.host.run("pane.close", { pane });
+      } else if (this.alive(address)) {
+        // Out of sight: the shell the agent ran in is still there, and nobody can see or close it.
+        this.host.run("terminal.kill", { terminal: address });
       }
       await this.waitUntil(() => !this.alive(address), 2_000);
       await this.ports.hc(["rm", address]).catch(() => null);
@@ -1941,7 +1981,7 @@ export class Engine {
     this.touch();
   }
 
-  private async waitUntil(done: () => boolean, ms: number): Promise<boolean> {
+  private async waitUntil(done: () => boolean, ms: number, every = POLL_MS): Promise<boolean> {
     const end = this.ports.now() + ms;
     for (;;) {
       if (done()) {
@@ -1950,16 +1990,20 @@ export class Engine {
       if (this.ports.now() >= end) {
         return false;
       }
-      await this.pause(POLL_MS);
+      await this.pause(every);
     }
   }
 
-  private async waitFor<T>(find: () => T | null, ms: number): Promise<T | null> {
+  private async waitFor<T>(find: () => T | null, ms: number, every = POLL_MS): Promise<T | null> {
     let found: T | null = null;
-    await this.waitUntil(() => {
-      found = find();
-      return found !== null;
-    }, ms);
+    await this.waitUntil(
+      () => {
+        found = find();
+        return found !== null;
+      },
+      ms,
+      every,
+    );
     return found;
   }
 }
