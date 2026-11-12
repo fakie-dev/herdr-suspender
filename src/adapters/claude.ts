@@ -18,7 +18,6 @@ import {
   num,
   oneLine,
   readTranscript,
-  sameDir,
   str,
   terminalPids,
   tokensText,
@@ -50,8 +49,6 @@ function modelWindow(model: string | null): number | null {
   return family === "haiku" ? SMALL_WINDOW : null;
 }
 
-/** A session file written up to this long before the terminal existed still counts (clock skew). */
-const START_SLACK_MS = 2_000;
 /** Records any field comes from; the rest (attachments, api-request, …) is not parsed. */
 const WANTED = /"type":\s*"(user|assistant|ai-title|custom-title|agent-name)"/;
 
@@ -337,6 +334,16 @@ async function snapshot(sessionId: string, cwd: string, p: Ports, prev?: Session
 
 // ---- finding the session
 
+/** Node, which runs Claude Code installed with npm (its pid file then names node.exe). */
+const NODE = /^node(\.exe)?$/i;
+/** The script npm's Claude Code runs. */
+const NPM_CLAUDE = /@anthropic-ai[\\/]claude-code[\\/]/i;
+
+/** A process that is Claude Code: by its name, or node running npm's Claude Code. */
+function isClaudeProcess(name: string, commandLine: string | null): boolean {
+  return /claude/i.test(name) || (NODE.test(name) && NPM_CLAUDE.test(commandLine ?? ""));
+}
+
 async function discoverSession(t: TerminalView, p: Ports): Promise<string | null> {
   const fg = t.foreground;
   if (fg !== null) {
@@ -350,19 +357,13 @@ async function discoverSession(t: TerminalView, p: Ports): Promise<string | null
     // Windows: the shell is in the foreground. Its own Claude is the one running under it. The
     // shell's folder says nothing: a new tab's shell starts where the focused pane was and Claude
     // is started after a cd, and a session started later in that folder may run in another space.
+    // Without a process of the terminal's own in front nothing is taken: a folder proves nothing.
     const live = await liveSessions(p);
     if (live.length > 0) {
       const own = nearestUnder(await processDetails(p), live, fg.pid);
       if (own !== null) {
         return own.sessionId;
       }
-    }
-  } else {
-    const candidates = (await liveSessions(p)).filter(
-      (s) => sameDir(s.cwd, t.cwd, p) && s.startedAt >= t.createdMs - START_SLACK_MS,
-    );
-    if (candidates.length === 1) {
-      return candidates[0]?.sessionId ?? null;
     }
   }
   // No session file (yet): `claude --resume <id>` / `--session-id <id>` in the visible argv.
@@ -380,7 +381,7 @@ function nearestUnder(tree: readonly ProcessDetail[], live: readonly LiveSession
   let best: { session: LiveSession; depth: number } | null = null;
   for (const s of live) {
     const proc = tree.find((d) => d.pid === s.pid);
-    if (proc === undefined || !/claude/i.test(proc.name)) {
+    if (proc === undefined || !isClaudeProcess(proc.name, proc.commandLine)) {
       continue;
     }
     const depth = depthUnder(tree, s.pid, shell);
@@ -409,7 +410,13 @@ async function openElsewhere(
     // No answer is not "closed": resuming next to a live copy would make two.
     return { open: true, unsure: true };
   }
-  let alive = holders.filter((s) => /claude/i.test(live.get(s.pid)?.name ?? ""));
+  // npm's Claude is node.exe: its command line says which program it runs (one process tree, only then).
+  const nodes = holders.some((s) => NODE.test(live.get(s.pid)?.name ?? ""));
+  const details = nodes ? await processDetails(p) : [];
+  let alive = holders.filter((s) => {
+    const name = live.get(s.pid)?.name ?? "";
+    return isClaudeProcess(name, details.find((d) => d.pid === s.pid)?.commandLine ?? null);
+  });
   if (exceptTerminal !== undefined && alive.length > 0) {
     const own = await terminalPids(exceptTerminal, p);
     alive = alive.filter((s) => !own.includes(s.pid));
@@ -439,7 +446,8 @@ export const claudeAdapter: AgentAdapter = {
     t.app === "claude-code" ||
     t.app === "claude" ||
     /^claude(\.exe)?$/i.test(t.foreground?.name ?? "") ||
-    /(^|[\\/])claude(\.exe)?$/i.test(t.foreground?.argv[0] ?? ""),
+    /(^|[\\/])claude(\.exe)?$/i.test(t.foreground?.argv[0] ?? "") ||
+    (NODE.test(t.foreground?.name ?? "") && (t.foreground?.argv ?? []).some((a) => NPM_CLAUDE.test(a))),
   discoverSession,
   sessionCwd: async (sessionId, p) => (await liveSessions(p)).find((s) => s.sessionId === sessionId)?.cwd ?? null,
   snapshot,

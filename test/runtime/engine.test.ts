@@ -586,6 +586,19 @@ describe("a session that changes inside the agent (/clear, /resume, Codex /new)"
 });
 
 describe("a session is a terminal's only through its processes", () => {
+  it("Resume asks whether a session is open elsewhere with the time it went to sleep", async () => {
+    // Codex's own /quit writes its rollout: a write up to the end of the sleep is not someone else's.
+    const { sim, engine, codex } = world();
+    const term = sim.addTerminal({ agent: "codex" });
+    codex.state.sessions.set(term.address, "c1");
+    await engine.tick();
+    await engine.sleep("codex:c1");
+    const slept = engine.record("codex:c1")?.sleptAtMs ?? null;
+    assert.ok(slept !== null);
+    await engine.resume("codex:c1");
+    assert.equal(codex.state.quiet.at(-1), slept);
+  });
+
   it("an unbound Codex anywhere, in any folder, holds back a Codex rekey", async () => {
     const { sim, engine, codex } = world();
     sim.addTab("tb2", "sp2");

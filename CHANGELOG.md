@@ -39,6 +39,11 @@ and the project uses [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- Claude Code installed with npm on Windows (it runs as `node.exe`) is found in its tab, shown open elsewhere when
+  it is, and no longer taken for a killed agent (put to sleep in the middle of its work) whenever its tab changed.
+- Resume right after Sleep no longer says a Codex session is open elsewhere: the rollout Codex wrote on its way
+  out counted as someone else's for 15 seconds.
+- A Claude Code tab is never given a session by its folder alone, also when Herdr does not report its process.
 - A session started with `cd somewhere; claude` (or `codex`) on one line is recorded in the folder it runs in, and
   Resume starts it there. Its folder came from the tab's shell, which had not taken the `cd` in yet (seen: the home
   folder). It now comes from the agent's own files: Claude Code's session file, Codex's rollout.

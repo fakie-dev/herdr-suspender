@@ -361,7 +361,7 @@ async function codexCommandLines(p) {
     }
     return codex.map(([pid, live]) => ({ pid, commandLine: commandLines.get(key(pid, live.name)) ?? null }));
 }
-async function openElsewhere(sessionId, p, exceptTerminal) {
+async function openElsewhere(sessionId, p, exceptTerminal, quietSince) {
     let holders = (await codexCommandLines(p)).filter((c) => (c.commandLine ?? "").toLowerCase().includes(sessionId.toLowerCase()));
     if (exceptTerminal !== undefined && holders.length > 0) {
         const own = await terminalPids(exceptTerminal, p);
@@ -378,7 +378,9 @@ async function openElsewhere(sessionId, p, exceptTerminal) {
     if (exceptTerminal === undefined) {
         const path = await findRollout(sessionId, p);
         const st = path === null ? null : await p.stat(path);
-        if (path !== null && st !== null && p.now() - st.mtimeMs < FRESH_MS) {
+        // Its own /quit writes it too: a write from before the sleep ended is not someone else's.
+        const after = quietSince === undefined || st === null || st.mtimeMs > quietSince;
+        if (path !== null && st !== null && after && p.now() - st.mtimeMs < FRESH_MS) {
             return { open: true, where: baseName(path) };
         }
     }

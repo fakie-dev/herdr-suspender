@@ -429,6 +429,7 @@ async function openElsewhere(
   sessionId: string,
   p: Ports,
   exceptTerminal?: string,
+  quietSince?: number,
 ): Promise<{ open: boolean; where?: string }> {
   let holders = (await codexCommandLines(p)).filter((c) =>
     (c.commandLine ?? "").toLowerCase().includes(sessionId.toLowerCase()),
@@ -448,7 +449,9 @@ async function openElsewhere(
   if (exceptTerminal === undefined) {
     const path = await findRollout(sessionId, p);
     const st = path === null ? null : await p.stat(path);
-    if (path !== null && st !== null && p.now() - st.mtimeMs < FRESH_MS) {
+    // Its own /quit writes it too: a write from before the sleep ended is not someone else's.
+    const after = quietSince === undefined || st === null || st.mtimeMs > quietSince;
+    if (path !== null && st !== null && after && p.now() - st.mtimeMs < FRESH_MS) {
       return { open: true, where: baseName(path) };
     }
   }

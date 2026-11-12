@@ -1228,7 +1228,7 @@ export class Engine {
         if (rec.state !== "asleep" && rec.state !== "interrupted") {
             return;
         }
-        const open = await this.adapter(rec.agent).openElsewhere(rec.sessionId, this.ports);
+        const open = await this.adapter(rec.agent).openElsewhere(rec.sessionId, this.ports, undefined, quiet(rec));
         if (open.open && open.unsure !== true) {
             await this.act(key, () => this.dispatch(key, { t: "openElsewhere", where: open.where ?? "" }));
         }
@@ -1269,11 +1269,12 @@ export class Engine {
             return;
         }
         const adapter = this.adapter(rec.agent);
-        if ((await adapter.openElsewhere(rec.sessionId, this.ports)).open) {
+        if ((await adapter.openElsewhere(rec.sessionId, this.ports, undefined, quiet(rec))).open) {
             return;
         }
         await this.host.sleep(CONFIRM_CLOSED_MS);
-        if (this.record(key)?.state !== "elsewhere" || (await adapter.openElsewhere(rec.sessionId, this.ports)).open) {
+        if (this.record(key)?.state !== "elsewhere" ||
+            (await adapter.openElsewhere(rec.sessionId, this.ports, undefined, quiet(rec))).open) {
             return;
         }
         await this.act(key, () => this.dispatch(key, { t: "closedElsewhere" }));
@@ -1414,7 +1415,7 @@ export class Engine {
                     ? null
                     : { next: { t: "transcriptMissing" } };
             case "checkElsewhere": {
-                const open = await adapter.openElsewhere(rec.sessionId, this.ports);
+                const open = await adapter.openElsewhere(rec.sessionId, this.ports, undefined, quiet(rec));
                 return open.open ? { next: { t: "openElsewhere", where: open.where ?? "" } } : null;
             }
             case "startAgent":
@@ -2208,9 +2209,13 @@ function signature(term) {
 function unfinished(rec) {
     return rec.terminal !== null || ((rec.state === "asleep" || rec.state === "interrupted") && rec.sleptAtMs === null);
 }
+/** When a session went to sleep: what its agent wrote up to then is its own (`openElsewhere`). */
+const quiet = (rec) => rec.sleptAtMs ?? undefined;
 /** The terminal as the adapter should see it with `pid` (named `name`) in front. */
-function processView(term, pid, name) {
-    return { ...toTerminalView(term), app: null, foreground: { pid, argv: [name], name } };
+function processView(term, pid, name, commandLine) {
+    // With its command line when the table has it: npm's Claude Code is node running its script.
+    const argv = commandLine ? [name, ...commandLine.split(/\s+/).slice(1)] : [name];
+    return { ...toTerminalView(term), app: null, foreground: { pid, argv, name } };
 }
 /** The agent's process under the terminal's shell in a process tree (with `args`, run with them). */
 function agentIn(tree, term, adapter, args) {
@@ -2226,7 +2231,7 @@ function agentIn(tree, term, adapter, args) {
     let nearest = Number.POSITIVE_INFINITY;
     for (const d of under) {
         const depth = depthUnder(tree, d.pid, shell) ?? Number.POSITIVE_INFINITY;
-        if (depth < nearest && adapter.matches(processView(term, d.pid, d.name))) {
+        if (depth < nearest && adapter.matches(processView(term, d.pid, d.name, d.commandLine))) {
             agent = d;
             nearest = depth;
         }

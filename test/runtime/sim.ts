@@ -1005,6 +1005,8 @@ export interface FakeAdapterState {
   views: TerminalView[];
   /** A session's own folder, as its own files say (`sessionCwd`); none: null. */
   folders: Map<string, string>;
+  /** The `quietSince` each `openElsewhere` was given, in order. */
+  quiet: (number | undefined)[];
 }
 
 export function fakeAdapter(
@@ -1019,6 +1021,7 @@ export function fakeAdapter(
     discovers: [],
     views: [],
     folders: new Map(),
+    quiet: [],
   },
 ): AgentAdapter & { state: FakeAdapterState } {
   const app = appOf(id);
@@ -1056,8 +1059,9 @@ export function fakeAdapter(
     },
     sessionCwd: async (sessionId: string) => state.folders.get(sessionId) ?? null,
     transcriptExists: async (sessionId: string) => !state.missing.has(sessionId),
-    openElsewhere: async (sessionId: string) => {
+    openElsewhere: async (sessionId: string, _p: Ports, _except?: string, quietSince?: number) => {
       state.openChecks.push(sessionId);
+      state.quiet.push(quietSince);
       const where = state.elsewhere.get(sessionId);
       return where === undefined ? { open: false } : { open: true, where };
     },

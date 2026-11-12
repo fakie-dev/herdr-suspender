@@ -53,12 +53,15 @@ export interface AgentAdapter {
   /**
    * Whether a live process other than the one in `exceptTerminal` holds this
    * session. When the system did not answer (a process list that failed) it
-   * says open, with `unsure`: a second copy is worse than a wait.
+   * says open, with `unsure`: a second copy is worse than a wait. `quietSince`:
+   * when the session went to sleep; what the agent wrote up to then (its exit)
+   * is no sign of anyone else.
    */
   openElsewhere(
     sessionId: string,
     p: Ports,
     exceptTerminal?: string,
+    quietSince?: number,
   ): Promise<{ open: boolean; where?: string; unsure?: boolean }>;
   /** Resolves when something that `openElsewhere` looks at may have changed (Claude: its sessions folder). */
   watchOpenness?(p: Ports): Promise<void>;

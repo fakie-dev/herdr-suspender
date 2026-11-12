@@ -7,6 +7,7 @@
 
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
+import { claudeAdapter } from "../../src/adapters/claude.ts";
 import type { AgentAdapter } from "../../src/adapters/contract.ts";
 import type { AgentId, SessionKey } from "../../src/core/model.ts";
 import { ABSENT_GRACE_MS, Engine, newCoordinator } from "../../src/runtime/engine.ts";
@@ -79,6 +80,29 @@ describe("an agent started again in the same shell", () => {
     w.sim.setStatus(w.agent.address, "idle"); // the turn ends: the session is looked up again
     await w.engine.tick();
     assert.equal(w.claude.state.views.at(-1)?.foreground?.pid, t.agentPid);
+  });
+
+  it("Claude Code installed with npm (node.exe in the process table) is not taken for gone", async () => {
+    const w = world();
+    // The real adapter's sense of which process is Claude Code.
+    w.claude.matches = claudeAdapter.matches;
+    const t = w.sim.term(w.agent.address);
+    const table = (w.sim as unknown as { processTable: () => string }).processTable.bind(w.sim);
+    (w.sim as unknown as { processTable: () => string }).processTable = () =>
+      table().replace(
+        /claude\.exe\t"C:\\bin\\claude\.exe"/,
+        'node.exe\t"C:\\Program Files\\nodejs\\node.exe" C:\\npm\\node_modules\\@anthropic-ai\\claude-code\\cli.js',
+      );
+    const list = (w.sim as unknown as { taskList: () => string }).taskList.bind(w.sim);
+    (w.sim as unknown as { taskList: () => string }).taskList = () => list().replace('"claude.exe"', '"node.exe"');
+    await w.engine.tick();
+    t.title = "A new title for the turn"; // the terminal changes: the mod looks whether its agent is there
+    for (let i = 0; i < 3; i++) {
+      await w.engine.tick();
+      await w.sim.advance(ABSENT_GRACE_MS);
+    }
+    assert.equal(w.engine.record(KEY)?.state, "running");
+    assert.deepEqual(w.sim.killed, []);
   });
 
   it("an agent that is really gone (killed hard) is still found gone", async () => {
