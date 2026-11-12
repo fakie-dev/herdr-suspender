@@ -1596,7 +1596,13 @@ export class Engine {
         if (prompted !== null && prompted.state !== "live") {
             return failed("reason.exited", address);
         }
-        await this.ports.hc(["keys", address, ...typedKeys(line), "enter"]);
+        // `hc send`, not `hc keys`: keys has no name for `_` or `:` (Codex's
+        // check_for_update_on_startup=false) and refuses the whole line. A shell
+        // gets sent text as it is; only an agent gets it wrapped as a message.
+        const sent = await this.ports.hc(["send", address, line]).catch(() => null);
+        if (sent === null || sent.code !== 0) {
+            return failed("reason.notTyped", address);
+        }
         const typedAt = this.ports.now();
         // Up when the agent runs under the shell with the command's arguments.
         // Herdr lists the terminal only once it adopts it (`hc get` until then);

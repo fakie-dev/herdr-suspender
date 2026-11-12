@@ -85,6 +85,7 @@ export const en = {
   "reason.wrongCommand": "Herdr started a different command",
   "reason.exited": "it exited right away",
   "reason.spawn": "it could not be started",
+  "reason.notTyped": "its command could not be typed into the shell",
   "reason.noPane": "its tab is gone",
   "reason.interrupted": "the start was interrupted",
   "reason.badId": "its session id is not one a shell can be given safely",

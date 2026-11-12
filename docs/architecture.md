@@ -72,6 +72,10 @@ touches Herdr.
 Stop commands are typed with `hc keys`, not `hc send`: `send` wraps text in a tag when `HC_TERMINAL_ID` is
 inherited, and the agent would receive the tag.
 
+The resume command goes the other way, with `hc send` into the shell the mod started: `hc keys` has no key name
+for `_`, `:` or `"` and refuses the whole call (measured on herdr-core 0.1.20), and Codex's
+`check_for_update_on_startup=false` has underscores. A shell gets sent text as it is; only an agent gets the tag.
+
 ## Waking
 
 1. Checks: the adapter says whether the transcript still exists (otherwise `missing`) and whether another live

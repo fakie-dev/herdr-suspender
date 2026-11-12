@@ -47,6 +47,16 @@ describe("a Codex wake with the update check off", () => {
     );
     assert.equal(engine.record(KEY)?.state, "running");
   });
+
+  it("that cannot be typed fails at once with its own reason, not after 30 s of waiting", async () => {
+    const { sim, engine } = await asleepCodex();
+    sim.sendFails = true;
+    const from = sim.now;
+    await engine.resume(KEY);
+    const rec = engine.record(KEY);
+    assert.equal(rec?.error, "reason.notTyped");
+    assert.ok(sim.now - from < 30_000, `failed after ${sim.now - from} ms`);
+  });
 });
 
 describe("the shell check", () => {

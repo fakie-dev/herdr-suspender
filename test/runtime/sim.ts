@@ -14,6 +14,8 @@ import type { Host, HostPane, HostTab, HostTerminal, NoticeLevel } from "../../s
 import { type FakePorts, fakePorts } from "../fakePorts.ts";
 
 export const SPACE = "sp1";
+/** Characters `hc keys` has no key name for (measured on herdr-core 0.1.20: `unknown key`, exit 6). */
+export const KEYS_HC_REFUSES = new Set(["_", ":", '"']);
 export const TAB = "tb1";
 export const SHELL_ARGV = ["pwsh.exe", "-NoExit", "-Command", "$global:__hc_prompt = …"];
 /** The title a shell gives its terminal (PowerShell: its own path). */
@@ -87,6 +89,8 @@ export class Sim implements Host {
   parked: string[] = [];
   /** Terminals `terminal.kill` ended, and whether an agent still ran in each then. */
   killed: { address: string; agent: boolean }[] = [];
+  /** `hc send` fails (an older core, a terminal that went away). */
+  sendFails = false;
   /** A command typed into a shell starts nothing (a typo, a missing program). */
   typedStartsNothing = false;
   /** What the shell really runs for a typed line (a mangled line, an alias). */
@@ -488,6 +492,11 @@ export class Sim implements Host {
       case "keys": {
         const t = this.terms.get(rest[0] ?? "");
         const keys = rest.slice(1);
+        const unknown = keys.find((k) => KEYS_HC_REFUSES.has(k));
+        if (unknown !== undefined) {
+          // The whole call is refused and nothing is pressed.
+          return { code: 6, stdout: "", stderr: `unknown key "${unknown}"` };
+        }
         if (t?.agent) {
           this.agentKeys(t, keys);
           return ok("{}");
@@ -500,20 +509,22 @@ export class Sim implements Host {
                 .map((k) => (k === "space" ? " " : k))
                 .join("")
             : "";
-        if (t && t.state === "live" && typed !== "" && t.screen !== "") {
-          // (A shell that has not shown its prompt yet loses what is typed.)
-          this.typed.push({
-            address: t.address,
-            line: typed,
-            shown: this.paneList.some((p) => p.terminal === t.address),
-          });
-          this.shellRuns(t, typed);
+        if (t) {
+          this.typeIntoShell(t, typed);
         }
         return t ? ok("{}") : fail("no such terminal");
       }
       case "send": {
         // Real `hc send` may wrap the text in an <hc from=…> tag: an agent reads a message, not a command.
-        return this.terms.has(rest[0] ?? "") ? ok("{}") : fail("no such terminal");
+        // A shell gets the text as it is, then Enter (measured: `echo a_b=c:d` ran as typed).
+        const t = this.terms.get(rest[0] ?? "");
+        if (this.sendFails) {
+          return fail("send failed");
+        }
+        if (t && !t.agent) {
+          this.typeIntoShell(t, rest[1] ?? "");
+        }
+        return t ? ok("{}") : fail("no such terminal");
       }
       case "read": {
         const t = this.terms.get(rest[0] ?? "");
@@ -833,6 +844,18 @@ export class Sim implements Host {
       heir.size += pane.size;
     }
     this.paneList.splice(i, 1);
+  }
+
+  /** A line and Enter given to a shell; one that has not shown its prompt yet loses it. */
+  private typeIntoShell(t: SimTerminal, line: string): void {
+    if (t.state === "live" && line !== "" && t.screen !== "") {
+      this.typed.push({
+        address: t.address,
+        line,
+        shown: this.paneList.some((p) => p.terminal === t.address),
+      });
+      this.shellRuns(t, line);
+    }
   }
 
   private removePaneOf(address: string): void {
