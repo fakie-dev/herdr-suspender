@@ -243,9 +243,21 @@ function scan(records: Record<string, unknown>[], facts: Facts): Facts {
   return facts;
 }
 
+/**
+ * A record that has the tokens in use but no percentage although its model now names the
+ * window: written before the window was known (0.1.2). Its transcript may never change
+ * again (an idle session), so it is read afresh once instead of being kept as it is.
+ */
+function windowLearned(prev: SessionInfo | undefined): boolean {
+  return (
+    prev !== undefined && prev.contextPct === null && prev.contextText !== null && modelWindow(prev.model) !== null
+  );
+}
+
 async function snapshot(sessionId: string, cwd: string, p: Ports, prev?: SessionInfo): Promise<SessionInfo> {
   const path = await findTranscript(sessionId, cwd, p);
-  const read = path === null ? ({ kind: "missing" } as const) : await readTranscript(path, p, prev);
+  const known = windowLearned(prev) && prev ? { ...prev, transcriptSize: null, transcriptMtimeMs: null } : prev;
+  const read = path === null ? ({ kind: "missing" } as const) : await readTranscript(path, p, known);
   if (read.kind === "unchanged" && prev) {
     return { ...prev };
   }

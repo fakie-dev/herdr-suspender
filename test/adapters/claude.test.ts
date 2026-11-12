@@ -351,6 +351,37 @@ describe("claude: the context window", () => {
     }
   });
 
+  // Seen on the user's machine after installing the fix: two running sessions kept "68k" from a
+  // record 0.1.2 wrote, because their transcripts did not change and an unchanged read keeps it.
+  it("recomputes a record saved without the window once the model gives it, though the transcript is unchanged", async () => {
+    const p = fakePorts();
+    metered(p);
+    p.files.set(
+      TRANSCRIPT,
+      jsonl(claude.reply("ok", { model: "claude-opus-5-5", usage: { input: 0, cacheRead: 68_000, output: 1 } })),
+    );
+    const fresh = await claudeAdapter.snapshot(SID, CWD, p);
+    const old = { ...fresh, contextPct: null, contextText: "68k" };
+    const again = await claudeAdapter.snapshot(SID, CWD, p, old);
+    assert.deepEqual([again.contextPct, again.contextText], [7, "68k / 1M"]);
+  });
+
+  it("keeps an unchanged record whose window is still unknown as it is (no re-read)", async () => {
+    const p = fakePorts();
+    const meter = metered(p);
+    p.files.set(
+      TRANSCRIPT,
+      jsonl(
+        claude.reply("ok", { model: "claude-sonnet-4-5-20250929", usage: { input: 0, cacheRead: 70_000, output: 1 } }),
+      ),
+    );
+    const first = await claudeAdapter.snapshot(SID, CWD, p);
+    const bytes = meter.bytes;
+    const again = await claudeAdapter.snapshot(SID, CWD, p, first);
+    assert.deepEqual([again.contextPct, again.contextText], [null, "70k"]);
+    assert.equal(meter.bytes, bytes, "no read for an unchanged file whose window cannot be known");
+  });
+
   it("keeps the model's window on a grown read that brings no model", async () => {
     const p = fakePorts();
     const meter = metered(p);

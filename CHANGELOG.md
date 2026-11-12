@@ -13,6 +13,8 @@ and the project uses [Semantic Versioning](https://semver.org/).
   any fill. Before, a percentage came only from a use above 200k or from `[1m]` in the model's name, which the
   transcript never holds. Haiku 4.5 gets its 200k. The 4.x models still show the tokens in use: their window is
   a setting the transcript does not keep.
+  A session recorded by 0.1.2 with only the tokens gets its percentage too, though its transcript has not
+  changed since.
 
 ### Fixed
 
