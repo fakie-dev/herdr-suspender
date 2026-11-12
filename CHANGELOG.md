@@ -19,6 +19,12 @@ and the project uses [Semantic Versioning](https://semver.org/).
   focusing a pane of another tab shows that tab. Now it is focused only when its tab is the one on screen; Resume
   all in a space that is not shown leaves the screen alone too. A sleeping tab that needs a new tab of its own
   (its old tab is gone) gives the screen back the same way.
+- "Memory freed" no longer shows the figure of an earlier sleep. A sleep whose figure could not be taken kept
+  the old one, and on a busy machine (two sessions put to sleep at once) it often could not be taken: the
+  processes were listed while the agent was being stopped, and by the time PowerShell got to them the agent
+  and its shell were gone. The stop now waits for the listing before its first key, at most 5 seconds (usually
+  about one second); a figure that cannot be taken in time is not shown. The same holds for the last screen and,
+  after a wake, for "uses".
 - "Memory freed" and "uses" on Windows were about twice what a session really gives back. They added up the
   working set of every process of the session (the shell, the agent and its MCP servers), which counts the
   memory those processes share once for each of them: a fresh Claude Code said 1.5 GB where 0.7 to 0.8 GB came

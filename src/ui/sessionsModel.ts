@@ -132,6 +132,22 @@ export function rowMemory(rec: SessionRecord, usedMb: number | null): { kind: "f
   return usedMb === null ? null : { kind: "used", text: formatMb(usedMb) };
 }
 
+/** A running session's memory as last measured, and the terminal it was measured in. */
+export interface UsedFigure {
+  terminal: string;
+  mb: number;
+}
+
+/**
+ * The "uses" figure of a row: only one measured in the terminal the session
+ * runs in now. A woken session runs in a new terminal, so the figure from
+ * before its last sleep does not come back while the next one is taken.
+ */
+export function usedNow(rec: SessionRecord, used: ReadonlyMap<SessionKey, UsedFigure>): number | null {
+  const figure = used.get(rec.key);
+  return figure !== undefined && rec.terminal !== null && figure.terminal === rec.terminal ? figure.mb : null;
+}
+
 /** Measures at most once per `everyMs`, and only while the panel is shown. */
 export class MemoryPolicy {
   private readonly everyMs: number;

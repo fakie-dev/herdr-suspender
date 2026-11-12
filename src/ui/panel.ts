@@ -37,6 +37,8 @@ import {
   ROW_TEXT,
   rowMemory,
   stateWord,
+  type UsedFigure,
+  usedNow,
 } from "./sessionsModel.ts";
 import { uiMeasure } from "./textWidth.ts";
 
@@ -59,7 +61,7 @@ export class PanelView {
   /** As Herdr reports it: window px. */
   private size: WindowSize = { width: windowPx(DEFAULT_WIDTH), height: windowPx(0) };
   /** What running sessions occupy now, in MB, as last measured. */
-  private used = new Map<SessionKey, number>();
+  private used = new Map<SessionKey, UsedFigure>();
   private sampling = false;
   private readonly policy = new MemoryPolicy(MEMORY_EVERY_MS);
   /** Running sessions' facts (name, branch, model…): read when shown, then at most every 30 s. */
@@ -110,26 +112,31 @@ export class PanelView {
     });
   }
 
-  /** What each running session's terminal and everything under it would give back, in MB: as freed at sleep. */
-  private async measure(): Promise<Map<SessionKey, number>> {
+  /**
+   * What each running session's terminal and everything under it would give
+   * back, in MB (as freed at sleep), with the terminal it was measured in.
+   */
+  private async measure(): Promise<Map<SessionKey, UsedFigure>> {
     const pids = new Map(this.o.host.terminals().map((term) => [term.address, term.pid]));
-    const roots = this.o.engine
-      .records()
-      .filter((r) => !isSleeping(r.state) && r.terminal !== null)
-      .map((r) => [r.key, pids.get(r.terminal ?? "") ?? null] as const)
-      .filter((entry): entry is readonly [SessionKey, number] => entry[1] !== null);
-    const result = new Map<SessionKey, number>();
+    const roots: { key: SessionKey; terminal: string; root: number }[] = [];
+    for (const r of this.o.engine.records()) {
+      const root = r.terminal === null ? null : (pids.get(r.terminal) ?? null);
+      if (!isSleeping(r.state) && r.terminal !== null && root !== null) {
+        roots.push({ key: r.key, terminal: r.terminal, root });
+      }
+    }
+    const result = new Map<SessionKey, UsedFigure>();
     if (roots.length === 0) {
       return result;
     }
     const mb = await treesMemoryMb(
       this.o.ports,
-      roots.map(([, root]) => root),
+      roots.map((r) => r.root),
     );
-    for (const [key, root] of roots) {
+    for (const { key, terminal, root } of roots) {
       const used = mb.get(root);
       if (used !== undefined) {
-        result.set(key, used);
+        result.set(key, { terminal, mb: used });
       }
     }
     return result;
@@ -254,7 +261,7 @@ export class PanelView {
   private row(rec: SessionRecord, color: Palette, scale: Scale): Element {
     const { engine, host, ports } = this.o;
     const agentName = engine.adapter(rec.agent).displayName;
-    const used = this.used.get(rec.key) ?? null;
+    const used = usedNow(rec, this.used);
     const memory = rowMemory(rec, used);
     const fit = fitRow(rec, this.size.width, memory?.text ?? null, ports.sep, uiMeasure, scale);
     const tone =

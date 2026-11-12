@@ -64,6 +64,8 @@ export class Sim implements Host {
   tabFocus = new Map<string, { pane: string | null; terminal: string | null } | null>();
   /** Each tab the screen went to, in order (`select`). */
   screenChanges: string[] = [];
+  /** How long the memory query (PowerShell) takes; it lists the processes as they are when it answers. */
+  memoryQueryMs = 0;
   onShared: ((key: string) => void) | null = null;
   /** The person's answer to the question for a working agent, if the test gives one. */
   onConfirm: ((key: SessionKey) => void) | null = null;
@@ -565,7 +567,13 @@ export class Sim implements Host {
     base.exec = async (cmd, args) => {
       this.execCalls.push({ cmd, args });
       if (/powershell/i.test(cmd)) {
-        return ok(args.join(" ").includes("WorkingSetPrivate") ? this.memoryTable() : this.processTable());
+        if (args.join(" ").includes("WorkingSetPrivate")) {
+          const delay = this.memoryQueryMs;
+          return delay > 0
+            ? new Promise((resolve) => this.later(delay, () => resolve(ok(this.memoryTable()))))
+            : ok(this.memoryTable());
+        }
+        return ok(this.processTable());
       }
       return /tasklist/i.test(cmd) ? ok(this.taskList()) : { code: 127, stdout: "", stderr: "sim: no such tool" };
     };

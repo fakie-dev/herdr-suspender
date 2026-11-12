@@ -75,6 +75,13 @@ const PANE_WAIT_MS = 3_000;
  * squeezed beside it (ADR 9). One frame; only during a sleep, at most PANE_WAIT_MS.
  */
 const FRAME_MS = 16;
+/**
+ * How long the stop waits for the memory figure of a sleep: the processes must
+ * be listed while the agent and its shell still run (measured: about 1.1 to
+ * 1.5 s, up to 3.4 s with six listings at once on a machine busy on every core).
+ */
+export const MEMORY_WAIT_MS = 5_000;
+const MEMORY_POLL_MS = 50;
 export function newCoordinator() {
     return {
         store: null,
@@ -572,7 +579,7 @@ export class Engine {
             if (now === null || !unfinished(now) || now.pane === null) {
                 return;
             }
-            const flow = { prepared: now.pane, pending: null, splitFrom: null };
+            const flow = { prepared: now.pane, pending: null, memory: null, splitFrom: null };
             await this.placeSleepPane(key, flow, now.info.transcriptSize === null, now.forced);
         });
     }
@@ -1142,7 +1149,7 @@ export class Engine {
             }
         }
     }
-    async dispatch(key, ev, flow = { prepared: null, pending: null, splitFrom: null }) {
+    async dispatch(key, ev, flow = { prepared: null, pending: null, memory: null, splitFrom: null }) {
         const rec = this.record(key);
         if (rec === null) {
             return null;
@@ -1224,34 +1231,60 @@ export class Engine {
         }
     }
     /**
-     * The screen is read now, before anything changes it. The transcript and the
-     * memory (a big file; PowerShell and tasklist, seconds each on a busy
-     * machine) are started now and finish while the agent stops: the pane is
-     * placed only once they are in (`flow.pending`).
+     * The screen is read now, before anything changes it. The transcript (a big
+     * file) is read while the agent stops: the pane is placed only once it is in
+     * (`flow.pending`). The memory (PowerShell on Windows, a second or more) is
+     * started now too, and the stop waits for it before the first key
+     * (`listedFirst`). This sleep's screen and figure replace the last sleep's
+     * at once: one that cannot be taken is shown as none, never as the old one.
      */
     async snapshot(rec, adapter, readScreen, flow) {
         const term = rec.terminal !== null ? this.term(rec.terminal) : null;
         const live = readScreen && term !== null && term.state === "live" ? term : null;
         const prev = rec.info.sessionId === rec.sessionId && rec.info.transcriptSize !== null ? rec.info : undefined;
         const infoP = adapter.snapshot(rec.sessionId, rec.cwd, this.ports, prev).catch(() => null);
-        const memP = live?.pid != null ? this.memoryMb(live.pid).catch(() => null) : Promise.resolve(null);
-        const screen = live !== null ? await this.ports.hc(["read", live.address]).catch(() => null) : null;
-        if (screen !== null && screen.code === 0) {
-            await this.patch(rec.key, (r) => {
-                r.lastScreen = screen.stdout;
+        const memory = { done: false, closed: false, value: null };
+        flow.memory = memory;
+        const root = live?.pid ?? null;
+        if (root === null) {
+            memory.done = true;
+        }
+        else {
+            void this.memoryMb(root)
+                .catch(() => null)
+                .then((mb) => {
+                memory.value = memory.closed ? null : mb;
+                memory.done = true;
             });
         }
+        const screen = live !== null ? await this.ports.hc(["read", live.address]).catch(() => null) : null;
+        await this.patch(rec.key, (r) => {
+            r.lastScreen = screen !== null && screen.code === 0 ? screen.stdout : null;
+            r.memFreedMb = null;
+        });
         flow.pending = (async () => {
-            const [info, mem] = await Promise.all([infoP, memP]);
-            await this.patch(rec.key, (r) => {
-                if (info !== null) {
+            const info = await infoP;
+            if (info !== null) {
+                await this.patch(rec.key, (r) => {
                     r.info = info;
-                }
-                if (mem !== null) {
-                    r.memFreedMb = mem;
-                }
-            });
+                });
+            }
         })();
+    }
+    /**
+     * Before anything of the tree ends (a key to the agent, the shell killed):
+     * the memory listing is waited for, at most MEMORY_WAIT_MS, and a figure that
+     * comes in after that no longer counts.
+     */
+    async listedFirst(flow) {
+        const memory = flow.memory;
+        if (memory === null || memory.closed) {
+            return;
+        }
+        if (!memory.done) {
+            await this.waitUntil(() => memory.done, MEMORY_WAIT_MS, MEMORY_POLL_MS);
+        }
+        memory.closed = true;
     }
     /** What a terminal's process and everything under it give back by ending, in MB (`treesMemoryMb`). */
     async memoryMb(root) {
@@ -1268,6 +1301,8 @@ export class Engine {
             return { next: { t: "stopped", forced: false } };
         }
         await this.prepare(rec.key, flow);
+        // Even Esc ends processes of the tree (a tool the agent is running).
+        await this.listedFirst(flow);
         const gone = () => {
             const term = this.term(address);
             return term === null || term.state !== "live" || !adapter.matches(toTerminalView(term));
@@ -1454,6 +1489,8 @@ export class Engine {
             flow.prepared = rec.pane;
         }
         await this.prepare(key, flow);
+        // An agent that was not stopped (killed hard, gone): its shell is ended here.
+        await this.listedFirst(flow);
         const address = rec.terminal;
         if (address !== null) {
             const pane = this.paneOf(address);
@@ -1487,6 +1524,9 @@ export class Engine {
             r.forced = forced;
             if (after !== null) {
                 r.info = after;
+            }
+            if (flow.memory !== null) {
+                r.memFreedMb = flow.memory.value;
             }
         });
     }

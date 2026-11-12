@@ -124,10 +124,11 @@ describe("going to sleep", () => {
     assert.deepEqual(sim.killed, [{ address: agent.address, agent: false }]);
   });
 
-  it("a slow process listing (memory freed) does not hold up the stop", async () => {
+  it("a process listing that never answers (memory freed) holds up the stop no longer than its wait", async () => {
     const { sim, ports, engine } = world();
     await engine.tick();
     // PowerShell and tasklist took 7–8 s each on a busy machine: here they answer only when released.
+    // The stop waits for the figure MEMORY_WAIT_MS at most (memoryFreed.test.ts), then goes on without it.
     let release: () => void = () => undefined;
     const listed = new Promise<void>((resolve) => {
       release = resolve;

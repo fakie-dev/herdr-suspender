@@ -236,7 +236,13 @@ describe("running sessions' rows in a shown panel (finding 5 of the blind review
     panel.tick(cx);
     await measured;
     // The sim's private working sets: 40 MB the shell, 200 MB the agent (its tasklist says 10 MB each).
-    assert.equal((panel as unknown as { used: Map<SessionKey, number> }).used.get("claude:r1" as SessionKey), 240);
+    // With the terminal it was measured in (a woken session runs in a new one: usedNow).
+    assert.deepEqual(
+      (panel as unknown as { used: Map<SessionKey, { terminal: string; mb: number }> }).used.get(
+        "claude:r1" as SessionKey,
+      ),
+      { terminal: agent.address, mb: 240 },
+    );
   });
 
   it("have their facts read when the panel shows, then at most every 30 s", async () => {

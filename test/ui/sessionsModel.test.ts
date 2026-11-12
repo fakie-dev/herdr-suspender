@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { buildLivingLayout } from "../../src/core/layout.ts";
+import type { SessionKey } from "../../src/core/model.ts";
 import { modPx, windowPx } from "../../src/core/scale.ts";
 import { t } from "../../src/i18n/index.ts";
 import {
@@ -19,6 +20,8 @@ import {
   sleepingCount,
   TITLE_LINE_PX,
   TITLE_MAX_LINES,
+  type UsedFigure,
+  usedNow,
   wrapLines,
 } from "../../src/ui/sessionsModel.ts";
 import { textWidth } from "../../src/ui/textWidth.ts";
@@ -157,6 +160,15 @@ describe("memory", () => {
     assert.equal(rowMemory(rec("d", "working"), null), null);
     // A running session ignores the stale freed figure.
     assert.equal(rowMemory(rec("e", "running", { memFreedMb: 500 }), null), null);
+  });
+
+  it("shows uses only as measured in the terminal the session runs in now, not from before its last sleep", () => {
+    const used = new Map<SessionKey, UsedFigure>([["claude:a", { terminal: "t4", mb: 700 }]]);
+    assert.equal(usedNow(rec("a", "running", { terminal: "t4" }), used), 700);
+    // Woken since: a new terminal, not measured yet.
+    assert.equal(usedNow(rec("a", "running", { terminal: "t9" }), used), null);
+    assert.equal(usedNow(rec("a", "asleep", { terminal: null }), used), null);
+    assert.equal(usedNow(rec("b", "running", { terminal: "t4" }), used), null);
   });
 });
 

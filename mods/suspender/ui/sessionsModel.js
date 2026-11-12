@@ -93,6 +93,15 @@ export function rowMemory(rec, usedMb) {
     }
     return usedMb === null ? null : { kind: "used", text: formatMb(usedMb) };
 }
+/**
+ * The "uses" figure of a row: only one measured in the terminal the session
+ * runs in now. A woken session runs in a new terminal, so the figure from
+ * before its last sleep does not come back while the next one is taken.
+ */
+export function usedNow(rec, used) {
+    const figure = used.get(rec.key);
+    return figure !== undefined && rec.terminal !== null && figure.terminal === rec.terminal ? figure.mb : null;
+}
 /** Measures at most once per `everyMs`, and only while the panel is shown. */
 export class MemoryPolicy {
     everyMs;

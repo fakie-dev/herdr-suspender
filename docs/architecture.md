@@ -41,7 +41,9 @@ touches Herdr.
 ## Sleeping
 
 1. Snapshot: the adapter reads the transcript (title, first prompt, last reply, branch, model, message count,
-   context and tokens), and the engine saves `hc read` of the terminal as the last screen.
+   context and tokens), and the engine saves `hc read` of the terminal as the last screen. The listing for the
+   memory figure starts here too. The record drops the last sleep's screen and figure at once, so a screen that
+   cannot be read or a figure that cannot be taken shows as none, never as the one from an earlier sleep.
 2. The sleeping panel is placed first: `pane.split` with `mod` and `props` next to the terminal, `pane.swap`
    with it, and in the same step `terminal.park` takes the terminal's pane away. The agent keeps running out
    of sight and the panel alone holds the slot, so the tab never shows the panel beside the live agent for
@@ -54,7 +56,9 @@ touches Herdr.
    next update, so it is looked for every 16 ms. If it has not shown after the waits, the terminal is not
    parked and the agent is stopped in view.
 3. Stop steps from the adapter, sent to the parked terminal by its address (it still takes keys and reports its
-   status): Claude Code sends Escape, waits up to 10 seconds for the idle status, presses Ctrl+C and types
+   status). Before the first one, the engine waits for the memory listing, at most `MEMORY_WAIT_MS` (5 seconds),
+   because every step can end processes of the tree (Escape ends a tool the agent is running); a figure that comes
+   in after that does not count ([ADR 11](adr/0011-the-stop-waits-for-the-memory-figure.md)): Claude Code sends Escape, waits up to 10 seconds for the idle status, presses Ctrl+C and types
    `/exit`; Codex presses Ctrl+C and types `/quit`. Ctrl+C on an idle prompt empties it, so a draft is not sent
    together with the exit command. If the process is still alive 10 seconds after the last step the terminal
    is killed and the record says `forced`.
@@ -62,6 +66,8 @@ touches Herdr.
    `terminal.kill`; a terminal that kept its pane (park failed and Herdr showed a toast) by closing the pane, as
    before. Then `hc rm`, and the record becomes `asleep` with the memory that was freed: the private working
    set of the terminal's process tree, taken right before the stop ([ADR 10](adr/0010-memory-is-the-private-working-set.md)).
+   An agent that was not stopped (killed from outside) has only its shell left; the shell is ended here, after
+   the same wait.
 
 Stop commands are typed with `hc keys`, not `hc send`: `send` wraps text in a tag when `HC_TERMINAL_ID` is
 inherited, and the agent would receive the tag.
@@ -160,7 +166,9 @@ The mod is meant to cost almost nothing while nobody touches it.
 - No timers for animation. Animations are Herdr's native `.transition`, `.loop`, `.frames` and `.spin`.
   `cx.timer` runs only the 5-second data round and the leader's 10-second stamp.
 - Process memory is read only while the panel is open and at most every 30 seconds, and once at Sleep: one
-  PowerShell call on Windows (the tree and the private working sets together), one `ps` elsewhere.
+  PowerShell call on Windows (the tree and the private working sets together), one `ps` elsewhere. A "uses"
+  figure is shown only for the terminal it was measured in, so after a wake the row has none until the next
+  reading instead of the one from before the sleep.
 - A transcript is read when a session goes to sleep, when its strip is shown, and right after the session is
   closed in another window, each time only if the file changed (size and modification time are compared
   first). Nothing watches it while the strip stays on screen: a session open elsewhere writes all the time,
