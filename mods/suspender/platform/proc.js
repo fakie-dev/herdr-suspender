@@ -154,6 +154,22 @@ export async function processDetails(p) {
     }
     return list;
 }
+/** How many parents up from `pid` `ancestor` is (1: its parent), or null if it is not above it. */
+export function depthUnder(tree, pid, ancestor, maxDepth = 8) {
+    const parent = new Map(tree.map((d) => [d.pid, d.ppid]));
+    let current = pid;
+    for (let depth = 1; depth <= maxDepth; depth++) {
+        const next = parent.get(current);
+        if (next === undefined || next === current) {
+            return null;
+        }
+        if (next === ancestor) {
+            return depth;
+        }
+        current = next;
+    }
+    return null;
+}
 /** True if `ancestor` is `pid`'s parent, grandparent, … (up to `maxDepth` levels). */
 export function descendsFrom(list, pid, ancestor, maxDepth = 8) {
     const parent = new Map(list.map((d) => [d.pid, d.ppid]));

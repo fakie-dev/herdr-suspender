@@ -6,7 +6,7 @@
 
 import type { SessionInfo } from "../core/model.ts";
 import type { Ports } from "../platform/ports.ts";
-import { descendsFrom, liveProcessesOrNull, type ProcessDetail, processDetails } from "../platform/proc.ts";
+import { depthUnder, descendsFrom, liveProcessesOrNull, type ProcessDetail, processDetails } from "../platform/proc.ts";
 import {
   contextFields,
   emptyInfo,
@@ -389,23 +389,6 @@ function nearestUnder(tree: readonly ProcessDetail[], live: readonly LiveSession
     }
   }
   return best?.session ?? null;
-}
-
-/** How many parents up from `pid` `ancestor` is (1: its parent), or null if it is not above it. */
-function depthUnder(tree: readonly ProcessDetail[], pid: number, ancestor: number, maxDepth = 8): number | null {
-  const parent = new Map(tree.map((d) => [d.pid, d.ppid]));
-  let current = pid;
-  for (let depth = 1; depth <= maxDepth; depth++) {
-    const next = parent.get(current);
-    if (next === undefined || next === current) {
-      return null;
-    }
-    if (next === ancestor) {
-      return depth;
-    }
-    current = next;
-  }
-  return null;
 }
 
 async function openElsewhere(

@@ -11,7 +11,7 @@
     }
   },
   "files": {
-    "adapters/claude.js": "9a54edc70d2b99153867cd0f259dfcf2d2417a70332f3d1698ee9e553c918f27",
+    "adapters/claude.js": "cbf7a723a6d67e0aa62742b9f362c0df88872cab15646ae59fb62f46d8c73efc",
     "adapters/codex.js": "8dc7f8390da33d16c87a071c8c9cefe0863f357fdc19271727ea9466db328c94",
     "adapters/common.js": "e39aa977fde6d89a3691778a29839841fa26ecec90e05d98750b9ab6d3a21c80",
     "adapters/contract.js": "2861d157163513931e693b9595181d23ed2a23b49db815a0f73cf4482a01d444",
@@ -49,9 +49,9 @@
     "main.js": "6b47477c6c6653bd6e89d2a6ee6b1121c4435727ad2fdf51d48b11c090b0fdfc",
     "mod.json": "9d1af30cd28157836f7c7608cb2f8b503e5ff53d39cb6f544868697496020674",
     "platform/ports.js": "63c753f656b1469ce09edeb20f64f8ed3acb3a123a73d481a0b770a3b2d60758",
-    "platform/proc.js": "07ad48d884f34b96d5c8a38760295eeae1cd6370fb0da1e4e037bbcf50a643b0",
+    "platform/proc.js": "9e1731f7b9d8b05cd606f7908b6c90488b327c134519ffaa5bb77eb7f6547d2a",
     "platform/updateFiles.js": "62c332eafa0d130de7e1cc9857b24609529efeb8bdf01d74027a66a9517e442d",
-    "runtime/engine.js": "9554395ef97cc9fb0596750b4f2b3adf9e592a12cb5ecbd5ae9aaa81a54d3937",
+    "runtime/engine.js": "e9b9a417d56976804c6121c73b00fc81d23100997a6eb39913cbbea7fb572fd7",
     "runtime/herdrHost.js": "01077cebc8e271ad5a5a174cfda755f21cde5548e37fa436fd2effd57617fc08",
     "runtime/host.js": "f01aaf7a8cb0514e606d3932e8701bb57139f01eb275765a7273f844e87dec3a",
     "runtime/layoutSync.js": "e3c3d95976b8bcdf4ad8e704849b0aa9429014d204d259ea60e3a24e33034b19",

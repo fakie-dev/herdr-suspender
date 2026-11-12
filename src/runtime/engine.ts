@@ -35,7 +35,14 @@ import {
 } from "../core/store.ts";
 import { hasMessage, t } from "../i18n/index.ts";
 import type { Ports } from "../platform/ports.ts";
-import { allProcesses, type ProcessDetail, processDetails, subtree, treesMemoryMb } from "../platform/proc.ts";
+import {
+  allProcesses,
+  depthUnder,
+  type ProcessDetail,
+  processDetails,
+  subtree,
+  treesMemoryMb,
+} from "../platform/proc.ts";
 import { sleepingCount } from "../ui/sessionsModel.ts";
 import {
   type Host,
@@ -1009,7 +1016,13 @@ export class Engine {
     const now = signature(term);
     const before = this.co.seen.get(term.address);
     this.co.seen.set(term.address, now);
+    const known = this.co.agents.get(term.address)?.pid;
     if (before === undefined || before === now || (await this.agentAlive(term, adapter)) !== false) {
+      const found = this.co.agents.get(term.address)?.pid;
+      if (known !== undefined && found !== undefined && found !== known) {
+        // Started again in the same shell (/exit, then the agent again): its session may be a new one.
+        await this.verifySession(key);
+      }
       return false;
     }
     this.co.agents.delete(term.address);
@@ -1031,10 +1044,21 @@ export class Engine {
         return null;
       }
       const live = all.get(known.pid);
-      return live !== undefined && adapter.matches(processView(term, known.pid, live.name));
+      if (live !== undefined && adapter.matches(processView(term, known.pid, live.name))) {
+        return true;
+      }
     }
+    // Not the process it knew: the agent may have been started again in the same shell
+    // (/exit, then the agent again within a round). One tree says whether one runs there now.
     const tree = await processDetails(this.ports).catch(() => []);
-    return tree.length === 0 ? null : agentIn(tree, term, adapter, null) !== null;
+    if (tree.length === 0) {
+      return null;
+    }
+    const found = agentIn(tree, term, adapter, null);
+    if (found !== null && known !== undefined) {
+      this.co.agents.set(term.address, { ...found, reported: known.reported });
+    }
+    return found !== null;
   }
 
   /**
@@ -1099,13 +1123,24 @@ export class Engine {
       return key;
     }
     const adapter = this.adapter(rec.agent);
-    const view = this.recheckView(term, adapter);
     const lookedAt = this.ports.now();
-    let sessionId: string | null = null;
-    try {
-      sessionId = await adapter.discoverSession(view, this.ports);
-    } catch {
-      sessionId = null;
+    const ask = async (): Promise<string | null> => {
+      try {
+        return await adapter.discoverSession(this.recheckView(term, adapter), this.ports);
+      } catch {
+        return null;
+      }
+    };
+    let sessionId = await ask();
+    const known = this.co.agents.get(term.address);
+    if (sessionId === null && RECHECK[adapter.id] === "process" && known !== undefined) {
+      // Nothing for the process it knew: it may be gone, the agent started again in the
+      // same shell (/exit, then the agent again). The process under the shell now, once.
+      const found = await this.findAgent(term, adapter, null);
+      if (found !== null && found.pid !== known.pid) {
+        this.co.agents.set(term.address, { ...found, reported: known.reported });
+        sessionId = await ask();
+      }
     }
     this.co.checkedAt.set(term.address, lookedAt);
     if (sessionId === null || sessionId === rec.sessionId) {
@@ -2498,7 +2533,16 @@ function agentIn(
   const below = new Set(subtree(tree, shell));
   below.delete(shell);
   const under = tree.filter((d) => below.has(d.pid));
-  const agent = under.find((d) => adapter.matches(processView(term, d.pid, d.name)));
+  // The nearest to the shell: an agent may run another of its kind (`claude -p`) under it.
+  let agent: ProcessDetail | undefined;
+  let nearest = Number.POSITIVE_INFINITY;
+  for (const d of under) {
+    const depth = depthUnder(tree, d.pid, shell) ?? Number.POSITIVE_INFINITY;
+    if (depth < nearest && adapter.matches(processView(term, d.pid, d.name))) {
+      agent = d;
+      nearest = depth;
+    }
+  }
   if (agent === undefined) {
     return null;
   }

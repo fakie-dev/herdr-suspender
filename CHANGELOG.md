@@ -39,6 +39,10 @@ and the project uses [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- Leaving Claude Code with `/exit` and starting it again in the same tab within a few seconds no longer puts the
+  tab to sleep and kills the new Claude: the mod knew only the old process and took it for a killed agent. The
+  tab now follows the new session, and Sleep right after such a restart sleeps the new session, not the old one.
+- A Claude Code that runs another Claude (`claude -p`) is no longer mistaken for that helper.
 - One terminal the mod could not look at (an `hc` call that failed or never answered, a store that kept changing)
   no longer stops it from checking every other session: each terminal and each session is checked on its own, a
   failure is told once in a toast, and a slow round is never doubled by the next one.
