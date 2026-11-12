@@ -7,7 +7,7 @@
 import { h_flex } from "gpui-base";
 import { div } from "gpui-kit";
 import { detectAgent } from "../adapters/index.js";
-import { PILL_EDGE_PAD, PILL_HEIGHT, PILL_ICON } from "../core/scale.js";
+import { PILL_EDGE_PAD, PILL_GAP, PILL_HEIGHT, PILL_ICON } from "../core/scale.js";
 import { t } from "../i18n/index.js";
 import { toTerminalView } from "../runtime/host.js";
 import { icon, palette } from "./kit.js";
@@ -38,7 +38,7 @@ export class PillView {
             .h(PILL_HEIGHT)
             .pl(10)
             .pr(PILL_EDGE_PAD)
-            .gap(8)
+            .gap(PILL_GAP)
             .items_center()
             .text_size(11.5)
             .whitespace_nowrap()

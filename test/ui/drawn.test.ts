@@ -348,7 +348,7 @@ describe("the strip's status line in a narrow pane (finding 6 of the blind revie
 describe("the Sleep pill", () => {
   it("draws its row at the sizes that make the moon's button square (core/scale.ts)", async () => {
     const { PillView } = await import("../../src/ui/pill.ts");
-    const { PILL_EDGE_PAD, PILL_HEIGHT, PILL_ICON } = await import("../../src/core/scale.ts");
+    const { PILL_EDGE_PAD, PILL_GAP, PILL_HEIGHT, PILL_ICON } = await import("../../src/core/scale.ts");
     const { sim, engine, cx } = await world();
     const agent = sim.addTerminal({ agent: "claude" });
     sim.focus = { pane: agent.pane, terminal: agent.address };
@@ -357,6 +357,7 @@ describe("the Sleep pill", () => {
     assert.ok(pill, "an agent in focus: the pill is drawn");
     assert.ok(has(pill, "h", PILL_HEIGHT), "its height");
     assert.ok(has(pill, "pr", PILL_EDGE_PAD), "the padding on the moon's side");
+    assert.ok(has(pill, "gap", PILL_GAP), "the gap that keeps the label out of the peek");
     assert.ok(
       [...walk(pill)].some((el) => has(el, "size", PILL_ICON)),
       "the moon",

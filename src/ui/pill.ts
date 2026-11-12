@@ -8,7 +8,7 @@
 import { h_flex } from "gpui-base";
 import { type Context, div, type Element } from "gpui-kit";
 import { detectAgent } from "../adapters/index.ts";
-import { PILL_EDGE_PAD, PILL_HEIGHT, PILL_ICON } from "../core/scale.ts";
+import { PILL_EDGE_PAD, PILL_GAP, PILL_HEIGHT, PILL_ICON } from "../core/scale.ts";
 import { t } from "../i18n/index.ts";
 import type { Engine } from "../runtime/engine.ts";
 import { type Host, toTerminalView } from "../runtime/host.ts";
@@ -43,7 +43,7 @@ export class PillView {
       .h(PILL_HEIGHT)
       .pl(10)
       .pr(PILL_EDGE_PAD)
-      .gap(8)
+      .gap(PILL_GAP)
       .items_center()
       .text_size(11.5)
       .whitespace_nowrap()

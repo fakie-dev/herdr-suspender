@@ -96,6 +96,11 @@ export const PILL_ICON = modPx(14);
 export const PILL_PEEK = modPx(PILL_HEIGHT + 2 * FLOAT_FRAME_Y);
 /** Padding on the moon's side of the row: the moon in the middle of the peek. */
 export const PILL_EDGE_PAD = modPx((PILL_PEEK - PILL_ICON) / 2);
+/**
+ * Between the moon and the label: as wide as the moon's padding, so the moon's
+ * padding, the moon and the gap fill the peek and no letter of the label shows at rest.
+ */
+export const PILL_GAP = PILL_EDGE_PAD;
 
 /** The moon's button at rest, framed, in window px: the peek wide, the row and Herdr's frame tall. */
 export function pillButton(s: Scale): WindowSize {

@@ -8,6 +8,7 @@ import { describe, it } from "node:test";
 import {
   modPx,
   PILL_EDGE_PAD,
+  PILL_GAP,
   PILL_ICON,
   PILL_PEEK,
   pillButton,
@@ -311,5 +312,15 @@ describe("the moon of the Sleep pill (user: «кнопка-иконка меся
 
   it("has the moon in the middle of what peeks", () => {
     assert.equal(PILL_EDGE_PAD * 2 + PILL_ICON, PILL_PEEK);
+  });
+
+  // User: «виден кусочек надписи который скрыт за кнопкой». The label starts after the moon's
+  // padding, the moon and the gap; all of that must cover the peek, or the label's first
+  // letters show at rest.
+  it("keeps the label out of what peeks", () => {
+    assert.ok(
+      PILL_EDGE_PAD + PILL_ICON + PILL_GAP >= PILL_PEEK,
+      `${PILL_EDGE_PAD} + ${PILL_ICON} + ${PILL_GAP} < ${PILL_PEEK}`,
+    );
   });
 });

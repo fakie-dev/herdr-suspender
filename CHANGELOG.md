@@ -9,7 +9,8 @@ and the project uses [Semantic Versioning](https://semver.org/).
 
 - The moon of the Sleep pill at the bottom right of a tab is a square button at every zoom (it was a little
   taller than wide). The pill now peeks 38 px instead of 30, as wide as Herdr's frame around it is tall, and the
-  moon sits in its middle. Living layouts are rebuilt for it (generator 5).
+  moon sits in its middle, with nothing of the "Sleep" label showing beside it at rest. Living layouts are
+  rebuilt for it (generator 5).
 - Sleep no longer shows the sleeping tab next to the live agent while the agent is stopped. The sleeping tab
   takes the agent's place at once, at the same size, and the agent is stopped out of sight (it is gone from the
   Agents list too). Before, both stood side by side for a few seconds and then the agent's pane closed by itself.
