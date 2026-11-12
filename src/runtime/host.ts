@@ -46,6 +46,15 @@ export interface HostTab {
   spaceActive: boolean;
 }
 
+/** A space of this machine, as Herdr names it. */
+export interface HostSpace {
+  id: string;
+  /** Its name: the one someone gave it, else where its first terminal is now ("~" at home). */
+  name: string;
+  /** Someone named it (`space.rename`); false: Herdr's name, which follows its first terminal. */
+  named: boolean;
+}
+
 export type NoticeLevel = "info" | "warning" | "error";
 
 /**
@@ -53,7 +62,14 @@ export type NoticeLevel = "info" | "warning" | "error";
  * (measured on Herdr 0.1.15 in an isolated core: the tab and space shown and
  * the focus stayed).
  */
-export type QuietCommand = "pane.split" | "pane.swap" | "pane.close" | "terminal.park" | "terminal.kill";
+export type QuietCommand =
+  | "pane.split"
+  | "pane.swap"
+  | "pane.close"
+  | "terminal.park"
+  | "terminal.kill"
+  // Measured on Herdr 0.1.15: renaming a space that is not shown leaves the shown space, tab and focus.
+  | "space.rename";
 
 /**
  * App commands that change what the screen shows: `pane.focus` of a pane in
@@ -68,6 +84,8 @@ export interface Host {
   terminals(): HostTerminal[];
   panes(): HostPane[];
   tabs(): HostTab[];
+  /** This machine's spaces. */
+  spaces(): HostSpace[];
   /** This machine's layout document is loaded: panes() and tabs() are complete. */
   ready(): boolean;
   focused(): { pane: string | null; terminal: string | null } | null;

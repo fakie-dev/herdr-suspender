@@ -55,6 +55,11 @@ touches Herdr.
    slot and the same size, which was measured in several positions. Herdr lists the new panel only after its
    next update, so it is looked for every 16 ms. If it has not shown after the waits, the terminal is not
    parked and the agent is stopped in view.
+   In the same step, before the park, a space nobody named is renamed to the name it shows: Herdr names such a
+   space after its first terminal, and one whose only terminal was the agent would be called after its own
+   folder (`~` at home) while it sleeps. The record keeps the pin; when the last session sleeping in that space
+   leaves (wake, Start new session, Forget, gone), the space is given Herdr's name again, unless someone renamed
+   it meanwhile ([ADR 14](adr/0014-a-sleeping-space-keeps-its-name.md)).
 3. Stop steps from the adapter, sent to the parked terminal by its address (it still takes keys and reports its
    status). Before the first one, the engine waits for the memory listing, at most `MEMORY_WAIT_MS` (5 seconds),
    because every step can end processes of the tree (Escape ends a tool the agent is running); a figure that comes

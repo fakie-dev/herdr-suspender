@@ -501,6 +501,7 @@ export class Engine {
             if (now - since >= GONE_GRACE_MS) {
                 this.absentSince.delete(mark);
                 await this.removeRecord(key);
+                this.giveBack(await this.letGoOfSpaceName(key, rec.spaceName));
             }
         }
     }
@@ -929,7 +930,10 @@ export class Engine {
         await this.load();
         await this.act(key, async () => {
             const pane = this.record(key)?.pane ?? null;
+            const pin = this.record(key)?.spaceName;
             await this.dispatch(key, { t: "forget" });
+            // The shell below takes the agent's place; Herdr names the space after it.
+            const giveBack = this.record(key) === null ? await this.letGoOfSpaceName(key, pin) : null;
             if (this.record(key) === null && pane !== null && this.paneExists(pane)) {
                 const before = new Set(this.host.panes().map((p) => p.pane));
                 this.host.run("pane.split", { pane, direction: "right" });
@@ -937,7 +941,11 @@ export class Engine {
                 if (shell !== null) {
                     this.host.run("pane.swap", { pane: shell, target: pane });
                 }
+                this.giveBack(giveBack);
                 this.host.run("pane.close", { pane });
+            }
+            else {
+                this.giveBack(giveBack);
             }
         });
     }
@@ -1354,7 +1362,10 @@ export class Engine {
         if (pane === null) {
             return;
         }
+        let pin = null;
         if (target !== null && rec.terminal !== null) {
+            // In the same step as the park, before it: the space never shows its folder's name.
+            pin = this.pinSpaceName(target);
             this.host.run("pane.swap", { pane, target });
             this.host.run("terminal.park", { terminal: rec.terminal });
         }
@@ -1363,7 +1374,61 @@ export class Engine {
         await this.patch(key, (r) => {
             r.pane = pane;
             r.tabId = tab;
+            if (pin !== null) {
+                r.spaceName = pin;
+            }
         });
+    }
+    /**
+     * A space nobody named is called after where its first terminal is, else its
+     * own folder ("~" at home), so a space whose only terminal is the agent's
+     * would take its folder's name once the agent is parked (measured, ADR 14).
+     * Such a space is renamed to the name it shows now; a space someone named is
+     * left as it is. Returns the pin, or null when nothing was renamed.
+     */
+    pinSpaceName(pane) {
+        const tab = this.host.panes().find((p) => p.pane === pane)?.tab;
+        const space = this.host.tabs().find((t) => t.id === tab)?.space;
+        const now = this.host.spaces().find((s) => s.id === space);
+        if (now === undefined || now.named || now.name === "") {
+            return null;
+        }
+        this.host.run("space.rename", { id: now.id, name: now.name });
+        return { space: now.id, name: now.name };
+    }
+    /**
+     * A session that pinned its space's name leaves the sleeping ones (woken,
+     * forgotten, gone). Another session still sleeping in that space takes the
+     * pin over, so the name holds until the last of them wakes. Otherwise the
+     * name goes back to Herdr, but only if it is still the one pinned: a name
+     * someone gave it since, or Herdr's own again, is theirs. The store first;
+     * the rename is returned to run in the caller's step (`giveBack`).
+     */
+    async letGoOfSpaceName(key, pin) {
+        if (pin === undefined || pin === null) {
+            return null;
+        }
+        await this.patch(key, (r) => {
+            r.spaceName = null;
+        });
+        const heir = this.records().find((r) => r.key !== key && r.spaceId === pin.space && !RUNNING.includes(r.state) && (r.spaceName ?? null) === null);
+        if (heir !== undefined) {
+            await this.patch(heir.key, (r) => {
+                r.spaceName = pin;
+            });
+            return null;
+        }
+        return pin;
+    }
+    /** Herdr's name again for a space the mod pinned, if nobody renamed it since. Never waits. */
+    giveBack(pin) {
+        if (pin === null) {
+            return;
+        }
+        const now = this.host.spaces().find((s) => s.id === pin.space);
+        if (now?.named === true && now.name === pin.name) {
+            this.host.run("space.rename", { id: pin.space, name: "" });
+        }
     }
     /**
      * Our pane beside `anchor` (else beside any pane of the tab, else in a new
@@ -1676,6 +1741,7 @@ export class Engine {
      */
     async showWoken(key, address, sleepPane, fresh, adapter) {
         const rec = this.record(key);
+        const pin = rec?.spaceName ?? null;
         if (fresh) {
             await this.removeRecord(key);
         }
@@ -1684,6 +1750,8 @@ export class Engine {
                 r.pane = null;
             });
         }
+        // Decided now, given back in the step that shows the agent: nothing may wait there.
+        const giveBack = await this.letGoOfSpaceName(key, pin);
         const where = rec ?? null;
         if (where !== null) {
             await this.ports
@@ -1704,6 +1772,10 @@ export class Engine {
             await this.patch(key, (r) => {
                 r.terminal = null;
                 r.pane = sleepPane;
+                // Still asleep: the pin stays, unless another sleeping session took it over.
+                if (giveBack !== null) {
+                    r.spaceName = giveBack;
+                }
             });
             await this.dispatch(key, { t: "startFailed", reason: "reason.noPane" });
             return;
@@ -1712,6 +1784,8 @@ export class Engine {
         if (sleepPane !== null && this.paneExists(sleepPane)) {
             this.host.run("pane.swap", { pane, target: sleepPane });
         }
+        // The agent is in the space again: Herdr names it after it.
+        this.giveBack(giveBack);
         this.setProgress(key, null);
         // Only on the tab the person is on: focusing a pane of another tab shows
         // that tab and its space (measured), and the side panel goes with the space.

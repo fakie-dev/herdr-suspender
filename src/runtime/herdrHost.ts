@@ -30,6 +30,10 @@ export function herdrHost(clock: { sleep(ms: number): Promise<void> }): Host {
       spaces()
         .filter((s) => s.machine === null)
         .flatMap((s) => s.tabs.map((tab) => ({ id: tab.id, space: s.id, active: tab.active, spaceActive: s.active }))),
+    spaces: () =>
+      spaces()
+        .filter((s) => s.machine === null)
+        .map((s) => ({ id: s.id, name: s.name, named: s.named })),
     ready: () => machines().find((m) => m.name === null)?.layout === "ready",
     focused: () => {
       const f = focused();

@@ -10,10 +10,12 @@
 import type { AgentAdapter, TerminalView } from "../../src/adapters/contract.ts";
 import type { AgentId, SessionInfo, SessionKey } from "../../src/core/model.ts";
 import type { ExecResult, Ports } from "../../src/platform/ports.ts";
-import type { Host, HostPane, HostTab, HostTerminal, NoticeLevel } from "../../src/runtime/host.ts";
+import type { Host, HostPane, HostSpace, HostTab, HostTerminal, NoticeLevel } from "../../src/runtime/host.ts";
 import { type FakePorts, fakePorts } from "../fakePorts.ts";
 
 export const SPACE = "sp1";
+/** The home folder of the simulated machine: a space there is called "~". */
+export const HOME = "C:\\Users\\tester";
 /** Characters `hc keys` has no key name for (measured on herdr-core 0.1.20: `unknown key`, exit 6). */
 export const KEYS_HC_REFUSES = new Set(["_", ":", '"']);
 export const TAB = "tb1";
@@ -47,6 +49,15 @@ interface SimPane extends HostPane {
   size: number;
 }
 
+/** A folder as a space's name: its last part, "~" for the home folder. */
+const folderName = (folder: string): string =>
+  folder === HOME
+    ? "~"
+    : (folder
+        .split(/[\\/]/)
+        .filter((x) => x !== "")
+        .pop() ?? folder);
+
 const ok = (stdout = ""): ExecResult => ({ code: 0, stdout, stderr: "" });
 const fail = (stderr: string): ExecResult => ({ code: 1, stdout: "", stderr });
 
@@ -55,6 +66,13 @@ export class Sim implements Host {
   terms = new Map<string, SimTerminal>();
   paneList: SimPane[] = [];
   tabList: HostTab[] = [{ id: TAB, space: SPACE, active: true, spaceActive: true }];
+  /**
+   * How each space is named (Herdr's rules, measured on 0.1.15): a name someone
+   * gave it (`space.rename`), else where its first terminal is now (the last
+   * part of its folder), else its own folder, "~" at home. Spaces not set
+   * here start in HOME and unnamed.
+   */
+  spaceNames = new Map<string, { named: boolean; name: string; folder: string }>();
   sharedValues = new Map<string, unknown>();
   commands: { command: string; args: Record<string, unknown> }[] = [];
   hcCalls: string[][] = [];
@@ -286,6 +304,39 @@ export class Sim implements Host {
   tabs(): HostTab[] {
     return this.tabList.map((t) => ({ ...t }));
   }
+  spaces(): HostSpace[] {
+    const ids = [...new Set(this.tabList.map((t) => t.space))];
+    return ids.map((id) => {
+      const own = this.spaceNames.get(id);
+      return own?.named ? { id, name: own.name, named: true } : { id, name: this.placeName(id), named: false };
+    });
+  }
+
+  /** The name Herdr gives a space nobody named: its first terminal's folder, else its own. */
+  placeName(space: string): string {
+    const tabs = this.tabList.filter((t) => t.space === space).map((t) => t.id);
+    for (const tab of tabs) {
+      for (const p of this.paneList) {
+        const t = p.tab === tab && p.terminal !== null ? this.terms.get(p.terminal) : undefined;
+        if (t?.state === "live") {
+          return folderName(t.cwd);
+        }
+      }
+    }
+    return folderName(this.spaceNames.get(space)?.folder ?? HOME);
+  }
+
+  /** Closes a space with all its tabs and panes (its terminals end). */
+  closeSpace(space: string): void {
+    const tabs = new Set(this.tabList.filter((t) => t.space === space).map((t) => t.id));
+    for (const p of this.paneList.filter((x) => tabs.has(x.tab))) {
+      if (p.terminal !== null) {
+        this.finish(p.terminal, "killed");
+      }
+    }
+    this.paneList = this.paneList.filter((p) => !tabs.has(p.tab));
+    this.tabList = this.tabList.filter((t) => t.space !== space);
+  }
   ready(): boolean {
     return this.isReady;
   }
@@ -423,6 +474,15 @@ export class Sim implements Host {
       }
       case "tab.select": {
         this.select(String(args["id"]));
+        return;
+      }
+      case "space.rename": {
+        const id = String(args["id"]);
+        const name = String(args["name"] ?? "");
+        if (this.tabList.some((t) => t.space === id)) {
+          const folder = this.spaceNames.get(id)?.folder ?? HOME;
+          this.spaceNames.set(id, { named: name !== "", name, folder });
+        }
         return;
       }
       case "space.select": {

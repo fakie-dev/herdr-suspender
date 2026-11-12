@@ -35,6 +35,10 @@ and the project uses [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- A space no longer turns into `~` while its session sleeps. Herdr names a space nobody named after where its
+  first terminal is, and with the agent put to sleep it had none left, so it fell back to the space's own folder,
+  often your home. Sleep now keeps the name the space showed, and gives it back to Herdr when the last session
+  sleeping there wakes. A space you named, or rename while it sleeps, is left as you named it.
 - Sleep no longer puts another tab's Claude Code session to sleep. On Windows a tab's session was looked up by
   the folder its shell was in, and one session in that folder was taken even when it ran in another space's tab
   (a new tab's shell starts where the focused pane was; Claude is started after a `cd`). The session is now the

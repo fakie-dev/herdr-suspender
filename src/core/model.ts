@@ -79,6 +79,17 @@ export interface SessionRecord {
   forced: boolean;
   /** i18n key of the last error. */
   error: string | null;
+  /**
+   * The name the mod gave the session's space at sleep, so it does not turn into
+   * its folder's ("~") while no terminal is left there (ADR 14). Absent in older stores.
+   */
+  spaceName?: SpacePin | null;
+}
+
+/** A space name the mod pinned with `space.rename`; it gives the name back to Herdr when the space wakes. */
+export interface SpacePin {
+  space: string;
+  name: string;
 }
 
 export interface StoreFile {
