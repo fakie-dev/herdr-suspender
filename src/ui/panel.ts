@@ -24,7 +24,7 @@ import { treesMemoryMb } from "../platform/proc.ts";
 import type { Engine } from "../runtime/engine.ts";
 import type { Host } from "../runtime/host.ts";
 import type { Updater } from "../runtime/updater.ts";
-import { agentTile, ICONS, icon, type Palette, palette, TONE_COLOR } from "./kit.ts";
+import { agentIcon, ICONS, icon, type Palette, palette, TONE_COLOR } from "./kit.ts";
 import { anchorRect, factsFor, hoverPopup } from "./popup.ts";
 import {
   fitRow,
@@ -186,7 +186,7 @@ export class PanelView {
     });
   }
 
-  render(_cx: Context): Element {
+  render(cx: Context): Element {
     this.drawnUpdate = this.o.updates?.revision() ?? -1;
     const color = palette();
     const scale = scaleOf(settings());
@@ -247,7 +247,7 @@ export class PanelView {
       .when(groups.length === 0, (el) =>
         el.child(div().p(14).text_size(12).text_color(color("dim")).child(t("panel.empty"))),
       )
-      .children(groups.flatMap((g) => this.group(g, color, scale)));
+      .children(groups.flatMap((g) => this.group(g, color, scale, cx)));
 
     return v_flex()
       .id("panel-root")
@@ -399,7 +399,7 @@ export class PanelView {
       );
   }
 
-  private group(g: Group, color: Palette, scale: Scale): Element[] {
+  private group(g: Group, color: Palette, scale: Scale, cx: Context): Element[] {
     const head = h_flex()
       .px(12)
       .pt(8)
@@ -426,10 +426,10 @@ export class PanelView {
             .child(t("panel.resumeAll")),
         ),
       );
-    return [head, ...g.rows.map((r) => this.row(r, color, scale))];
+    return [head, ...g.rows.map((r) => this.row(r, color, scale, cx))];
   }
 
-  private row(rec: SessionRecord, color: Palette, scale: Scale): Element {
+  private row(rec: SessionRecord, color: Palette, scale: Scale, cx: Context): Element {
     const { engine, host, ports } = this.o;
     const agentName = engine.adapter(rec.agent).displayName;
     const used = usedNow(rec, this.used);
@@ -492,9 +492,13 @@ export class PanelView {
               run: () => engine.resume(rec.key),
             }
           : null;
-    // The tile is centred on the title's line, not put at the row's top: a box as
-    // tall as that line, beside it (the second line stays indented under the title).
-    const tile = h_flex().h(ROW_TITLE_PX).flex_none().items_center().child(agentTile(rec.agent, color));
+    // The agent's icon is centred on the title's line, not put at the row's top: a box
+    // as tall as that line, beside it (the second line stays indented under the title).
+    const tile = h_flex()
+      .h(ROW_TITLE_PX)
+      .flex_none()
+      .items_center()
+      .child(agentIcon(rec.agent, color, cx, ports.now()));
 
     return h_flex()
       .id(`row-${rec.key}`)

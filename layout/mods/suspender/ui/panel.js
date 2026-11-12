@@ -17,7 +17,7 @@ import { sessionsShown } from "../core/layout.js";
 import { reportedSize, scaleOf, windowPx } from "../core/scale.js";
 import { t } from "../i18n/index.js";
 import { treesMemoryMb } from "../platform/proc.js";
-import { agentTile, ICONS, icon, palette, TONE_COLOR } from "./kit.js";
+import { agentIcon, ICONS, icon, palette, TONE_COLOR } from "./kit.js";
 import { anchorRect, factsFor, hoverPopup } from "./popup.js";
 import { fitRow, groupSessions, isSleeping, MemoryPolicy, memoryFreedText, ROW_ITEM_GAP, ROW_SMALL_TEXT, ROW_TEXT, ROW_TITLE_PX, rowMemory, stateWord, usedNow, } from "./sessionsModel.js";
 import { uiMeasure } from "./textWidth.js";
@@ -127,7 +127,7 @@ export class PanelView {
             task.notify();
         });
     }
-    render(_cx) {
+    render(cx) {
         this.drawnUpdate = this.o.updates?.revision() ?? -1;
         const color = palette();
         const scale = scaleOf(settings());
@@ -176,7 +176,7 @@ export class PanelView {
             .overflow_y_scrollbar()
             .py(6)
             .when(groups.length === 0, (el) => el.child(div().p(14).text_size(12).text_color(color("dim")).child(t("panel.empty"))))
-            .children(groups.flatMap((g) => this.group(g, color, scale)));
+            .children(groups.flatMap((g) => this.group(g, color, scale, cx)));
         return v_flex()
             .id("panel-root")
             .size_full()
@@ -315,7 +315,7 @@ export class PanelView {
             .child(box)
             .when(mode !== "icon", (el) => el.child(mode === "icon" ? "" : t(FOOTER_LABEL[mode]))));
     }
-    group(g, color, scale) {
+    group(g, color, scale, cx) {
         const head = h_flex()
             .px(12)
             .pt(8)
@@ -338,9 +338,9 @@ export class PanelView {
             .on_click((_e, cx) => this.act(() => this.o.engine.resumeAll(g.spaceId), cx))
             .child(icon("play", 10, color("muted")))
             .child(t("panel.resumeAll"))));
-        return [head, ...g.rows.map((r) => this.row(r, color, scale))];
+        return [head, ...g.rows.map((r) => this.row(r, color, scale, cx))];
     }
-    row(rec, color, scale) {
+    row(rec, color, scale, cx) {
         const { engine, host, ports } = this.o;
         const agentName = engine.adapter(rec.agent).displayName;
         const used = usedNow(rec, this.used);
@@ -393,9 +393,13 @@ export class PanelView {
                     run: () => engine.resume(rec.key),
                 }
                 : null;
-        // The tile is centred on the title's line, not put at the row's top: a box as
-        // tall as that line, beside it (the second line stays indented under the title).
-        const tile = h_flex().h(ROW_TITLE_PX).flex_none().items_center().child(agentTile(rec.agent, color));
+        // The agent's icon is centred on the title's line, not put at the row's top: a box
+        // as tall as that line, beside it (the second line stays indented under the title).
+        const tile = h_flex()
+            .h(ROW_TITLE_PX)
+            .flex_none()
+            .items_center()
+            .child(agentIcon(rec.agent, color, cx, ports.now()));
         return h_flex()
             .id(`row-${rec.key}`)
             .gap(8)

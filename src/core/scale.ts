@@ -76,6 +76,15 @@ export const reportedSize = (size: { width: number; height: number }): WindowSiz
   height: windowPx(size.height),
 });
 
+// ---- the agent's icon
+
+/**
+ * The agent's icon (or its letter tile) in a Sessions row and the popup's
+ * header: as big as Herdr's Agents list draws a top-level agent's. Herdr
+ * multiplies it by the zoom; the UI font size does not touch it.
+ */
+export const AGENT_ICON = modPx(16);
+
 // ---- the Sleep pill
 
 /**

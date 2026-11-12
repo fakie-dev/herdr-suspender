@@ -25,6 +25,14 @@ and the project uses [Semantic Versioning](https://semver.org/).
   A session recorded by 0.1.2 with only the tokens gets its percentage too, though its transcript has not
   changed since.
 
+### Changed
+
+- Sessions and the popup show each agent's own icon, the one Herdr's tab bar and Agents list show, instead of a
+  square with a letter. The icon comes from Herdr's program table, so a sleeping session has it too, and an icon
+  changed in Herdr's `programs.json` changes here as well. Herdr is asked for the table once per start (it checks
+  which agents are installed with a short process); until it answers, an agent that runs in some pane already
+  has its icon. The letter square stays for an agent Herdr has no icon for.
+
 ### Fixed
 
 - A running Claude Code session whose transcript has passed 64 MiB shows its context, model and last reply in
@@ -34,9 +42,9 @@ and the project uses [Semantic Versioning](https://semver.org/).
   the message count is left out, as it would need the whole file.
 - A growing transcript is no longer read whole every 30 seconds while Sessions is open. Past 8 MiB only its new
   bytes are read, by one short process (Windows' own `curl` with a byte range, `tail` elsewhere).
-- The agent's square in a Sessions row (C for Claude Code, X for Codex) is level with the title again. It sat
-  at the top of the row, 1.5 px above the middle of the title's capitals in Geist and 2.5 px in Segoe UI
-  Variable. It is now centred in a box as tall as the title's line, so it follows that line in any UI font and
+- The agent's mark in a Sessions row (then a square with C for Claude Code, X for Codex) is level with the title
+  again. It sat at the top of the row, 1.5 px above the middle of the title's capitals in Geist and 2.5 px in
+  Segoe UI Variable. It is now centred in a box as tall as the title's line, so it follows that line in any UI font and
   at any zoom; measured within 0.5 px of the middle of the capitals at zoom 1 in both fonts.
 - Resume opens a Codex session even when Codex has an update waiting. Codex showed its "Update available"
   question first and loaded the session only once someone answered, so the wake did not find the session and

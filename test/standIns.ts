@@ -152,10 +152,11 @@ ${recording.herdr ?? ""}`;
  * With `record`: "gpui-kit" and "gpui-base" build elements that remember what
  * was asked of them (`calls`: [method, ...args]; `kids`: children, strings
  * included; `when(cond, fn)` applies fn only when cond holds), so a test can
- * look at what a view draws. "herdr" answers theme() with no colours,
- * settings() with `globalThis.suspenderSettings` (else zoom 1), openOverlay() with a push to
- * `globalThis.suspenderOverlays`, and spaces()
- * with `globalThis.suspenderSpaces` (else none).
+ * look at what a view draws. "herdr" answers theme() with `globalThis.suspenderTheme`
+ * (else no colours), settings() with `globalThis.suspenderSettings` (else zoom 1),
+ * openOverlay() with a push to `globalThis.suspenderOverlays`, spaces() with
+ * `globalThis.suspenderSpaces` and panes() with `globalThis.suspenderPanes` (else none),
+ * and knownAgents() by calling `globalThis.suspenderKnownAgents` (else it never answers).
  */
 function recordingBodies(): Record<string, string> {
   const element = `
@@ -179,6 +180,7 @@ const element = (kind, arg) => {
     "gpui-kit": `${element}
 export const div = () => element("div");
 export const svg = (path) => element("svg", path);
+export const image = (path) => element("image", path);
 export class View {}
 `,
     "gpui-base": `${element}
@@ -186,7 +188,10 @@ export const h_flex = () => element("h_flex");
 export const v_flex = () => element("v_flex");
 `,
     herdr: `
-export const theme = () => ({});
+export const theme = () => globalThis.suspenderTheme ?? {};
+export const panes = () => globalThis.suspenderPanes ?? [];
+export const knownAgents = (options) =>
+  globalThis.suspenderKnownAgents?.(options) ?? new Promise(() => undefined);
 export const settings = () => globalThis.suspenderSettings ?? { zoom: 1 };
 export const spaces = () => globalThis.suspenderSpaces ?? [];
 // Overlays opened go to globalThis.suspenderOverlays (when a test sets it), as the options were given.

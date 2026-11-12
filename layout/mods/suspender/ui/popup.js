@@ -11,7 +11,7 @@ import { closeOverlay, openOverlay, settings } from "herdr";
 import { scaleOf, windowPx } from "../core/scale.js";
 import { t } from "../i18n/index.js";
 import { MOD_NAME } from "../runtime/engine.js";
-import { agentTile, icon, palette, TONE_COLOR } from "./kit.js";
+import { agentIcon, icon, palette, TONE_COLOR } from "./kit.js";
 import { FACT_GAP_PX, FACT_ROW_PX, POPUP_WIDTH, popupFacts, popupPosition, popupSize, QUOTE_GAP_PX, QUOTE_LABEL_PX, QUOTE_LINE_PX, QUOTE_TEXT, TITLE_LINE_PX, TITLE_TEXT, } from "./sessionsModel.js";
 /** How long the pointer rests on a row or a strip before its popup opens. */
 export const SHOW_DELAY_MS = 350;
@@ -171,7 +171,7 @@ export class PopupView {
     close() {
         hoverPopup.closed(this.overlay);
     }
-    render(_cx) {
+    render(cx) {
         const color = palette();
         const facts = factsFor(this.engine, this.ports, this.key, this.usedMb);
         const root = v_flex()
@@ -202,7 +202,7 @@ export class PopupView {
             .gap(7)
             .items_center()
             .text_size(11.5)
-            .child(agentTile(facts.agent, color))
+            .child(agentIcon(facts.agent, color, cx, this.ports.now()))
             .child(div().child(facts.agentName))
             .child(div().ml_auto().px(8).rounded(10).bg(color("raised")).text_color(tone).whitespace_nowrap().child(facts.state)));
         if (facts.titleLines.length > 0) {

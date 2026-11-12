@@ -14,7 +14,7 @@ import { scaleOf, type WindowPx, type WindowRect, type WindowSize, windowPx } fr
 import { t } from "../i18n/index.ts";
 import type { Ports } from "../platform/ports.ts";
 import { type Engine, MOD_NAME } from "../runtime/engine.ts";
-import { agentTile, icon, palette, TONE_COLOR } from "./kit.ts";
+import { agentIcon, icon, palette, TONE_COLOR } from "./kit.ts";
 import {
   FACT_GAP_PX,
   FACT_ROW_PX,
@@ -221,7 +221,7 @@ export class PopupView {
     hoverPopup.closed(this.overlay);
   }
 
-  render(_cx: Context): Element {
+  render(cx: Context): Element {
     const color = palette();
     const facts = factsFor(this.engine, this.ports, this.key, this.usedMb);
     const root = v_flex()
@@ -259,7 +259,7 @@ export class PopupView {
         .gap(7)
         .items_center()
         .text_size(11.5)
-        .child(agentTile(facts.agent, color))
+        .child(agentIcon(facts.agent, color, cx, this.ports.now()))
         .child(div().child(facts.agentName))
         .child(
           div().ml_auto().px(8).rounded(10).bg(color("raised")).text_color(tone).whitespace_nowrap().child(facts.state),
