@@ -151,11 +151,16 @@ read, and `updateStore` retries on a conflict. A broken file or one with another
 
 ## Finding a session id
 
-Without hooks. Claude Code writes `~/.claude/sessions/<pid>.json` for every live process (pid, session id,
-folder, start time): the engine matches a terminal by folder and start time, and by the process tree when that
-is ambiguous. Codex writes a rollout file per session whose first line names the session, folder and time: the
-newest one for the terminal's folder that is not older than the process. See
-[ADR 4](adr/0004-session-ids-without-hooks.md).
+Without hooks, and only through the terminal's own processes: never by its folder, a space or tab name, or an
+order. Claude Code writes `~/.claude/sessions/<pid>.json` for every live process (pid, session id, folder, start
+time): a terminal's session is the one of the Claude in front (POSIX) or of the Claude nearest under its shell
+(Windows; npm's Claude Code is `node` running its `cli.js`). Codex writes a rollout file per session, its id a
+UUIDv7 that carries its birth: a terminal's session is `resume <id>` on its Codex's command line, else the newest
+rollout that only its Codex can have made (the only live Codex running since before it, or the only one that
+started within two seconds of it); else it keeps the session it had. A record keeps the folder the session runs
+in from those files, for Resume. A terminal of Herdr found running a session that sleeps elsewhere is where it
+runs now: the record moves there and its old sleeping pane closes. See [ADR 4](adr/0004-session-ids-without-hooks.md)
+and [ADR 15](adr/0015-identity-only-through-the-process-tree.md).
 
 ## The layout
 
