@@ -5,8 +5,8 @@ matters to you, open an issue and say so: that is how the order gets decided.
 
 ## Next
 
-**OpenCode.** The first agent after the two we have. An adapter is one file (see "Adding an agent" in the
-README), and OpenCode keeps its sessions in a place we can read without hooks.
+**OpenCode.** The first agent after the two we have. An adapter is one file (see
+[Adding an agent](docs/architecture.md#adding-an-agent)), and OpenCode keeps its sessions in a place we can read without hooks.
 
 **Other popular agents**, in no fixed order: Gemini CLI, Copilot CLI, Cursor CLI, Qwen Code, Amp, Kiro. Each
 needs three things worked out before its adapter is worth writing: where it stores a session, how to resume

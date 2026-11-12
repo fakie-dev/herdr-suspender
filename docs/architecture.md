@@ -115,13 +115,26 @@ stays and a toast says so. See [ADR 2](adr/0002-living-layout.md). `scripts/buil
 generator against a fixture `main.json` into `layout/`, the ready-made card, and `pnpm check` compares it.
 
 The tab bar mode comes from `runtime/tabsClone.ts`, run once per module load by the first copy that is shown.
-It keeps `mods/suspender-tabs` (made with `mod.clone`) equal to Herdr's `tabs/main.js` plus two insertions that
-add Sessions to the panel buttons, and checks it with `herdr-app check`. When that works the layout shows the
-copy in the `tabs` block and puts the Sessions list in the side panel stack `panel-body` as its third child;
-when it does not, Herdr's own tab bar stays, with our toggle block left of it and our own column. The copy reads
+Herdr's tab bar is a shipped mod, and shipped mods are not edited, so the mod keeps a copy of its own:
+`mods/suspender-tabs` (made with `mod.clone`), equal to Herdr's `tabs/main.js` plus two insertions that add
+Sessions to the panel buttons. The copy's first line records the sha256 of the `tabs/main.js` it was made from,
+so a Herdr update that changes the tab bar is noticed on the next start and the copy is written again from the
+new file. Herdr picks up whatever lands in `mods/` at once, so the new text is first tried with
+`herdr-app check` in a folder of the mod's own, `<app home>/suspender/tabs-check`, and only a text that passed
+replaces the copy.
+When that works the layout shows the copy in the `tabs` block and puts the Sessions list in the side panel
+stack `panel-body` as its third child. When it does not (the insertions no longer fit, or the check fails), the
+copy stays as it was, the layout goes back to Herdr's own tab bar with our toggle block left of it and our own
+column, and one toast says so. The copy reads
 its label from `shared("suspender.tabLabel")`, which the engine sets after each round and each store write, only
 when the text changes. `suspender.panel` opens and closes Sessions in either mode (`sessionsToggle`). See
 [ADR 5](adr/0005-live-copy-of-tabs.md).
+
+Without the layout the mod still works: Sleep and Resume, restored tabs, and Sessions as a window. Two things
+depend on a copy of the mod being on screen, and the layout is what keeps one there. Keys reach only a mod that
+is shown somewhere in the window, and the restart check runs when the first copy is shown. With the layout both
+happen at once, because the Sessions button is always visible; without it they wait for a sleeping tab or the
+Sessions window.
 
 ## Cost
 
@@ -148,6 +161,45 @@ The mod is meant to cost almost nothing while nobody touches it.
 Everything that differs by OS is in `platform/`: process lists and memory (`tasklist` on Windows, `ps` on macOS
 and Linux), file stat, the shell, and the path separator. Nothing in `core/` or `adapters/` names an OS.
 CI runs the tests on Windows, macOS and Linux; the mod itself has been used on Windows only.
+
+### Tried by hand
+
+On Windows, with both agents in a throwaway folder:
+
+- Claude Code: sleep and resume into the same conversation, the question for an agent that is answering, a
+  session open elsewhere, a missing conversation with Start new session, Forget, Resume all, leaving with
+  `/exit` (the shell stays), `claude.exe` killed from outside (the tab turns "interrupted" within about ten
+  seconds, and Resume brings the conversation back), a draft left in the prompt at Sleep (the agent got only
+  `/exit`), and Sleep pressed on two tabs within a second (both went to sleep).
+- Codex: sleep and resume into the same conversation, "sleep when done", a session open elsewhere, a missing
+  conversation with Start new session, Forget, Resume all skipping a session that is open elsewhere, `/quit`
+  (no sleeping tab is made), and `codex.exe` killed from outside (interrupted).
+
+Covered by tests only so far: "updated after sleep" with Codex, a draft left in Codex's prompt, and a real
+reboot of the PC.
+
+## Limits
+
+- If an agent shows its own dialog when it starts (Codex asks about updates and about trusting a new folder),
+  the resumed agent waits behind that dialog until you answer it. The mod cannot see or answer it.
+- Sleep does not warn about a draft in the prompt: it empties the prompt before the exit command.
+- Codex has no event for "closed elsewhere", so while its strip is on screen it is checked every five seconds
+  (see Cost).
+
+## Adding an agent
+
+An agent is one file in `src/adapters/` that implements `AgentAdapter` from `contract.ts`: how to recognize the
+agent in a terminal, how to find its session id, how to read a transcript, how to stop it and how to resume it.
+Add its id to `AgentId` in `src/core/model.ts` and one line to `src/adapters/index.ts`. The adapters see the
+world only through `Ports`, so they are tested with in-memory files and no process runs. `claude.ts` and
+`codex.ts` are the two examples.
+
+## Adding a language
+
+Every text the mod shows is in `src/i18n/en.ts`, behind `t(key, params)`. A translation is a file with the same
+keys. What is missing is the choice of language: Herdr does not tell mods the locale yet, so `t` reads English
+only. If you want to translate, open an issue so the way to pick the language can be agreed first (see the
+[roadmap](../ROADMAP.md)).
 
 ## Tests
 

@@ -159,7 +159,10 @@ sessions to terminals and recognizes restarts; the others only draw.
 
 Keys, merged into `keys.json`: `Ctrl+Shift+S` opens the Sessions window (`mod.open:suspender`, `global`) or, in
 the `suspender` layout, opens and closes the panel (`suspender.panel`: the side panel on Sessions with the tab bar
-copy, our own column without it); `Alt+Shift+S` is `suspender.toggle-focused`.
+copy, our own column without it); `Alt+Shift+S` is `suspender.toggle-focused`. A `keys.json` from an earlier
+version may still bind `Ctrl+Shift+S` under `layout:suspender` to
+`{ "command": "layout.toggle", "args": { "id": "suspender-panel" } }`. That column exists only when the layout
+falls back to Herdr's own tab bar, so replace it with `"suspender.panel"`, which works in both.
 
 ## Watch out
 
@@ -188,8 +191,13 @@ running (before that check's 60 s timeout has passed). Put the button right of t
 after the window buttons.
 
 Herdr has no uninstall hook. Removing the mod means switching layouts first, then deleting
-`layouts/suspender.json`, `mods/suspender` and `mods/suspender-tabs`; a layout left pointing at the copy keeps
-a Sessions button whose panel says the mod did not load.
+`layouts/suspender.json`, `mods/suspender` and `mods/suspender-tabs`, and taking the `suspender.*` keys and the
+`layout:suspender` section out of `keys.json`. The saved sessions are in `<app home>/suspender/`, which also
+holds `tabs-check`; delete it only if they should go too. The order matters: while the mod is installed it puts
+both files back (the layout when it loads, the copy when one of its blocks is shown). Only
+`layouts/suspender.json` shows `suspender-tabs`, so no other layout gets a Sessions button that leads nowhere,
+but a layout left pointing at the copy keeps a Sessions button without its moon whose panel says the mod did
+not load (seen on Herdr 0.1.15).
 
 Limits: Claude Code and Codex only. Sleep does not warn about a draft in the prompt; it empties the prompt before
 the exit command. The text of the last screen is the screen at the moment of sleep, not a live view. The UI is
