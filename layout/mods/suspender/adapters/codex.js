@@ -348,6 +348,13 @@ async function openElsewhere(sessionId, p, exceptTerminal) {
     }
     return { open: false };
 }
+/**
+ * Codex shows its "Update available" screen before it loads anything when its
+ * cached latest version is newer, and waits there for an answer: the session is
+ * neither on screen nor found until then. The starts the mod makes turn that
+ * check off for that one run (`-c` overrides config.toml without writing it).
+ */
+const NO_UPDATE_CHECK = ["-c", "check_for_update_on_startup=false"];
 // Ctrl+C empties the prompt first, so a half-typed message does not go out with "/quit" appended.
 const STOP_STEPS = [{ key: "ctrl+c" }, { send: "/quit" }, { waitExitMs: 10_000 }];
 export const codexAdapter = {
@@ -361,6 +368,6 @@ export const codexAdapter = {
     transcriptExists: async (sessionId, _cwd, p) => (await findRollout(sessionId, p)) !== null,
     openElsewhere,
     stopSteps: () => STOP_STEPS.map((step) => ({ ...step })),
-    resumeArgv: (sessionId) => ["codex", "resume", sessionId],
-    newArgv: () => ["codex"],
+    resumeArgv: (sessionId) => ["codex", ...NO_UPDATE_CHECK, "resume", sessionId],
+    newArgv: () => ["codex", ...NO_UPDATE_CHECK],
 };

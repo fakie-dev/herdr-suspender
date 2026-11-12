@@ -29,6 +29,10 @@ and the project uses [Semantic Versioning](https://semver.org/).
   at the top of the row, 1.5 px above the middle of the title's capitals in Geist and 2.5 px in Segoe UI
   Variable. It is now centred in a box as tall as the title's line, so it follows that line in any UI font and
   at any zoom; measured within 0.5 px of the middle of the capitals at zoom 1 in both fonts.
+- Resume opens a Codex session even when Codex has an update waiting. Codex showed its "Update available"
+  question first and loaded the session only once someone answered, so the wake did not find the session and
+  could time out. The mod now starts Codex with `-c check_for_update_on_startup=false`, which skips that
+  question for that run only; `config.toml` is not changed, and Codex started by hand still asks.
 
 ## [0.1.2] - 2026-11-12
 

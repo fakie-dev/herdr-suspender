@@ -242,8 +242,31 @@ describe("codex: openElsewhere", () => {
 describe("codex: stopping and starting", () => {
   it("quits with /quit and resumes by id", () => {
     assert.deepEqual(codexAdapter.stopSteps().slice(0, 2), [{ key: "ctrl+c" }, { send: "/quit" }]);
-    assert.deepEqual(codexAdapter.resumeArgv("abc", CWD), ["codex", "resume", "abc"]);
-    assert.deepEqual(codexAdapter.newArgv(CWD), ["codex"]);
     assert.equal(codexAdapter.displayName, "Codex");
+  });
+
+  // Codex shows its "Update available" screen before it loads anything, and the
+  // session behind it is neither shown nor found until someone answers. The mod's
+  // own starts turn the check off for that run only; config.toml is not touched.
+  it("resumes by id with the update check off for that run", () => {
+    const id = uuidV7(NOW, "abc");
+    assert.deepEqual(codexAdapter.resumeArgv(id, CWD), [
+      "codex",
+      "-c",
+      "check_for_update_on_startup=false",
+      "resume",
+      id,
+    ]);
+  });
+
+  it("starts a new session with the update check off as well", () => {
+    assert.deepEqual(codexAdapter.newArgv(CWD), ["codex", "-c", "check_for_update_on_startup=false"]);
+  });
+
+  it("still finds the id of a session it resumed this way", async () => {
+    const id = uuidV7(NOW - 5000, "abc");
+    const argv = codexAdapter.resumeArgv(id, CWD);
+    const t = terminal({ foreground: { pid: 9, argv, name: "codex" } });
+    assert.equal(await codexAdapter.discoverSession(t, fakePorts({ now: NOW })), id);
   });
 });

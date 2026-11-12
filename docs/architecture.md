@@ -77,9 +77,13 @@ inherited, and the agent would receive the tag.
 1. Checks: the adapter says whether the transcript still exists (otherwise `missing`) and whether another live
    process holds the session (otherwise `elsewhere`, and the button is disabled).
 2. A terminal is started next to the sleeping panel in Herdr's default shell, and the resume command goes into
-   it (`claude --resume <id>`, `codex resume <id>`) in the recorded folder. Quoting differs between shells
+   it (`claude --resume <id>`, `codex -c check_for_update_on_startup=false resume <id>`) in the recorded
+   folder. Codex shows its "Update available" question before it loads a session whenever its cached latest
+   version is newer, and the session stays behind it until someone answers; `-c` turns the check off for that
+   run only, without writing `config.toml` ("Start new session" passes it too). Quoting differs between shells
    (single quotes mean nothing to cmd.exe), so a command with any word a shell would act on is not typed at
-   all and the wake fails with `reason.badId`; the adapters already take only UUIDs as session ids. `hc run`
+   all and the wake fails with `reason.badId`: letters, digits and `_ . / \ : -`, and `=` inside a word (zsh
+   expands a word that starts with it). The adapters already take only UUIDs as session ids. `hc run`
    with the agent as the program was tried first and closed the pane when the agent exited; a shell keeps the
    tab.
 3. The engine verifies with `hc get` that the command that is running is the one it asked for. Passing
@@ -249,8 +253,11 @@ kill of a parked terminal itself was tried by hand).
 
 ## Limits
 
-- If an agent shows its own dialog when it starts (Codex asks about updates and about trusting a new folder),
-  the resumed agent waits behind that dialog until you answer it. The mod cannot see or answer it.
+- If an agent shows its own dialog when it starts, the resumed agent waits behind that dialog until you answer
+  it; the mod cannot see or answer it. Codex's update question is turned off for the starts the mod makes (see
+  Waking). Two can still come: whether to trust a folder (a folder Codex has no answer for, inside a project, or
+  one marked untrusted) and the offer to move to a newer model. Both are choices Codex keeps, so the mod leaves
+  them to you.
 - Sleep does not warn about a draft in the prompt: it empties the prompt before the exit command.
 - For a few frames after Sleep (about 80 ms measured) the agent and the sleeping pane share the slot: Herdr
   lists the new pane only after its next update, and it cannot be swapped in before that (ADR 9).

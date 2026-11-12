@@ -62,7 +62,7 @@ export interface AgentAdapter {
    * in it is not sent along with it.
    */
   stopSteps(): StopStep[];
-  /** ["claude","--resume",id] | ["codex","resume",id] */
+  /** ["claude","--resume",id] | ["codex","-c","check_for_update_on_startup=false","resume",id] */
   resumeArgv(sessionId: string, cwd: string): string[];
   /** A fresh session in `cwd` ("Start new session"). */
   newArgv(cwd: string): string[];

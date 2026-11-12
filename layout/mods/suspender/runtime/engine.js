@@ -126,9 +126,11 @@ function agentOwnsTerminal(term) {
 const RECHECK = { claude: "process", codex: "newer" };
 /**
  * A word every shell reads as itself: no quotes, spaces, `&`, `|`, `%`, `$`
- * or anything else cmd.exe, PowerShell or a POSIX shell would act on.
+ * or anything else cmd.exe, PowerShell or a POSIX shell would act on. `=`
+ * only inside a word (`key=value` for Codex's `-c`): zsh expands a word that
+ * starts with it to a path.
  */
-const PLAIN_WORD = /^[\w./\\:-]+$/;
+const PLAIN_WORD = /^[\w./\\:-][\w./\\:=-]*$/;
 /**
  * The command line typed into a new shell, or null when a word is not plain.
  * Quoting differs per shell (single quotes mean nothing to cmd.exe), so a
@@ -1602,7 +1604,7 @@ export class Engine {
         const typedAt = this.ports.now();
         // Up when the agent runs under the shell with the command's arguments.
         // Herdr lists the terminal only once it adopts it (`hc get` until then);
-        // an agent at its own prompt (Codex's update question) may report nothing.
+        // an agent at a question of its own (Codex asking to trust a folder) may report nothing.
         let found = null;
         let lastSnapshot = Number.NEGATIVE_INFINITY;
         const end = typedAt + START_TIMEOUT_MS;
@@ -1630,7 +1632,7 @@ export class Engine {
         }
         // Its process can be there before its screen is drawn (measured: the shell's
         // screen showed for a moment). It reports its status once it is at its
-        // prompt; one that reports nothing (Codex's update question) is shown
+        // prompt; one that reports nothing (Codex's trust question) is shown
         // after REPORT_WAIT_MS all the same.
         const drawnBy = Math.min(end, this.ports.now() + REPORT_WAIT_MS);
         while (!found.reported && this.ports.now() < drawnBy) {
