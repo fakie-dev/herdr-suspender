@@ -181,9 +181,18 @@ The mod is meant to cost almost nothing while nobody touches it.
 - A transcript is read when a session goes to sleep, when its strip is shown, and right after the session is
   closed in another window, each time only if the file changed (size and modification time are compared
   first). Nothing watches it while the strip stays on screen: a session open elsewhere writes all the time,
-  and each read would cost a `stat` process, so `+N` waits for the next show. Herdr's `fs/promises` has no
-  partial read or `stat`, so a read is the whole file; `stat` is a spawned process (`robocopy /L` on Windows,
-  which starts in about 20 ms, `stat` elsewhere), never PowerShell on a frequent path.
+  and each read would cost a `stat` process, so `+N` waits for the next show. A running session's transcript
+  is read the same way while the Sessions panel is open, at most every 30 seconds (`refreshRunning`): that is
+  where the rows and the popup get the name, model and context of a session that has not slept.
+- How a transcript is read. Herdr's `fs/promises` has no partial read and no `stat`, and its `readFile`
+  refuses a file over 64 MiB (measured on 0.1.15; long Claude Code sessions pass 80 MB). `stat` is a spawned
+  process (`robocopy /L` on Windows, which starts in about 20 ms, `stat` elsewhere), never PowerShell on a
+  frequent path. The first read takes the whole file up to 64 MiB, for exact counts, and past that only its
+  last 1 MiB and first 512 KiB. After that only the new bytes are read: from a whole read and cut, up to
+  8 MiB, and past that by one short process that reads only them (`readPart`: the `curl` that ships with
+  Windows, with a byte range of the file's URL, about 30 ms; `tail -c` elsewhere). A read that gives nothing
+  (a refused file, a failed process) counts as no read: the snapshot keeps what it knew and no size, so the
+  next look reads the file again instead of growing from bytes it never saw.
 - Whether a Codex session is open elsewhere costs a `tasklist` call, made at most every 5 seconds and only
   while a strip that needs it is on screen. Claude Code is watched through its `sessions` folder instead.
 - A Codex whose session is not known yet (no rollout written) is looked up in the process tree only when its
@@ -196,6 +205,16 @@ The mod is meant to cost almost nothing while nobody touches it.
   adapters keep a prompt and a reply to 400 characters and a title to 200 (`oneLine`). The other measuring
   loops (`statusWords`, `fitSegments`, the path and branch shorteners) work on short or already shortened
   text.
+
+## Context
+
+The context line in the popup and `ctx` in a row come from the last turn's tokens in the transcript. Codex
+writes its window there (`model_context_window`). Claude Code does not, and keeps the API's model id
+(`claude-opus-5-5`), never its own `[1m]` setting, so the window is known from a use above 200k, from `[1m]`
+when a name has it, or from the model's generation: 1M from the 5 models on, 200k for Haiku 4.5. The 4.x
+models run at 200k or 1M by a setting the transcript does not keep, so below 200k they show the tokens in use
+without a percentage. In a row the item comes after the model and goes to `+N` after the model, folder and
+id: it changes while the agent works.
 
 ## Platforms
 
@@ -219,6 +238,10 @@ On Windows, with both agents in a throwaway folder:
 - Stopping out of sight (ADR 9), Claude Code only: an idle agent beside another pane and alone in its tab, and
   a working one stopped with "Interrupt and sleep". Each time the slot showed only the sleeping pane from
   about half a second after the press, the hidden agent left on `/exit`, and nothing was left in the core.
+- Context of a running session, Claude Code on Opus 5.5 in a folder with a long path: the row said `ctx 6%` and
+  the popup `56k / 1M`, as Claude Code's own status line did. The built adapter, run inside Herdr, read an
+  82 MB transcript and a synthetic 90 MiB one from their ends (30% and 29%, Cyrillic text intact through
+  `curl`), and an 82 MB one kept blank by 0.1.2 came back the same.
 
 Covered by tests only so far: "updated after sleep" with Codex, a draft left in Codex's prompt, a real reboot
 of the PC, Codex stopped out of sight, and an agent stopped out of sight that ignores its exit command (the
@@ -233,6 +256,10 @@ kill of a parked terminal itself was tried by hand).
   lists the new pane only after its next update, and it cannot be swapped in before that (ADR 9).
 - Codex has no event for "closed elsewhere", so while its strip is on screen it is checked every five seconds
   (see Cost).
+- A transcript over 64 MiB has no message count (it would need the whole file, which Herdr does not read), and
+  its first prompt is the first one in its first 512 KiB.
+- Herdr's own Agents list in the sidebar shows what an agent reports (status, title, program); Herdr has no
+  field for context, so the context is shown only in the mod's Sessions panel.
 
 ## Adding an agent
 

@@ -5,6 +5,25 @@ and the project uses [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+
+- A session's row in Sessions shows how full its context is, after the model: `ctx 29%`, or `ctx 68k` when the
+  window is not known. On a narrow panel it stays after the model, folder and id have gone to `+N`.
+- Claude Code models from the 5 generation on (Opus 5.5, Sonnet 5.5, …) get a percentage of their 1M window at
+  any fill. Before, a percentage came only from a use above 200k or from `[1m]` in the model's name, which the
+  transcript never holds. Haiku 4.5 gets its 200k. The 4.x models still show the tokens in use: their window is
+  a setting the transcript does not keep.
+
+### Fixed
+
+- A running Claude Code session whose transcript has passed 64 MiB shows its context, model and last reply in
+  Sessions again. Herdr reads no file over 64 MiB whole, the read came back empty, and the empty read was kept as
+  if the transcript had been read, so the session stayed blank for good. A read that gives nothing now counts as
+  no read, and a session kept blank that way by 0.1.2 is read again. Such a transcript is read from its two ends;
+  the message count is left out, as it would need the whole file.
+- A growing transcript is no longer read whole every 30 seconds while Sessions is open. Past 8 MiB only its new
+  bytes are read, by one short process (Windows' own `curl` with a byte range, `tail` elsewhere).
+
 ## [0.1.2] - 2026-11-12
 
 ### Changed
