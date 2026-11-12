@@ -84,8 +84,14 @@ inherited, and the agent would receive the tag.
    tab.
 3. The engine verifies with `hc get` that the command that is running is the one it asked for. Passing
    arguments through some shells changes them silently, so this is checked every time.
-4. Labels are set, the new terminal is swapped into the slot and the sleeping panel is closed. A new pane's id
-   is found by comparing the pane list before and after, because `pane.split` from a mod returns nothing.
+4. The record says `running` first. Then the labels are set, and Herdr adopts the terminal by splitting the
+   tab's last pane; it lists the new pane only after its next update, so the pane is looked for every 16 ms,
+   and in the same step, with nothing awaited, it is swapped into the slot and the sleeping panel is closed.
+   The split is on screen for a frame or two, and the agent goes from the core's 200 columns to the slot's
+   size within them (before, it stood at half its slot beside the sleeping panel for up to 0.8 s, and Claude
+   Code drew its banner at that width). Closing the sleeping panel ends the copy that is that panel, so
+   everything that waits comes before; if Herdr does not show the agent within 3 seconds, the record goes to
+   `error` from `running` with the sleeping panel and Retry, as before.
    The agent gets the focus only when its tab is the one on screen. Herdr shows the tab of any pane that is
    focused, and its space with it, and its tab bar keeps the side panel per space, so focusing an agent woken
    from the Sessions panel in another space took the person there and closed the panel. Measured on Herdr

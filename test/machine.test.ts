@@ -249,6 +249,17 @@ describe("waking up", () => {
     assert.equal(transition("error", { t: "resume", argv: RESUME_ARGV }).state, "waking");
   });
 
+  it("a start whose agent ran but never showed in its tab fails the same way after it was running", () => {
+    // The wake is running by then (Engine.showWoken places the agent last, with nothing awaited in between).
+    for (const from of ["running", "working"] as const) {
+      const failed = transition(from, { t: "startFailed", reason: "reason.noPane" });
+      assert.equal(failed.state, "error");
+      assert.deepEqual(failed.effects, [
+        { e: "notify", key: "error.startFailed", params: { reason: "reason.noPane" } },
+      ]);
+    }
+  });
+
   it("resume all wakes sleeping and interrupted sessions like resume does", () => {
     for (const from of ["asleep", "interrupted"] as const) {
       assert.deepEqual(transition(from, { t: "resumeAll", argv: RESUME_ARGV }), {

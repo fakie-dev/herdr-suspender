@@ -1880,20 +1880,12 @@ export class Engine {
       }
       found.reported = adapter.matches(toTerminalView(term)) && term.status !== null;
     }
-    // The agent runs: now Herdr may show it, in a pane of the session's tab.
-    await this.ports.hc(["label", address, `herdr.space=${rec.spaceId}`, `herdr.tab=${rec.tabId}`]).catch(() => null);
-    const pane = await this.waitFor(() => this.paneOf(address), PANE_WAIT_MS);
     this.looked.delete(address);
     this.co.agents.set(address, found);
     this.co.checkedAt.set(address, this.ports.now());
-    const started = this.term(address);
-    if (started !== null) {
-      this.co.seen.set(address, signature(started));
-    }
-    if (pane === null) {
-      return failed("reason.noPane", address);
-    }
     this.setProgress(key, "ready");
+    // Everything that waits is done before Herdr shows the agent: from then on
+    // the flow only looks for its pane every frame and puts it in the slot.
     if (!fresh) {
       await this.patch(key, (r) => {
         r.terminal = address;
@@ -1904,33 +1896,84 @@ export class Engine {
     const sleepPane = rec.pane;
     return {
       next: { t: "started" },
-      after: async () => {
-        if (sleepPane !== null && this.paneExists(sleepPane)) {
-          this.host.run("pane.swap", { pane, target: sleepPane });
-        }
-        if (fresh) {
-          await this.removeRecord(key);
-          const term = this.term(address);
-          if (term !== null) {
-            await this.bind(term, adapter, true);
-          }
-        } else {
-          await this.patch(key, (r) => {
-            r.pane = null;
-          });
-        }
-        this.setProgress(key, null);
-        // Only on the tab the person is on: focusing a pane of another tab shows
-        // that tab and its space (measured), and the side panel goes with the space.
-        if (this.onScreen(pane)) {
-          this.host.runOnScreen("pane.focus", { pane });
-        }
-        // Last: when this copy is that pane, closing it ends this copy.
-        if (sleepPane !== null && this.paneExists(sleepPane)) {
-          this.host.run("pane.close", { pane: sleepPane });
-        }
-      },
+      after: () => this.showWoken(key, address, sleepPane, fresh, adapter),
     };
+  }
+
+  /**
+   * The woken agent takes the sleeping pane's slot. Herdr adopts the terminal
+   * once it has its tab's labels, by splitting the tab's last pane, and lists
+   * the new pane only after its next update. The pane is looked for every
+   * frame, and in the same step it is swapped into the slot and the sleeping
+   * pane is closed: the split shows for a frame or two, and the agent goes from
+   * the core's 200 columns to the slot's size within them. Before, the store
+   * was written in between and the pane looked for every 250 ms, and the agent
+   * stood at half its slot beside the sleeping pane for up to 0.8 s.
+   */
+  private async showWoken(
+    key: SessionKey,
+    address: string,
+    sleepPane: string | null,
+    fresh: boolean,
+    adapter: AgentAdapter,
+  ): Promise<void> {
+    const rec = this.record(key);
+    if (fresh) {
+      await this.removeRecord(key);
+    } else {
+      await this.patch(key, (r) => {
+        r.pane = null;
+      });
+    }
+    const where = rec ?? null;
+    if (where !== null) {
+      await this.ports
+        .hc(["label", address, `herdr.space=${where.spaceId}`, `herdr.tab=${where.tabId}`])
+        .catch(() => null);
+    }
+    const pane = await this.waitFor(() => this.paneOf(address), PANE_WAIT_MS, FRAME_MS);
+    if (pane === null) {
+      this.setProgress(key, null);
+      await this.discard(address);
+      if (fresh) {
+        this.host.notify(
+          t("error.startFailed", {
+            agent: adapter.displayName,
+            reason: t("reason.noPane", { agent: adapter.displayName }),
+          }),
+          "error",
+        );
+        return;
+      }
+      await this.patch(key, (r) => {
+        r.terminal = null;
+        r.pane = sleepPane;
+      });
+      await this.dispatch(key, { t: "startFailed", reason: "reason.noPane" });
+      return;
+    }
+    // One step, nothing awaited: Herdr draws the tab again only after it.
+    if (sleepPane !== null && this.paneExists(sleepPane)) {
+      this.host.run("pane.swap", { pane, target: sleepPane });
+    }
+    this.setProgress(key, null);
+    // Only on the tab the person is on: focusing a pane of another tab shows
+    // that tab and its space (measured), and the side panel goes with the space.
+    if (this.onScreen(pane)) {
+      this.host.runOnScreen("pane.focus", { pane });
+    }
+    // Last: when this copy is that pane, closing it ends this copy.
+    if (sleepPane !== null && this.paneExists(sleepPane)) {
+      this.host.run("pane.close", { pane: sleepPane });
+    }
+    const started = this.term(address);
+    if (started !== null) {
+      this.co.seen.set(address, signature(started));
+      if (fresh) {
+        // A copy that was the sleeping pane ends at the close; the leader binds the new agent then.
+        await this.bind(started, adapter, true);
+      }
+    }
   }
 
   /**

@@ -13,6 +13,9 @@ and the project uses [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- Resume no longer shows the agent squeezed beside the sleeping tab. For up to 0.8 s the agent stood at half the
+  slot next to the sleeping tab, and Claude Code drew its banner at that width. The agent now takes the slot
+  within a frame or two of appearing, and the sleeping tab goes in the same step.
 - Resume of a session in a tab you are not on no longer takes you there. Woken from the Sessions panel, a
   session in another tab of the same space switched to that tab, and one in another space switched the space and
   closed the side panel (Herdr's tab bar keeps the panel per space). The agent was focused when it came up, and

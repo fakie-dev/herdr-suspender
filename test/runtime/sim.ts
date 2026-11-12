@@ -98,6 +98,8 @@ export class Sim implements Host {
    * ran in it then; `reported`: it had reported its status (its screen is up).
    */
   adopted: { address: string; agent: boolean; reported: boolean }[] = [];
+  /** When each of `adopted` got its pane (sim time). */
+  adoptedAt: number[] = [];
   /**
    * How long each mod pane a split asks for takes to show in panes(), in the
    * order of the splits (a busy window can take seconds); 0 once used up.
@@ -761,6 +763,7 @@ export class Sim implements Host {
       return;
     }
     this.adopted.push({ address: term.address, agent: term.agent !== null, reported: term.status !== null });
+    this.adoptedAt.push(this.now);
     const tab = term.labels["herdr.tab"] ?? TAB;
     let last = -1;
     this.paneList.forEach((p, i) => {

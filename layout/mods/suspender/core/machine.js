@@ -43,6 +43,11 @@ const wake = (ev) => ({
 });
 /** The person left the agent (`/exit`): forget it rather than keep a sleeping tab. A crash keeps it, interrupted. */
 const exitedOnItsOwn = (state) => (ev) => ev.byUser ? forget(state)() : interrupt();
+/** A start that failed: the error, with Retry. */
+const startFailed = (ev) => ({
+    state: "error",
+    effects: [{ e: "notify", key: "error.startFailed", params: { reason: ev.reason } }],
+});
 export const TRANSITIONS = {
     running: {
         sleep: goToSleep,
@@ -57,7 +62,8 @@ export const TRANSITIONS = {
         resume: IGNORE,
         resumeAll: IGNORE,
         started: IGNORE,
-        startFailed: IGNORE,
+        // The agent ran but Herdr never showed it in its tab (Engine.showWoken).
+        startFailed: startFailed,
         openElsewhere: IGNORE,
         closedElsewhere: IGNORE,
         transcriptMissing: IGNORE,
@@ -78,7 +84,8 @@ export const TRANSITIONS = {
         resume: IGNORE,
         resumeAll: IGNORE,
         started: IGNORE,
-        startFailed: IGNORE,
+        // The agent ran but Herdr never showed it in its tab (Engine.showWoken).
+        startFailed: startFailed,
         openElsewhere: IGNORE,
         closedElsewhere: IGNORE,
         transcriptMissing: IGNORE,
@@ -187,10 +194,7 @@ export const TRANSITIONS = {
         resume: IGNORE,
         resumeAll: IGNORE,
         started: to("running"),
-        startFailed: (ev) => ({
-            state: "error",
-            effects: [{ e: "notify", key: "error.startFailed", params: { reason: ev.reason } }],
-        }),
+        startFailed: startFailed,
         openElsewhere: to("elsewhere"),
         closedElsewhere: IGNORE,
         transcriptMissing: to("missing"),
