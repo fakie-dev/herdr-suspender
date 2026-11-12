@@ -3,7 +3,7 @@
 // and the folder swap carried out on the same memory, so a test sees exactly
 // which files moved where. Nothing touches the disk or the network.
 
-import { buildManifest, type KeyBinding, type KeyMap, renderManifest } from "../../src/core/manifest.ts";
+import { buildManifest, fileHash, type KeyBinding, type KeyMap, renderManifest } from "../../src/core/manifest.ts";
 import { latestReleaseUrl, rawFileUrl } from "../../src/core/release.ts";
 import type { SwapResult, UpdateFiles, UpdateNotice, UpdaterDeps } from "../../src/runtime/updater.ts";
 import { type FakePorts, fakePorts } from "../fakePorts.ts";
@@ -52,6 +52,8 @@ export class World {
   /** What `herdr-app check` says; "unavailable": the program is not there. */
   checkResult: "passed" | "failed" | "unavailable" = "passed";
   readonly checked: string[] = [];
+  /** `herdr-app check` never answers: the task waiting on it is as good as ended. */
+  checkHangs = false;
   /** Makes the next swap fail before anything moves (a file in use). */
   swapBusy = false;
   /** The swap happens but its answer is lost (exec timed out, its output was garbled). */
@@ -59,6 +61,9 @@ export class World {
   /** Runs inside the swap, after the folders moved and before it returns (Herdr reloading the mod). */
   duringSwap: (() => Promise<void>) | null = null;
   redraws = 0;
+  /** The texts hashed, in order (Herdr hashes natively: a hash in script time is too slow there). */
+  readonly hashed: string[] = [];
+  hash: (text: string) => string = fileHash;
 
   /** Puts `files` (and their manifest) at `dir`. */
   install(dir: string, version: string, files = build(version), keys: KeyMap = KEYS): void {
@@ -132,6 +137,9 @@ export class World {
     },
     checkMod: async (dir) => {
       this.checked.push(dir);
+      if (this.checkHangs) {
+        return new Promise<never>(() => undefined);
+      }
       return this.checkResult;
     },
     swap: async (live, incoming, parked, drop): Promise<SwapResult> => {
@@ -166,6 +174,10 @@ export class World {
         this.notices.push(n);
       },
       bindings: () => this.bindings,
+      hash: (text) => {
+        this.hashed.push(text);
+        return this.hash(text);
+      },
       openPage: (url) => {
         this.opened.push(url);
       },

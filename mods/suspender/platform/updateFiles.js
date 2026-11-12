@@ -1,8 +1,10 @@
 // The updater's disk, programs and network on Herdr's runtime. Never loaded by
 // the tests: `test/update/world.ts` simulates the same interface, and
 // `test/update/swap.test.ts` runs the real swap command on real folders.
+import { createHash } from "crypto";
 import * as fs from "fs/promises";
 import { exec, readTextFile, writeTextFile } from "herdr";
+import { fileHash } from "../core/manifest.js";
 import { latestReleaseUrl } from "../core/release.js";
 import { parseSwapOutput, swapCommand } from "../runtime/swap.js";
 /** `herdr-app check` of a staged release: one small mod, as for the tab bar copy. */
@@ -126,4 +128,21 @@ export async function fetchRelease(url, version) {
 export function openInBrowser(platform, url) {
     const [cmd, args] = platform === "windows" ? ["explorer.exe", [url]] : platform === "macos" ? ["open", [url]] : ["xdg-open", [url]];
     void exec(cmd, args).catch(() => undefined);
+}
+/**
+ * manifest.ts's fileHash with Herdr's native sha256: the same digest (measured,
+ * non-ASCII text included) in no time, where the script's own took 450 ms for
+ * engine.js. The script's own stays as the fallback.
+ */
+export function nativeFileHash(text) {
+    try {
+        const digest = createHash("sha256").update(text.replace(/\r\n/g, "\n")).digest("hex");
+        if (typeof digest === "string" && /^[0-9a-f]{64}$/.test(digest)) {
+            return digest;
+        }
+    }
+    catch {
+        // No native hash in this runtime.
+    }
+    return fileHash(text);
 }

@@ -18,7 +18,7 @@ import { buildLivingLayout, LAYOUT_NAME, sessionsShown, sessionsToggle } from ".
 import { MOD_VERSION } from "./core/release.js";
 import { SHIPPED_MAIN, SHIPPED_MAIN_VERSION } from "./core/shippedMain.js";
 import { herdrPorts } from "./platform/ports.js";
-import { fetchRelease, herdrUpdateFiles, openInBrowser } from "./platform/updateFiles.js";
+import { fetchRelease, herdrUpdateFiles, nativeFileHash, openInBrowser } from "./platform/updateFiles.js";
 import { Engine, newCoordinator, TICK_MS } from "./runtime/engine.js";
 import { herdrHost } from "./runtime/herdrHost.js";
 import { syncLayout } from "./runtime/layoutSync.js";
@@ -136,6 +136,7 @@ function modUpdates() {
                 }
             },
             openPage: (url) => openInBrowser(platform, url),
+            hash: nativeFileHash,
             now: () => Date.now(),
             // Each copy redraws from its own round when the revision moved (PanelView.tick).
             changed: () => undefined,

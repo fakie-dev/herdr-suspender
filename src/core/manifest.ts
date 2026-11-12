@@ -141,16 +141,27 @@ export interface InstallDiff {
 
 /** How the files on disk (path → text, `/` paths) differ from the manifest they came with. */
 export function installDiff(m: Manifest, disk: ReadonlyMap<string, string>): InstallDiff {
+  const hashes = new Map<string, string>();
+  for (const [path, text] of disk) {
+    if (path !== MANIFEST_FILE && !herdrWritten(path)) {
+      hashes.set(path, fileHash(text));
+    }
+  }
+  return hashDiff(m, hashes);
+}
+
+/** installDiff with the files already hashed (path → fileHash), Herdr's own files left out. */
+export function hashDiff(m: Manifest, hashes: ReadonlyMap<string, string>): InstallDiff {
   const out: InstallDiff = { changed: [], missing: [], extra: [] };
   for (const [path, hash] of Object.entries(m.files)) {
-    const text = disk.get(path);
-    if (text === undefined) {
+    const have = hashes.get(path);
+    if (have === undefined) {
       out.missing.push(path);
-    } else if (fileHash(text) !== hash) {
+    } else if (have !== hash) {
       out.changed.push(path);
     }
   }
-  for (const path of disk.keys()) {
+  for (const path of hashes.keys()) {
     if (m.files[path] === undefined && path !== MANIFEST_FILE && !herdrWritten(path)) {
       out.extra.push(path);
     }

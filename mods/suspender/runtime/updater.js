@@ -19,10 +19,10 @@
 // folder changes, which may end this task before it hears back, so the new
 // version announces the result when it loads (the `job` in update.json).
 // Rollback is the same swap the other way.
-import { buildManifest, installDiff, MANIFEST_FILE, missingKeys, parseManifest, } from "../core/manifest.js";
+import { hashDiff, herdrWritten, MANIFEST_FILE, missingKeys, parseManifest, } from "../core/manifest.js";
 import { latestReleaseUrl, rawFileUrl, releasePageUrl } from "../core/release.js";
 import { formatVersion, isNewer, parseVersion } from "../core/semver.js";
-import { CHECK_EVERY_MS, checkDue, defaultUpdateState, jobAlive, parseUpdateState, REFUSALS, renderUpdateState, } from "../core/updateState.js";
+import { CHECK_EVERY_MS, checkDue, defaultUpdateState, JOB_STALE_MS, jobAlive, parseUpdateState, REFUSALS, renderUpdateState, } from "../core/updateState.js";
 import { t } from "../i18n/index.js";
 export { CHECK_EVERY_MS };
 /** The first check waits this long after the module loads. */
@@ -65,6 +65,8 @@ export class Updater {
     nextLook = 0;
     checking = null;
     working = null;
+    /** When `working` was set: a task Herdr ended never clears it, so it lapses like a job. */
+    workingSince = 0;
     /** Bumped on every change the panel draws. */
     rev = 0;
     d;
@@ -121,7 +123,7 @@ export class Updater {
     }
     /** What is under way: in this window, or (young enough) in another one. */
     busy() {
-        if (this.working !== null) {
+        if (this.working !== null && this.d.now() - this.workingSince < JOB_STALE_MS) {
             return this.s.job ?? { kind: this.working, from: this.d.version, to: this.d.version, at: 0, keys: [] };
         }
         return jobAlive(this.s.job, this.d.now()) ? this.s.job : null;
@@ -238,17 +240,25 @@ export class Updater {
     manifestOf(dir) {
         return [dir, MANIFEST_FILE].join(this.d.files.sep);
     }
-    /** The files of `dir` (path → text), or null when it is not there. */
-    async readTree(dir) {
+    /**
+     * The mod's files in `dir` (path → hash), or null when it is not there.
+     * Each file is hashed as it is read, with the hash the deps give: Herdr's
+     * native one. A sha256 in script time took 450 ms for engine.js in Herdr's
+     * runtime, and Herdr ends a script that runs that long (measured).
+     */
+    async hashTree(dir) {
         const listed = await this.d.files.listFiles(dir);
         if (listed === null) {
             return null;
         }
         const out = new Map();
         for (const rel of listed) {
+            if (rel === MANIFEST_FILE || herdrWritten(rel)) {
+                continue;
+            }
             const text = await this.d.files.readText([dir, ...rel.split("/")].join(this.d.files.sep));
             if (text !== null) {
-                out.set(rel, text);
+                out.set(rel, this.d.hash(text));
             }
         }
         return out;
@@ -259,11 +269,11 @@ export class Updater {
         if (installed === null || installed.version !== this.d.version) {
             throw new Stop("renamed");
         }
-        const disk = await this.readTree(this.live);
+        const disk = await this.hashTree(this.live);
         if (disk === null) {
             throw new Stop("renamed");
         }
-        const diff = installDiff(installed, disk);
+        const diff = hashDiff(installed, disk);
         const count = diff.changed.length + diff.missing.length + diff.extra.length;
         if (count > 0) {
             throw new Stop("edited", count);
@@ -272,10 +282,11 @@ export class Updater {
     }
     /** Starts a job in the file, unless one is under way somewhere; false then. */
     async claim(job) {
-        if (this.working !== null) {
+        if (this.working !== null && this.d.now() - this.workingSince < JOB_STALE_MS) {
             return false;
         }
         this.working = job.kind;
+        this.workingSince = this.d.now();
         const now = this.d.now();
         const mine = await this.edit((s) => (jobAlive(s.job, now) ? null : { ...s, job, outcome: null }));
         if (!mine) {
@@ -340,7 +351,7 @@ export class Updater {
             for (let path = paths.shift(); path !== undefined && failed === null; path = paths.shift()) {
                 try {
                     const text = await get(path);
-                    if (buildManifest(target, {}, new Map([[path, text]])).files[path] !== next.files[path]) {
+                    if (this.d.hash(text) !== next.files[path]) {
                         throw new Stop("mismatch");
                     }
                     const at = [this.staging, ...path.split("/")].join(this.d.files.sep);
@@ -381,11 +392,11 @@ export class Updater {
             return;
         }
         try {
-            const backupFiles = back === null ? null : await this.readTree(this.backup);
+            const backupFiles = back === null ? null : await this.hashTree(this.backup);
             if (back === null || backupFiles === null) {
                 throw new Stop("noBackup");
             }
-            const diff = installDiff(back, backupFiles);
+            const diff = hashDiff(back, backupFiles);
             if (diff.changed.length + diff.missing.length + diff.extra.length > 0) {
                 throw new Stop("noBackup");
             }

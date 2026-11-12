@@ -20,7 +20,7 @@ import type { SessionKey } from "./core/model.ts";
 import { MOD_VERSION } from "./core/release.ts";
 import { SHIPPED_MAIN, SHIPPED_MAIN_VERSION } from "./core/shippedMain.ts";
 import { herdrPorts } from "./platform/ports.ts";
-import { fetchRelease, herdrUpdateFiles, openInBrowser } from "./platform/updateFiles.ts";
+import { fetchRelease, herdrUpdateFiles, nativeFileHash, openInBrowser } from "./platform/updateFiles.ts";
 import { type Choice, Engine, newCoordinator, TICK_MS } from "./runtime/engine.ts";
 import { herdrHost } from "./runtime/herdrHost.ts";
 import { syncLayout } from "./runtime/layoutSync.ts";
@@ -146,6 +146,7 @@ function modUpdates(): Updater {
         }
       },
       openPage: (url) => openInBrowser(platform, url),
+      hash: nativeFileHash,
       now: () => Date.now(),
       // Each copy redraws from its own round when the revision moved (PanelView.tick).
       changed: () => undefined,

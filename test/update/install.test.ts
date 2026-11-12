@@ -182,6 +182,33 @@ describe("updating", () => {
   });
 });
 
+describe("hashing", () => {
+  it("goes through the hash it is given, for the install and for every download", async () => {
+    const { world, u } = await ready();
+    await u.update();
+    assert.equal(u.state().outcome?.kind, "updated");
+    const old = build("0.1.2");
+    const next = build("0.1.3");
+    for (const text of [...old.values(), ...next.values()]) {
+      assert.ok(world.hashed.includes(text), text);
+    }
+  });
+
+  it("never hashes the files Herdr writes beside the mod (gpui-kit.d.ts is over a megabyte)", async () => {
+    const { world, u } = await ready();
+    world.ports.files.set(`${LIVE}/gpui-kit.d.ts`, "declare module 'gpui-kit' {}");
+    await u.update();
+    assert.ok(!world.hashed.includes("declare module 'gpui-kit' {}"));
+  });
+
+  it("refuses when that hash disagrees with the installed manifest", async () => {
+    const { world, u } = await ready();
+    world.hash = () => "0".repeat(64);
+    await u.update();
+    assert.equal(u.state().outcome?.reason, "edited");
+  });
+});
+
 describe("refusing", () => {
   it("an install the person changed: nothing downloaded, nothing changed", async () => {
     for (const edit of ["changed", "missing", "added"] as const) {
@@ -316,6 +343,23 @@ describe("after the swap", () => {
     assert.deepEqual(world.tree(STAGING), []);
     assert.deepEqual(world.notices, []);
     assert.equal(world.tree(LIVE).find(([p]) => p === "main.js")?.[1], build("0.1.2").get("main.js"));
+  });
+
+  it("a task Herdr ended mid-update does not hold the button for good", async () => {
+    const { world, u } = await ready();
+    world.checkHangs = true;
+    void u.update();
+    for (let i = 0; i < 20; i++) {
+      await new Promise((r) => setImmediate(r));
+    }
+    assert.notEqual(u.busy(), null);
+    await u.update();
+    assert.equal(world.swaps.length, 0, "not while it may still be at work");
+    world.now += JOB_STALE_MS + 1;
+    assert.equal(u.busy(), null);
+    world.checkHangs = false;
+    await u.update();
+    assert.equal(u.state().outcome?.kind, "updated");
   });
 
   it("staging left by a run that died is removed when the module loads", async () => {
