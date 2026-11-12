@@ -125,3 +125,7 @@ MIT.
 
 The icons in the preview images (the moon-and-stars mark, the puzzle piece, the prompt and the code
 brackets) come from [Phosphor Icons](https://phosphoricons.com) (MIT), recoloured.
+
+The agents' icons in Sessions (Claude Code's, Codex's) are Herdr's own: the mod draws the files Herdr ships in
+its home folder and names in its program table, and carries no copy of them. Their licenses are in Herdr's
+`icons/LICENSES.md`.

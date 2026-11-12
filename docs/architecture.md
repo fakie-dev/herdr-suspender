@@ -193,6 +193,21 @@ back: the new build finishes the job when it loads. Roll back is the same swap t
 `platform/updateFiles.ts` is the disk, `herdr-app check` and the swap on Herdr; the tests simulate the same
 interface (`test/update/world.ts`) and run the real swap command on real folders (`test/update/swap.test.ts`).
 
+## The agent's icon
+
+A Sessions row and the popup's header show the agent's icon the way Herdr's own Agents list draws a pane's
+`program.icon`: a picture with `image()`, a one-colour glyph (`tint`) with `svg()` in the theme's foreground, and
+no `tile` (Herdr's lists draw none). The path is the one Herdr gives (`icons/claude.svg`), read from Herdr's home;
+the mod carries no copy of the icons. A sleeping session has no pane, so the icon comes from Herdr's program table
+through `knownAgents()`, keyed by the agent's id (`claude`, `codex`; measured on Herdr 0.1.15, where both are
+pictures). Herdr answers it with a check process, so `core/agentLook.ts` asks once per module load, shared by the
+copies of a window, and keeps the answer; a failure is asked again after a minute at most, as Herdr keeps no failed
+check. Until the table answers, an agent that runs in some pane takes that pane's `program`. With no icon known (a
+failed lookup, an entry without an icon) the letter tile stays. The copy whose draw started the lookup redraws when
+it answers. The icon is `AGENT_ICON` (16 px of the mod's own, `core/scale.ts`) in the box as tall as the title's
+row, where the tile was, so it stays level with the title in any UI font and at any zoom. See
+[ADR 13](adr/0013-agent-icons-from-herdrs-table.md).
+
 ## Cost
 
 The mod is meant to cost almost nothing while nobody touches it.
@@ -224,6 +239,8 @@ The mod is meant to cost almost nothing while nobody touches it.
   terminal changes (foreground, title, status) or a new rollout appears in its folder, and on Windows at most
   once a minute. Idle at its prompt, it costs nothing.
 - The snapshot of a sleeping session is taken once, at sleep.
+- The agents' icons cost one `knownAgents()` per module load (Herdr checks which agents are installed with a
+  process), and one more a minute after a failure at most; every draw after that reads what was kept.
 - The update check is one GET a day, decided from memory between days (no file read per round). An update hashes
   each file as it reads it with Herdr's native sha256: the script's own took 450 ms for `engine.js` there, and
   Herdr ends a script that runs that long.
