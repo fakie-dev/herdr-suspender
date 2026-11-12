@@ -11,6 +11,13 @@ and the project uses [Semantic Versioning](https://semver.org/).
   takes the agent's place at once, at the same size, and the agent is stopped out of sight (it is gone from the
   Agents list too). Before, both stood side by side for a few seconds and then the agent's pane closed by itself.
 
+### Fixed
+
+- The popup of a session whose first prompt or last reply is long no longer says "This view could not be
+  rendered · interrupted". Its text is now wrapped only as far as it is drawn (two lines), instead of all of it
+  and then cut one character at a time, which took Herdr past its time limit for a script (about 110 ms per
+  popup for a 400-character reply, now about 3 ms).
+
 ## [0.1.1] - 2026-11-12
 
 Mostly fixes from an independent run on a clean 0.1.0 install, plus a shorter README.

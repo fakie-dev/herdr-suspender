@@ -162,6 +162,12 @@ The mod is meant to cost almost nothing while nobody touches it.
   terminal changes (foreground, title, status) or a new rollout appears in its folder, and on Windows at most
   once a minute. Idle at its prompt, it costs nothing.
 - The snapshot of a sleeping session is taken once, at sleep.
+- Drawing costs what is drawn. Herdr runs a mod in QuickJS and interrupts a script that runs too long ("This
+  view could not be rendered"), so text is measured only as far as it shows: `wrapLines` makes lines one at a
+  time, stops at the first line past the ones the popup draws, and never measures much more than a line. The
+  adapters keep a prompt and a reply to 400 characters and a title to 200 (`oneLine`). The other measuring
+  loops (`statusWords`, `fitSegments`, the path and branch shorteners) work on short or already shortened
+  text.
 
 ## Platforms
 

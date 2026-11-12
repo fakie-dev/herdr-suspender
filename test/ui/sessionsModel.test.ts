@@ -21,6 +21,7 @@ import {
   TITLE_MAX_LINES,
   wrapLines,
 } from "../../src/ui/sessionsModel.ts";
+import { textWidth } from "../../src/ui/textWidth.ts";
 import { HOME, rec } from "./helpers.ts";
 
 /** 6 px per character: the widths in the comments below are this, plus the icons. */
@@ -532,5 +533,140 @@ describe("the session's name in the popup (user: the name is often cut off horiz
     assert.ok(f.titleLines.at(-1)?.endsWith("…"));
     assert.equal(f.titleCut, true);
     assert.equal(f.title, huge);
+  });
+});
+
+describe("wrapping costs what is drawn (user: the popup said «This view could not be rendered · interrupted»)", () => {
+  // Herdr interrupts a script that runs too long. wrapLines used to wrap the whole text, then cut the rest one
+  // character at a time, measuring all of it again each time: on Herdr's QuickJS a 400-character reply took
+  // 112 ms per popup, and a long word as much again. The cost is counted here in characters measured, not in
+  // time: it may not grow with the part of the text that is not drawn.
+  const counting = (budget: number) => {
+    let used = 0;
+    const measure = (text: string): number => {
+      const n = [...text].length;
+      used += n;
+      if (used > budget) {
+        throw new Error(`measured more than ${budget} characters`);
+      }
+      return n * 7;
+    };
+    return { measure, used: () => used };
+  };
+  const BUDGET = 5_000;
+  const words = "alpha beta gamma delta epsilon zeta eta theta iota kappa".split(" ");
+  const prose = (chars: number): string => {
+    const out: string[] = [];
+    let length = 0;
+    for (let i = 0; length < chars; i++) {
+      const w = words[i % words.length] ?? "";
+      out.push(w);
+      length += w.length + 1;
+    }
+    return out.join(" ");
+  };
+
+  it("wraps 200 KB of prose into two lines and an ellipsis, measuring a bounded amount", () => {
+    const m = counting(BUDGET);
+    const lines = wrapLines(prose(200_000), 140, 2, m.measure);
+    assert.deepEqual(lines, ["alpha beta gamma", "delta epsilon zeta…"]);
+    assert.ok(m.used() < BUDGET, String(m.used()));
+  });
+
+  it("wraps a 50 KB word without spaces into two cut lines, measuring a bounded amount", () => {
+    const m = counting(BUDGET);
+    const lines = wrapLines("x".repeat(50_000), 70, 2, m.measure);
+    assert.deepEqual(lines, ["xxxxxxxxxx", "xxxxxxxxx…"]);
+    assert.ok(m.used() < BUDGET, String(m.used()));
+  });
+
+  it("costs the same for 1 KB and for 200 KB of the same text", () => {
+    const small = counting(1_000_000);
+    const large = counting(1_000_000);
+    wrapLines(prose(1_000), 140, 3, small.measure);
+    wrapLines(prose(200_000), 140, 3, large.measure);
+    assert.equal(large.used(), small.used());
+  });
+
+  it("keeps the popup's prompt and reply cheap at the adapters' 400-character cap", () => {
+    let used = 0;
+    const real = (text: string): number => {
+      used += [...text].length;
+      return text.length * 6;
+    };
+    const text = prose(400);
+    wrapLines(text, 310, 2, real);
+    // The old way measured 63 888 characters here, this one about 3 400.
+    assert.ok(used < 5_000, String(used));
+  });
+
+  // The way it was, kept as the oracle: same lines for every text it could finish.
+  function reference(text: string, width: number, max: number, measure: (s: string) => number): string[] {
+    const lines: string[] = [];
+    let line = "";
+    const ws = text.split(/\s+/).filter((w) => w !== "");
+    for (let i = 0; i < ws.length; i++) {
+      let word = ws[i] ?? "";
+      const tried = line === "" ? word : `${line} ${word}`;
+      if (measure(tried) <= width) {
+        line = tried;
+        continue;
+      }
+      if (line !== "") {
+        lines.push(line);
+        line = "";
+      }
+      while (measure(word) > width) {
+        const chars = [...word];
+        let n = 1;
+        while (n < chars.length && measure(chars.slice(0, n + 1).join("")) <= width) {
+          n++;
+        }
+        lines.push(chars.slice(0, n).join(""));
+        word = chars.slice(n).join("");
+      }
+      line = word;
+    }
+    if (line !== "") {
+      lines.push(line);
+    }
+    if (lines.length <= max) {
+      return lines;
+    }
+    const kept = lines.slice(0, max);
+    let last = lines.slice(max - 1).join(" ");
+    while (last !== "" && measure(`${last}…`) > width) {
+      last = [...last].slice(0, -1).join("");
+    }
+    kept[max - 1] = `${last.trimEnd()}…`;
+    return kept;
+  }
+
+  it("gives the same lines as before for any short text, width and line count", () => {
+    // A fixed pseudo-random sequence: the same cases on every run.
+    let seed = 12345;
+    const next = (n: number): number => {
+      seed = (seed * 1103515245 + 12345) % 2147483648;
+      return seed % n;
+    };
+    const alphabet = ["a", "b", "W", "i", " ", " ", "  ", "\n", "я", "日", "😀", "-", "…"];
+    const geist = (s: string): number => textWidth(s, 12);
+    const seven = (s: string): number => [...s].length * 7;
+    for (let c = 0; c < 1_500; c++) {
+      let text = "";
+      const length = next(60);
+      for (let i = 0; i < length; i++) {
+        text += next(12) === 0 ? "x".repeat(next(30)) : (alphabet[next(alphabet.length)] ?? "");
+      }
+      const width = 5 + next(120);
+      const max = 1 + next(3);
+      for (const measure of [geist, seven]) {
+        assert.deepEqual(
+          wrapLines(text, width, max, measure),
+          reference(text, width, max, measure),
+          JSON.stringify({ text, width, max }),
+        );
+      }
+    }
   });
 });

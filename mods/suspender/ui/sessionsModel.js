@@ -422,45 +422,90 @@ const ELLIPSIS = "…";
  * `text` in lines no wider than `width` (by `measure`), broken at spaces, or
  * inside a word longer than a line. Past `max` lines the last one ends with an
  * ellipsis.
+ *
+ * Costs what is drawn, not the length of the text: Herdr interrupts a script
+ * that runs too long, and a reply or a word may be long. Lines are made one at
+ * a time and the work stops at the first line past `max`; no text longer than
+ * about a line goes to `measure`. That takes a `measure` that never shrinks as
+ * a text grows (every width table does), so the first prefix too wide ends the
+ * search for the widest one that fits.
  */
 export function wrapLines(text, width, max, measure) {
+    const fits = (s) => fitsWithin(s, width, measure);
+    const made = linesOf(text, fits);
     const lines = [];
-    let line = "";
-    const words = text.split(/\s+/).filter((w) => w !== "");
-    for (let i = 0; i < words.length; i++) {
-        let word = words[i] ?? "";
-        const tried = line === "" ? word : `${line} ${word}`;
-        if (measure(tried) <= width) {
-            line = tried;
-            continue;
+    for (let next = made.next(); !next.done; next = made.next()) {
+        lines.push(next.value);
+        if (lines.length > max) {
+            break;
         }
-        if (line !== "") {
-            lines.push(line);
-            line = "";
-        }
-        // A word wider than a line: as much of it as fits, the rest on the next lines.
-        while (measure(word) > width) {
-            const chars = [...word];
-            let n = 1;
-            while (n < chars.length && measure(chars.slice(0, n + 1).join("")) <= width) {
-                n++;
-            }
-            lines.push(chars.slice(0, n).join(""));
-            word = chars.slice(n).join("");
-        }
-        line = word;
-    }
-    if (line !== "") {
-        lines.push(line);
     }
     if (lines.length <= max) {
         return lines;
     }
-    const kept = lines.slice(0, max);
-    let last = lines.slice(max - 1).join(" ");
-    while (last !== "" && measure(last + ELLIPSIS) > width) {
-        last = [...last].slice(0, -1).join("");
+    // The rest of the text from the last line on, as it would read joined: as much of it as fits with "…".
+    const pieces = function* () {
+        yield lines[max - 1] ?? "";
+        yield lines[max] ?? "";
+        for (let next = made.next(); !next.done; next = made.next()) {
+            yield next.value;
+        }
+    };
+    let last = "";
+    let first = true;
+    done: for (const piece of pieces()) {
+        for (const ch of first ? piece : ` ${piece}`) {
+            if (!fits(last + ch + ELLIPSIS)) {
+                break done;
+            }
+            last += ch;
+        }
+        first = false;
     }
+    const kept = lines.slice(0, max);
     kept[max - 1] = last.trimEnd() + ELLIPSIS;
     return kept;
 }
+/** The lines of `text`, one at a time, so a caller that has enough stops the work. */
+function* linesOf(text, fits) {
+    let line = "";
+    for (const [word] of text.matchAll(/\S+/g)) {
+        if (fits(line === "" ? word : `${line} ${word}`)) {
+            line = line === "" ? word : `${line} ${word}`;
+            continue;
+        }
+        if (line !== "") {
+            yield line;
+            line = "";
+        }
+        if (fits(word)) {
+            line = word;
+            continue;
+        }
+        // A word wider than a line: as much of it as fits (one character at least), the rest on the next lines.
+        for (const ch of word) {
+            if (line !== "" && !fits(line + ch)) {
+                yield line;
+                line = "";
+            }
+            line += ch;
+        }
+    }
+    if (line !== "") {
+        yield line;
+    }
+}
+/** The first characters of `s` checked first, twice as many each time, so a long text costs about the room. */
+const FIRST_LOOK = 32;
+/** Whether `s` fits `width`, measuring no more of it than about the first prefix too wide. */
+function fitsWithin(s, width, measure) {
+    for (let n = FIRST_LOOK; n < s.length; n *= 2) {
+        // Not between the two halves of a surrogate pair.
+        const end = isHighSurrogate(s.charCodeAt(n - 1)) ? n + 1 : n;
+        if (measure(s.slice(0, end)) > width) {
+            return false;
+        }
+    }
+    return measure(s) <= width;
+}
+const isHighSurrogate = (code) => code >= 0xd800 && code <= 0xdbff;
