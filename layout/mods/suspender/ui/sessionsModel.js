@@ -193,6 +193,15 @@ export function stateText(rec, now) {
     return timed ? t("popup.stateAt", { state: word, time: clock(rec.sleptAtMs ?? 0, now) }) : word;
 }
 const present = (text) => (text === null || text === "" ? null : text);
+/** The context line: the fill with its bar when the window is known, else the tokens in use; nothing known, no line. */
+function contextFacts(pct, text) {
+    if (pct !== null) {
+        return { pct, label: t("popup.context", { pct }), detail: text };
+    }
+    return text === null
+        ? null
+        : { pct: null, label: t("popup.contextUnknown"), detail: t("popup.contextInUse", { amount: text }) };
+}
 /** What the popup shows, in the order of the approved mockup (session-info.html v4). */
 export function popupFacts(rec, o) {
     const info = rec.info;
@@ -235,7 +244,7 @@ export function popupFacts(rec, o) {
         reply: present(info.lastReply),
         promptLines: quoteLines(present(info.firstPrompt)),
         replyLines: quoteLines(present(info.lastReply)),
-        context: pct === null ? null : { pct, label: t("popup.context", { pct }), detail: present(info.contextText) },
+        context: contextFacts(pct, present(info.contextText)),
         tokens: present(info.tokensText),
         rows,
     };
@@ -266,6 +275,8 @@ export const QUOTE_GAP_PX = 8;
 /** The quote's text column: the popup's text column less the label and its gap. */
 export const QUOTE_TEXT_PX = POPUP_WIDTH - 2 * POPUP_PAD - QUOTE_LABEL_PX - QUOTE_GAP_PX;
 const CONTEXT_PX = 28;
+/** The context line without its bar (the window is unknown). */
+const CONTEXT_TEXT_PX = 16;
 const TOKENS_PX = 16;
 /** A fact row (Branch, Model, … Session): its height and the space between two rows. */
 export const FACT_ROW_PX = 18;
@@ -278,7 +289,7 @@ export function popupHeight(facts) {
         facts.titleLines.length * TITLE_LINE_PX,
         facts.promptLines.length * QUOTE_LINE_PX,
         facts.replyLines.length * QUOTE_LINE_PX,
-        facts.context === null ? 0 : CONTEXT_PX,
+        facts.context === null ? 0 : facts.context.pct === null ? CONTEXT_TEXT_PX : CONTEXT_PX,
         facts.tokens === null ? 0 : TOKENS_PX,
         FACTS_PAD_PX + facts.rows.length * FACT_ROW_PX + Math.max(0, facts.rows.length - 1) * FACT_GAP_PX,
     ].filter((px) => px > 0);

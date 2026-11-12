@@ -33,6 +33,9 @@ export class PanelView {
     used = new Map();
     sampling = false;
     policy = new MemoryPolicy(MEMORY_EVERY_MS);
+    /** Running sessions' facts (name, branch, model…): read when shown, then at most every 30 s. */
+    reading = false;
+    facts = new MemoryPolicy(MEMORY_EVERY_MS);
     o;
     constructor(o) {
         this.o = o;
@@ -40,8 +43,27 @@ export class PanelView {
     shown() {
         return this.o.mode === "window" || sessionsShown(layout());
     }
-    /** Every round (TICK_MS): measure the running sessions' memory if the panel is open and 30 s have passed. */
+    /**
+     * Every round (TICK_MS), while the panel is open: the running sessions'
+     * facts and memory, each at most every 30 s (facts are read only when their
+     * conversation changed).
+     */
     tick(cx) {
+        if (!this.reading && this.facts.due(this.o.ports.now(), this.shown())) {
+            this.reading = true;
+            cx.spawn(async (task) => {
+                try {
+                    await this.o.engine.refreshRunning();
+                }
+                catch {
+                    // The rows keep what they had.
+                }
+                finally {
+                    this.reading = false;
+                }
+                task.notify();
+            });
+        }
         if (this.sampling || !this.policy.due(this.o.ports.now(), this.shown())) {
             return;
         }

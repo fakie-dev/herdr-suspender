@@ -17,6 +17,18 @@ a setting with a time, or a notification that offers Sleep and does nothing on i
 depends on how people use the mod; the notification is the safer start. Nothing sleeps by itself today, on
 purpose.
 
+**Keep an unsent draft.** Today Sleep clears whatever is typed in the agent's prompt and not sent yet: it is not
+part of the conversation, so Resume cannot bring it back. The plan is to read the draft before the agent stops
+and type it back after Resume, or at least warn before it is lost.
+
+**Don't sleep an agent with background work.** An agent can sit idle at its prompt while a shell command or a
+sub-agent it started is still running, and Sleep stops that work too. The plan is to look for such work first
+and hold the sleep (or ask) while it runs.
+
+Both ideas come from the other sleep mods for Herdr,
+[hadiskeini/herdr-agent-suspend](https://github.com/hadiskeini/herdr-agent-suspend) and
+[plopoyop/herdr-agent-sleep](https://github.com/plopoyop/herdr-agent-sleep).
+
 ## Later
 
 **Translations.** Every text is already in one file, `src/i18n/en.ts`. What is missing is the choice of

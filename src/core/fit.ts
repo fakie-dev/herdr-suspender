@@ -26,13 +26,16 @@ export interface FitDrawing {
 }
 
 export interface FitResult {
-  /** Whether to draw the title (absent, or no room for even an ellipsis: false). */
+  /** Whether to draw the title (absent, or no room for its first TITLE_LEAST letters and "…": false). */
   title: boolean;
   /** Keys of the items to draw, in the order they were given. */
   shown: string[];
   /** How many items went (the `+N` badge; none when 0). */
   hidden: number;
 }
+
+/** The fewest letters of a title drawn before its "…" (fewer: no title at all). */
+export const TITLE_LEAST = 3;
 
 /** What stands between two items of the line. */
 export const SEPARATOR = " · ";
@@ -47,7 +50,10 @@ export function fitSegments(
   drawing: FitDrawing = {},
 ): FitResult {
   const hasTitle = title !== null && title !== "";
-  const titleWidth = hasTitle ? (drawing.title ?? measure)(title) : 0;
+  const measureTitle = drawing.title ?? measure;
+  const titleWidth = hasTitle ? measureTitle(title) : 0;
+  // A title cut to "…" alone says nothing: it is drawn only with its first letters at least.
+  const titleLeast = hasTitle ? Math.min(titleWidth, measureTitle(`${[...title].slice(0, TITLE_LEAST).join("")}…`)) : 0;
   const sepWidth = drawing.separator ?? measure(SEPARATOR);
   const badgeWidth = drawing.badge ?? ((n: number): number => measure(badgeText(n)));
   const shown = new Set(segs.map((_, i) => i));
@@ -90,7 +96,7 @@ export function fitSegments(
 
   const room = widthPx - fixedWidth();
   return {
-    title: hasTitle && room >= measure("…"),
+    title: hasTitle && room >= titleLeast,
     shown: segs.filter((_, i) => shown.has(i)).map((seg) => seg.key),
     hidden: segs.length - shown.size,
   };

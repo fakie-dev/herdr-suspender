@@ -79,8 +79,18 @@ export class Sim implements Host {
   typedStartsNothing = false;
   /** What the shell really runs for a typed line (a mangled line, an alias). */
   shellRewrites: ((line: string) => string) | null = null;
-  /** Every command typed into a shell, in order. */
-  typed: { address: string; line: string }[] = [];
+  /** Every command typed into a shell, in order; `shown`: the terminal had a pane in a tab then. */
+  typed: { address: string; line: string; shown: boolean }[] = [];
+  /**
+   * Terminals Herdr adopted (gave a pane), in order; `agent`: an agent already
+   * ran in it then; `reported`: it had reported its status (its screen is up).
+   */
+  adopted: { address: string; agent: boolean; reported: boolean }[] = [];
+  /**
+   * How long each mod pane a split asks for takes to show in panes(), in the
+   * order of the splits (a busy window can take seconds); 0 once used up.
+   */
+  modPaneDelays: number[] = [];
   /** Process listings asked for (PowerShell on Windows). */
   execCalls: { cmd: string; args: string[] }[] = [];
 
@@ -247,9 +257,21 @@ export class Sim implements Host {
           mod,
           mod ? ((args["props"] as Record<string, unknown>) ?? {}) : null,
         );
-        target.size /= 2;
-        pane.size = target.size;
-        this.paneList.splice(i + 1, 0, pane);
+        const show = (): void => {
+          const j = this.paneList.indexOf(target);
+          if (j === -1) {
+            return;
+          }
+          target.size /= 2;
+          pane.size = target.size;
+          this.paneList.splice(j + 1, 0, pane);
+        };
+        const delay = mod !== null ? (this.modPaneDelays.shift() ?? 0) : 0;
+        if (delay > 0) {
+          this.later(delay, show);
+        } else {
+          show();
+        }
         return;
       }
       case "pane.swap": {
@@ -326,6 +348,7 @@ export class Sim implements Host {
         if (!t) {
           return fail("no such terminal");
         }
+        const unplaced = t.labels["herdr.tab"] === undefined;
         for (const kv of rest.slice(1)) {
           const cut = kv.indexOf("=");
           const k = kv.slice(0, cut);
@@ -335,6 +358,10 @@ export class Sim implements Host {
           } else {
             t.labels[k] = v;
           }
+        }
+        // A terminal that now has Herdr's labels shows up there (measured: `hc label` adopts it).
+        if (unplaced && t.labels["herdr.tab"] !== undefined) {
+          this.later(100, () => this.adopt(t));
         }
         return ok("{}");
       }
@@ -355,7 +382,11 @@ export class Sim implements Host {
             : "";
         if (t && t.state === "live" && typed !== "" && t.screen !== "") {
           // (A shell that has not shown its prompt yet loses what is typed.)
-          this.typed.push({ address: t.address, line: typed });
+          this.typed.push({
+            address: t.address,
+            line: typed,
+            shown: this.paneList.some((p) => p.terminal === t.address),
+          });
           this.shellRuns(t, typed);
         }
         return t ? ok("{}") : fail("no such terminal");
@@ -382,6 +413,8 @@ export class Sim implements Host {
             labels: t.labels,
             state: t.state,
             created_ms: t.createdMs,
+            title: t.title,
+            status: t.status === null ? null : { app: t.app, state: t.status },
           }),
         );
       }
@@ -557,33 +590,16 @@ export class Sim implements Host {
       submitted: [],
     };
     this.terms.set(address, term);
-    const tab = labels["herdr.tab"] ?? TAB;
-    // Herdr adopts it on its next pass, right of the last pane of its tab.
+    // A shell shows its prompt a moment after it starts, shown in a tab or not.
     this.later(100, () => {
-      if (!this.adopts) {
-        return;
-      }
-      term.listed = true;
-      if (term.agent === null) {
+      if (term.agent === null && term.state === "live" && term.screen === "") {
         term.screen = "PS C:\\work\\repo>";
       }
-      if (term.state === "live") {
-        let last = -1;
-        this.paneList.forEach((p, i) => {
-          if (p.tab === tab) {
-            last = i;
-          }
-        });
-        // Adoption splits the tab's last pane (src/window.rs: model.split(&target, Row)).
-        const pane = this.newPane(tab, address, null, null);
-        const target = this.paneList[last];
-        if (target) {
-          target.size /= 2;
-          pane.size = target.size;
-        }
-        this.paneList.splice(last + 1, 0, pane);
-      }
     });
+    // With Herdr's labels Herdr adopts it on its next pass; without them it stays out of its screens (measured).
+    if (labels["herdr.tab"] !== undefined) {
+      this.later(100, () => this.adopt(term));
+    }
     if (term.agent !== null && this.reportAfterMs !== null) {
       this.later(this.reportAfterMs, () => {
         if (term.state === "live" && term.agent) {
@@ -593,6 +609,33 @@ export class Sim implements Host {
       });
     }
     return ok(JSON.stringify({ address, state: "live" }));
+  }
+
+  /** Herdr adopts a terminal: lists it, and gives it a pane right of the last pane of its tab. */
+  private adopt(term: SimTerminal): void {
+    if (!this.adopts || term.listed) {
+      return;
+    }
+    term.listed = true;
+    if (term.state !== "live") {
+      return;
+    }
+    this.adopted.push({ address: term.address, agent: term.agent !== null, reported: term.status !== null });
+    const tab = term.labels["herdr.tab"] ?? TAB;
+    let last = -1;
+    this.paneList.forEach((p, i) => {
+      if (p.tab === tab) {
+        last = i;
+      }
+    });
+    // Adoption splits the tab's last pane (src/window.rs: model.split(&target, Row)).
+    const pane = this.newPane(tab, term.address, null, null);
+    const target = this.paneList[last];
+    if (target) {
+      target.size /= 2;
+      pane.size = target.size;
+    }
+    this.paneList.splice(last + 1, 0, pane);
   }
 
   private agentLeaves(address: string): void {

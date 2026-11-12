@@ -92,7 +92,7 @@ describe("1: a sleep its copy did not finish", () => {
     const { sim, ports, engine, co, claude, codex } = world();
     await engine.tick();
     await engine.sleep(KEY);
-    sim.adopts = false; // the new terminal never shows: the wake waits its full 30 s
+    sim.typedStartsNothing = true; // no agent ever runs: the wake waits its full 30 s
     const held: boolean[] = [];
     const host = new Proxy(sim, {
       get(target, name, receiver) {

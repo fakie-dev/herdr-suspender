@@ -70,6 +70,16 @@ describe("fitSegments", () => {
     assert.deepEqual(fitSegments(TITLE, SEGS, 10, measure), { title: false, shown: [], hidden: 3 });
   });
 
+  it("draws no title that would be only an ellipsis: it needs room for its first letters", () => {
+    // Blind review, zoom 1.6: "в узкой панели название на полосе — «…»".
+    // 30 - 21 (badge) = 9 px: room for "…" (7) but not for "Mov…" (28).
+    assert.deepEqual(fitSegments(TITLE, SEGS, 30, measure), { title: false, shown: [], hidden: 3 });
+    // 49 - 21 = 28: "Mov…" fits.
+    assert.deepEqual(fitSegments(TITLE, SEGS, 49, measure), { title: true, shown: [], hidden: 3 });
+    // A title shorter than that is drawn whole where it fits: "Go" is 14 px.
+    assert.deepEqual(fitSegments("Go", SEGS, 35, measure), { title: true, shown: [], hidden: 3 });
+  });
+
   it("treats an empty title as no title", () => {
     assert.deepEqual(fitSegments("", [branch], 500, measure), { title: false, shown: ["branch"], hidden: 0 });
   });

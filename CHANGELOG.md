@@ -5,6 +5,23 @@ and the project uses [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+
+- Waking a session no longer shows a bare shell with `claude --resume …` typed into it for several seconds. The
+  sleeping tab stays in place with its "waking" steps until the agent is running, and only then gives way to
+  it. The agent still starts in your default shell, so the tab keeps that shell after you exit the agent.
+- A tab could end up with two sleeping panes, and one of them stayed next to the agent after Resume. It
+  happened when Herdr took a moment to show the new pane: the mod then asked for a second one. It now waits
+  for the first, and a leftover sleeping pane that no session owns is closed.
+- A sleeping session that you open in another tab (or another program) now shows "open elsewhere" and disables
+  Resume within seconds, and again whenever you come back to its tab, not only after you press Resume.
+- Running sessions in the Sessions list show their title, branch and model as soon as they are known, like
+  sleeping ones. They are read while the list is open, and only when the conversation changed.
+- The popup shows how much context is in use even when the context window is unknown (for example
+  "53k in use"), instead of leaving the line out.
+- In a narrow pane or at a large zoom, the strip's status wraps at words (two lines at most, then "…") instead
+  of being cut mid-word, and the title is hidden rather than shown as a lone "…".
+
 ## [0.1.0] - 2026-11-12
 
 First release.

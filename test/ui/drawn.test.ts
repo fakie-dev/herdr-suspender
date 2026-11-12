@@ -28,7 +28,9 @@ const { SleepPane } = await import("../../src/ui/sleepPane.ts");
 const { PopupView } = await import("../../src/ui/popup.ts");
 const { PanelView } = await import("../../src/ui/panel.ts");
 const { openPopup } = await import("../../src/ui/popup.ts");
-const { STRIP_TEXT } = await import("../../src/ui/format.ts");
+const { STRIP_TEXT, STRIP_STATUS_INDENT, STRIP_STATUS_TEXT, statusWidth } = await import("../../src/ui/format.ts");
+const { uiMeasure } = await import("../../src/ui/textWidth.ts");
+const { windowPx } = await import("../../src/core/scale.ts");
 const { FACT_ROW_PX } = await import("../../src/ui/sessionsModel.ts");
 
 interface Drawn {
@@ -214,5 +216,106 @@ describe("the popup in a window too short for all its fact rows", () => {
     } finally {
       (globalThis as { suspenderOverlays?: unknown }).suspenderOverlays = undefined;
     }
+  });
+});
+
+describe("running sessions' rows in a shown panel (finding 5 of the blind review)", () => {
+  it("have their facts read when the panel shows, then at most every 30 s", async () => {
+    const { sim, ports } = await world();
+    let reads = 0;
+    const engine = {
+      records: () => [],
+      refreshRunning: async () => {
+        reads++;
+      },
+    } as unknown as Engine;
+    const panel = new PanelView({ engine, host: sim, ports, mode: "window", overlay: null });
+    const cx = {
+      spawn: (task: (cx: AsyncContext) => Promise<unknown>) => {
+        void task(cx);
+      },
+      notify: () => undefined,
+    } as unknown as AsyncContext;
+    panel.tick(cx);
+    await Promise.resolve();
+    assert.equal(reads, 1, "read when shown");
+    await sim.advance(5_000);
+    panel.tick(cx);
+    assert.equal(reads, 1, "not every round");
+    await sim.advance(30_000);
+    panel.tick(cx);
+    assert.equal(reads, 2, "again after 30 s");
+  });
+});
+
+describe("the popup's context line", () => {
+  const bars = (root: unknown): Drawn[] => [...walk(root)].filter((el) => has(el, "h", 4) && has(el, "rounded", 2));
+
+  it("draws the fill's bar when the window is known", async () => {
+    const { engine, ports, cx } = await world();
+    const info = engine.record(KEY)?.info;
+    assert.ok(info);
+    Object.assign(info, { contextPct: 5, contextText: "53k / 1M" });
+    const root = new PopupView(engine, ports, KEY, null, null).render(cx);
+    assert.ok(texts(root as unknown as Drawn).includes("Context 5%"));
+    assert.ok(bars(root).length > 0);
+  });
+
+  it("says the tokens in use, without a bar, when it is not", async () => {
+    const { engine, ports, cx } = await world();
+    const info = engine.record(KEY)?.info;
+    assert.ok(info);
+    Object.assign(info, { contextPct: null, contextText: "53k" });
+    const root = new PopupView(engine, ports, KEY, null, null).render(cx);
+    assert.ok(texts(root as unknown as Drawn).includes("53k in use"));
+    assert.equal(bars(root).length, 0);
+  });
+});
+
+describe("the strip's status line in a narrow pane (finding 6 of the blind review)", () => {
+  // Zoom 1.6, a narrow pane: "Asleep since 0…" — cut in the middle of the time;
+  // live at 1.6 a wrapping div broke the words themselves ("Up / da / te / d").
+  const statusLine = (root: unknown): Drawn | undefined =>
+    [...walk(root)].find((el) => has(el, "pl", STRIP_STATUS_INDENT) && has(el, "text_size", STRIP_STATUS_TEXT));
+  const wholeWords = (drawn: string[], full: string): void => {
+    const words = full.split(/\s+/);
+    drawn
+      .join(" ")
+      .replace(/…$/, "")
+      .split(/\s+/)
+      .filter((w) => w !== "")
+      .forEach((w, i) => {
+        assert.equal(w, words[i], `word ${i} is whole`);
+      });
+  };
+
+  it("is whole words on at most two lines, the last ending in … when shortened", async () => {
+    const { engine, sim, ports, cx } = await world();
+    const full = texts(statusLine(sized(new SleepPane(engine, sim, ports, KEY), cx, 900, 600)) as Drawn).join(" ");
+    assert.match(full, /^Asleep since/);
+    for (const width of [100, 120, 140, 160, 200]) {
+      const line = statusLine(sized(new SleepPane(engine, sim, ports, KEY), cx, width, 600));
+      assert.ok(line !== undefined, `${width}: the status line`);
+      const drawn = texts(line);
+      assert.ok(drawn.length >= 1 && drawn.length <= 2, `${width}: ${drawn.length} lines`);
+      wholeWords(drawn, full);
+      const room = statusWidth(windowPx(width), { zoom: 1 });
+      for (const text of drawn) {
+        assert.ok(uiMeasure(text, STRIP_STATUS_TEXT) <= room, `${width}: "${text}" fits ${room} px`);
+      }
+      assert.ok(![...walk(line)].some((el) => has(el, "truncate")), `${width}: no cut by the edge`);
+    }
+  });
+
+  it("the wake's steps where they fit, else the current one in whole words", async () => {
+    const { engine, sim, ports, cx } = await world();
+    const rec = engine.record(KEY);
+    assert.ok(rec);
+    rec.state = "waking";
+    const wide = texts(statusLine(sized(new SleepPane(engine, sim, ports, KEY), cx, 900, 600)) as Drawn);
+    assert.ok(wide.length >= 3, `the steps: ${wide.join(" | ")}`);
+    const narrow = texts(statusLine(sized(new SleepPane(engine, sim, ports, KEY), cx, 120, 600)) as Drawn);
+    assert.ok(narrow.length >= 1 && narrow.length <= 2, narrow.join(" | "));
+    wholeWords(narrow, wide.find((s) => narrow[0]?.startsWith(s.split(" ")[0] ?? "")) ?? "");
   });
 });

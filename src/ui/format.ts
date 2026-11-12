@@ -151,6 +151,63 @@ const STRIP_BADGE_CHROME = 14;
 /** Kerning and rounding. */
 const STRIP_SPARE = 4;
 
+/** The strip's second line (the state, the wake's steps, an error): its text size and its indent under the moon. */
+export const STRIP_STATUS_TEXT = 12;
+export const STRIP_STATUS_INDENT = 24;
+/** The status takes at most this many lines; past them it ends with "…". */
+export const STATUS_MAX_LINES = 2;
+
+/**
+ * The strip's status in lines no wider than `width`, broken at spaces only:
+ * a word is never cut. Past `max` lines (or at a word wider than a line) the
+ * last line ends with "…" after the whole words that fit with it. Nothing at
+ * all where not even the first word and "…" fit: a lone "…" says nothing.
+ */
+export function statusWords(
+  text: string,
+  width: number,
+  measure: (text: string) => number,
+  max = STATUS_MAX_LINES,
+): string[] {
+  const words = text.split(/\s+/).filter((w) => w !== "");
+  const lines: string[] = [];
+  let next = 0;
+  while (next < words.length && lines.length < max) {
+    let line = "";
+    while (next < words.length) {
+      const tried = line === "" ? (words[next] ?? "") : `${line} ${words[next] ?? ""}`;
+      if (measure(tried) > width) {
+        break;
+      }
+      line = tried;
+      next++;
+    }
+    if (line === "") {
+      break;
+    }
+    lines.push(line);
+  }
+  if (next >= words.length) {
+    return lines;
+  }
+  while (lines.length > 0) {
+    const kept = (lines.pop() ?? "").split(" ");
+    while (kept.length > 0 && (/^[·|,;:–—-]$/.test(kept.at(-1) ?? "") || measure(`${kept.join(" ")}…`) > width)) {
+      kept.pop();
+    }
+    if (kept.length > 0) {
+      lines.push(`${kept.join(" ")}…`);
+      return lines;
+    }
+  }
+  return [];
+}
+
+/** The width the status may take in a sleeping pane `paneWidth` wide (window px), in the mod's px. */
+export function statusWidth(paneWidth: WindowPx, scale: Scale): number {
+  return Math.max(0, toMod(scale, paneWidth) - STRIP_PAD_LEFT - STRIP_PAD_RIGHT - STRIP_STATUS_INDENT - STRIP_SPARE);
+}
+
 /** How the strip's buttons are drawn: with their labels, or folded to their icons. */
 export type StripButtons = "label" | "icon";
 /** A button folded to its icon: the icon and 8 px either side. */

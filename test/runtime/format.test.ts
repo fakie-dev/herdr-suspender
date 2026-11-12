@@ -157,3 +157,44 @@ describe("last screen", () => {
     assert.equal(clock(at(9, 7), NOW), "09:07");
   });
 });
+
+describe("statusWords: the strip's status in a narrow pane (finding 6 of the blind review)", async () => {
+  const { statusWords } = await import("../../src/ui/format.ts");
+  // 6 px a character: "Asleep since 05:18" is 108 px.
+  const six = (text: string): number => [...text].length * 6;
+  const TEXT = "Asleep since 05:18 · Updated after sleep 05:20";
+  const wordsOf = (lines: string[]): string[] =>
+    lines
+      .join(" ")
+      .replace(/…$/, "")
+      .split(/\s+/)
+      .filter((w) => w !== "");
+  const whole = TEXT.split(" ");
+
+  it("is one line where it fits", () => {
+    assert.deepEqual(statusWords(TEXT, 400, six), [TEXT]);
+  });
+
+  it("wraps at spaces, never inside a word, up to two lines, then ends with …", () => {
+    for (let width = 30; width <= 300; width += 1) {
+      const lines = statusWords(TEXT, width, six);
+      assert.ok(lines.length <= 2, `${width}: ${lines.length} lines`);
+      for (const line of lines) {
+        assert.ok(six(line) <= width, `${width}: "${line}" is ${six(line)} px`);
+      }
+      const words = wordsOf(lines);
+      words.forEach((w, i) => {
+        assert.equal(w, whole[i], `${width}: word ${i} "${w}" is whole`);
+      });
+      if (words.length < whole.length && lines.length > 0) {
+        assert.ok(lines.at(-1)?.endsWith("…"), `${width}: shortened, so it says so`);
+      }
+    }
+  });
+
+  it("is nothing where not even its first word and … fit (a lone … tells nothing)", () => {
+    // "Asleep" is 36 px.
+    assert.deepEqual(statusWords(TEXT, 35, six), []);
+    assert.deepEqual(statusWords(TEXT, 36, six), ["Asleep", "since…"]);
+  });
+});

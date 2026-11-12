@@ -35,19 +35,28 @@ import {
   STRIP_PAD_RIGHT,
   STRIP_PLAY_GAP,
   STRIP_PLAY_PX,
+  STRIP_STATUS_INDENT,
+  STRIP_STATUS_TEXT,
   STRIP_TEXT,
   screenGrid,
   screenLines,
   screenLook,
   screenMarks,
+  statusWidth,
+  statusWords,
   stripActions,
   stripStatus,
   wakeSteps,
 } from "./format.ts";
 import { anchorRect, factsFor, hoverPopup } from "./popup.ts";
+import { uiMeasure } from "./textWidth.ts";
 
 const ICONS = "mods/suspender/icons";
-const STATUS_TEXT = 12;
+/** States in which a session may be opened, or closed, in another tab or program. */
+const WATCHED: readonly string[] = ["asleep", "interrupted", "elsewhere"];
+/** The wake's steps: the spinner and the gap before each step. */
+const SPINNER_PX = 12;
+const STEP_GAP = 8;
 
 /** A theme colour by name (theme() names every one the mod uses; a missing one draws nothing). */
 function palette(): (name: string) => Color {
@@ -108,8 +117,10 @@ export class SleepPane {
   }
 
   /**
-   * Every TICK_MS: once per show, re-read what changed ("+N"); while open
-   * elsewhere, look again. Nothing watches the conversation while the strip
+   * Every TICK_MS: once per show, re-read what changed ("+N") and whether the
+   * session is open elsewhere; while it sleeps, Claude's sessions folder is
+   * watched for it being opened or closed elsewhere (Codex: looked at again
+   * while shown and open elsewhere). Nothing watches the conversation while the strip
    * stays on screen: a session open in another window writes all the time,
    * and every read starts a process on Windows.
    */
@@ -126,19 +137,18 @@ export class SleepPane {
       });
     }
     this.shown = visible;
-    if (rec.state !== "elsewhere") {
-      return;
-    }
     const adapter = this.engine.adapter(rec.agent);
     if (adapter.watchOpenness !== undefined) {
-      // Claude: its sessions folder says when the other copy closed.
-      if (!this.watching) {
+      // Claude: its sessions folder changes when the session is opened in
+      // another tab or program, and when it is closed there (no timer).
+      if (!this.watching && WATCHED.includes(rec.state)) {
         this.watching = true;
         cx.spawn(async (cx) => {
           try {
-            while (this.rec()?.state === "elsewhere") {
+            while (WATCHED.includes(this.rec()?.state ?? "running")) {
               await adapter.watchOpenness?.(this.ports);
-              await this.engine.recheckElsewhere(this.key);
+              await this.engine.recheckOpen(this.key);
+              cx.notify();
             }
           } finally {
             this.watching = false;
@@ -146,7 +156,7 @@ export class SleepPane {
           cx.notify();
         });
       }
-    } else if (visible) {
+    } else if (visible && rec.state === "elsewhere") {
       // Codex: a process check, only while the strip is on screen (every TICK_MS = 5 s).
       cx.spawn(async (cx) => {
         await this.engine.recheckElsewhere(this.key);
@@ -270,32 +280,51 @@ export class SleepPane {
       );
     }
 
-    // Line 2: the state, the wake's steps, or the error.
+    // Line 2: the state, the wake's steps, or the error. In a narrow pane (or
+    // at a large zoom) it wraps at words, two lines at most, then ends in "…":
+    // never cut in the middle of a word (gpui would break a word to wrap it).
+    const room = statusWidth(this.size.width, scaleOf(settings()));
+    const measure = (text: string): number => uiMeasure(text, STRIP_STATUS_TEXT);
+    const steps = wakeSteps(this.engine.progress(this.key));
+    const stepsWidth = steps.reduce((sum, s) => sum + STEP_GAP + measure(s.label), SPINNER_PX);
     const status =
-      rec.state === "waking"
+      rec.state === "waking" && stepsWidth <= room
         ? h_flex()
-            .gap(8)
+            .gap(STEP_GAP)
             .items_center()
-            .child(svg(`${ICONS}/spinner.svg`).size(12).text_color(color("accent")).spin(900))
+            .child(svg(`${ICONS}/spinner.svg`).size(SPINNER_PX).text_color(color("accent")).spin(900))
             .children(
-              wakeSteps(this.engine.progress(this.key)).map((s) =>
+              steps.map((s) =>
                 div()
+                  .flex_none()
+                  .whitespace_nowrap()
                   .text_color(color(s.state === "now" ? "foreground" : s.state === "done" ? "muted" : "dim"))
                   .child(s.label),
               ),
             )
-        : div()
-            .truncate()
-            .text_color(color(rec.state === "error" || rec.state === "missing" ? "blocked" : "dim"))
-            .child(
-              this.engine.sleepingWhenDone(this.key)
-                ? t("strip.sleepingWhenDone", { agent: agentName })
-                : stripStatus(rec, {
-                    now: this.ports.now(),
-                    agentName,
-                    progress: this.engine.progress(this.key),
-                    fresh: this.engine.freshness(this.key),
-                  }),
+        : v_flex()
+            .text_color(
+              color(
+                rec.state === "waking"
+                  ? "foreground"
+                  : rec.state === "error" || rec.state === "missing"
+                    ? "blocked"
+                    : "dim",
+              ),
+            )
+            .children(
+              statusWords(
+                this.engine.sleepingWhenDone(this.key)
+                  ? t("strip.sleepingWhenDone", { agent: agentName })
+                  : stripStatus(rec, {
+                      now: this.ports.now(),
+                      agentName,
+                      progress: this.engine.progress(this.key),
+                      fresh: this.engine.freshness(this.key),
+                    }),
+                room,
+                measure,
+              ).map((line) => div().whitespace_nowrap().child(line)),
             );
 
     // In a pane too narrow for the labels, each button folds to its icon, its label in a tooltip.
@@ -389,7 +418,7 @@ export class SleepPane {
             )
             .children(buttons),
         )
-        .child(h_flex().pl(24).text_size(STATUS_TEXT).child(status))
+        .child(h_flex().pl(STRIP_STATUS_INDENT).text_size(STRIP_STATUS_TEXT).child(status))
     );
   }
 }

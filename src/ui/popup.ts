@@ -309,18 +309,20 @@ export class PopupView {
                       .child(facts.context?.detail ?? ""),
                   ),
               )
-              .child(
-                div()
-                  .h(4)
-                  .rounded(2)
-                  .bg(color("selected"))
-                  .child(
-                    div()
-                      .h(4)
-                      .rounded(2)
-                      .bg(color("accent"))
-                      .w((meter * (facts.context?.pct ?? 0)) / 100),
-                  ),
+              .when(facts.context?.pct !== null, (el) =>
+                el.child(
+                  div()
+                    .h(4)
+                    .rounded(2)
+                    .bg(color("selected"))
+                    .child(
+                      div()
+                        .h(4)
+                        .rounded(2)
+                        .bg(color("accent"))
+                        .w((meter * (facts.context?.pct ?? 0)) / 100),
+                    ),
+                ),
               ),
           )
           .when(facts.tokens !== null, (el) =>

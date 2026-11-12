@@ -283,11 +283,16 @@ describe("waking up", () => {
     const run = hcOf(sim, "run")[0] ?? [];
     assert.equal(run.includes("--"), false, "no program: the machine's own shell");
     assert.equal(run[run.indexOf("--cwd") + 1], "C:\\work\\repo");
-    assert.ok(run.includes("herdr.tab=tb1") && run.includes("herdr.space=sp1"));
+    // Out of Herdr's screens until the agent runs (finding 4 of the blind review): no tab labels yet…
+    assert.ok(!run.some((a) => a.startsWith("herdr.")), "no herdr.tab / herdr.space at the start");
     const address = engine.record(KEY)?.terminal ?? "";
+    assert.ok(
+      hcOf(sim, "label").some((c) => c[1] === address && c.includes("herdr.tab=tb1") && c.includes("herdr.space=sp1")),
+      "the tab's labels once the agent runs",
+    );
     assert.deepEqual(sim.term(address).argv, SHELL_ARGV);
     // …the resume command typed into it, and the agent found running under it.
-    assert.deepEqual(sim.typed, [{ address, line: "claude --resume s1" }]);
+    assert.deepEqual(sim.typed, [{ address, line: "claude --resume s1", shown: false }]);
     assert.equal(sim.term(address).ran, "claude --resume s1");
     assert.ok(
       hcOf(sim, "get").some((c) => c[1] === address),
@@ -349,17 +354,16 @@ describe("waking up", () => {
     assert.equal(engine.record(KEY)?.state, "running");
   });
 
-  it("a start that never shows up in Herdr fails after 30 s with its reason, keeps the pane, and does not retry", async () => {
+  it("a started agent Herdr never shows fails with its reason, keeps the pane, and does not retry", async () => {
     const { sim, engine } = await asleep();
     sim.adopts = false;
     const pane = engine.record(KEY)?.pane ?? "";
     const count = sim.row().length;
-    const started = sim.now;
     await engine.resume(KEY);
     const rec = engine.record(KEY);
     assert.equal(rec?.state, "error");
+    assert.equal(rec?.error, "reason.noPane");
     assert.equal(rec?.pane, pane);
-    assert.ok(sim.now - started >= 30_000);
     assert.equal(sim.row().length, count, "the terminal that did not start is gone again");
     const notice = sim.notices.at(-1)?.text ?? "";
     assert.match(notice, /Claude Code/);

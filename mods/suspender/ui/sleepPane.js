@@ -13,10 +13,15 @@ import { closeOverlay, settings, theme } from "herdr";
 import { badgeText, SEPARATOR } from "../core/fit.js";
 import { reportedSize, scaleOf, windowPx } from "../core/scale.js";
 import { t } from "../i18n/index.js";
-import { fitStrip, mixColor, SCREEN_DIM, STRIP_ACTION_ICON, STRIP_BADGE_TEXT, STRIP_BUTTON_PAD, STRIP_GAP, STRIP_ICON_BUTTON_PAD, STRIP_ITEM_GAP, STRIP_MOON_PX, STRIP_PAD_LEFT, STRIP_PAD_RIGHT, STRIP_PLAY_GAP, STRIP_PLAY_PX, STRIP_TEXT, screenGrid, screenLines, screenLook, screenMarks, stripActions, stripStatus, wakeSteps, } from "./format.js";
+import { fitStrip, mixColor, SCREEN_DIM, STRIP_ACTION_ICON, STRIP_BADGE_TEXT, STRIP_BUTTON_PAD, STRIP_GAP, STRIP_ICON_BUTTON_PAD, STRIP_ITEM_GAP, STRIP_MOON_PX, STRIP_PAD_LEFT, STRIP_PAD_RIGHT, STRIP_PLAY_GAP, STRIP_PLAY_PX, STRIP_STATUS_INDENT, STRIP_STATUS_TEXT, STRIP_TEXT, screenGrid, screenLines, screenLook, screenMarks, statusWidth, statusWords, stripActions, stripStatus, wakeSteps, } from "./format.js";
 import { anchorRect, factsFor, hoverPopup } from "./popup.js";
+import { uiMeasure } from "./textWidth.js";
 const ICONS = "mods/suspender/icons";
-const STATUS_TEXT = 12;
+/** States in which a session may be opened, or closed, in another tab or program. */
+const WATCHED = ["asleep", "interrupted", "elsewhere"];
+/** The wake's steps: the spinner and the gap before each step. */
+const SPINNER_PX = 12;
+const STEP_GAP = 8;
 /** A theme colour by name (theme() names every one the mod uses; a missing one draws nothing). */
 function palette() {
     const th = theme();
@@ -70,8 +75,10 @@ export class SleepPane {
         return this.host.tabs().some((x) => x.id === tab && x.active && x.spaceActive);
     }
     /**
-     * Every TICK_MS: once per show, re-read what changed ("+N"); while open
-     * elsewhere, look again. Nothing watches the conversation while the strip
+     * Every TICK_MS: once per show, re-read what changed ("+N") and whether the
+     * session is open elsewhere; while it sleeps, Claude's sessions folder is
+     * watched for it being opened or closed elsewhere (Codex: looked at again
+     * while shown and open elsewhere). Nothing watches the conversation while the strip
      * stays on screen: a session open in another window writes all the time,
      * and every read starts a process on Windows.
      */
@@ -88,19 +95,18 @@ export class SleepPane {
             });
         }
         this.shown = visible;
-        if (rec.state !== "elsewhere") {
-            return;
-        }
         const adapter = this.engine.adapter(rec.agent);
         if (adapter.watchOpenness !== undefined) {
-            // Claude: its sessions folder says when the other copy closed.
-            if (!this.watching) {
+            // Claude: its sessions folder changes when the session is opened in
+            // another tab or program, and when it is closed there (no timer).
+            if (!this.watching && WATCHED.includes(rec.state)) {
                 this.watching = true;
                 cx.spawn(async (cx) => {
                     try {
-                        while (this.rec()?.state === "elsewhere") {
+                        while (WATCHED.includes(this.rec()?.state ?? "running")) {
                             await adapter.watchOpenness?.(this.ports);
-                            await this.engine.recheckElsewhere(this.key);
+                            await this.engine.recheckOpen(this.key);
+                            cx.notify();
                         }
                     }
                     finally {
@@ -110,7 +116,7 @@ export class SleepPane {
                 });
             }
         }
-        else if (visible) {
+        else if (visible && rec.state === "elsewhere") {
             // Codex: a process check, only while the strip is on screen (every TICK_MS = 5 s).
             cx.spawn(async (cx) => {
                 await this.engine.recheckElsewhere(this.key);
@@ -218,26 +224,37 @@ export class SleepPane {
                 .text_color(color("dim"))
                 .child(badgeText(fit.hidden).trim()));
         }
-        // Line 2: the state, the wake's steps, or the error.
-        const status = rec.state === "waking"
+        // Line 2: the state, the wake's steps, or the error. In a narrow pane (or
+        // at a large zoom) it wraps at words, two lines at most, then ends in "…":
+        // never cut in the middle of a word (gpui would break a word to wrap it).
+        const room = statusWidth(this.size.width, scaleOf(settings()));
+        const measure = (text) => uiMeasure(text, STRIP_STATUS_TEXT);
+        const steps = wakeSteps(this.engine.progress(this.key));
+        const stepsWidth = steps.reduce((sum, s) => sum + STEP_GAP + measure(s.label), SPINNER_PX);
+        const status = rec.state === "waking" && stepsWidth <= room
             ? h_flex()
-                .gap(8)
+                .gap(STEP_GAP)
                 .items_center()
-                .child(svg(`${ICONS}/spinner.svg`).size(12).text_color(color("accent")).spin(900))
-                .children(wakeSteps(this.engine.progress(this.key)).map((s) => div()
+                .child(svg(`${ICONS}/spinner.svg`).size(SPINNER_PX).text_color(color("accent")).spin(900))
+                .children(steps.map((s) => div()
+                .flex_none()
+                .whitespace_nowrap()
                 .text_color(color(s.state === "now" ? "foreground" : s.state === "done" ? "muted" : "dim"))
                 .child(s.label)))
-            : div()
-                .truncate()
-                .text_color(color(rec.state === "error" || rec.state === "missing" ? "blocked" : "dim"))
-                .child(this.engine.sleepingWhenDone(this.key)
+            : v_flex()
+                .text_color(color(rec.state === "waking"
+                ? "foreground"
+                : rec.state === "error" || rec.state === "missing"
+                    ? "blocked"
+                    : "dim"))
+                .children(statusWords(this.engine.sleepingWhenDone(this.key)
                 ? t("strip.sleepingWhenDone", { agent: agentName })
                 : stripStatus(rec, {
                     now: this.ports.now(),
                     agentName,
                     progress: this.engine.progress(this.key),
                     fresh: this.engine.freshness(this.key),
-                }));
+                }), room, measure).map((line) => div().whitespace_nowrap().child(line)));
         // In a pane too narrow for the labels, each button folds to its icon, its label in a tooltip.
         const folded = fit.buttons === "icon";
         const buttons = actions.map((a, i) => h_flex()
@@ -301,7 +318,7 @@ export class SleepPane {
             .text_color(color("muted"))
             .children(items))
             .children(buttons))
-            .child(h_flex().pl(24).text_size(STATUS_TEXT).child(status)));
+            .child(h_flex().pl(STRIP_STATUS_INDENT).text_size(STRIP_STATUS_TEXT).child(status)));
     }
 }
 /** "{agent} is still answering": Sleep when done / Interrupt and sleep / Cancel. Closing it any other way is Cancel. */

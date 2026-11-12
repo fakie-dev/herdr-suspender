@@ -50,16 +50,19 @@ async function strip() {
     new Promise((wake) => {
       watchers.push({ dir, wake });
     });
-  const write = (text: string): void => {
-    ports.files.set(TRANSCRIPT, (ports.files.get(TRANSCRIPT) ?? "") + text);
+  /** Writes a file and wakes the watches of its folder. */
+  const put = (path: string, text: string): void => {
+    ports.files.set(path, text);
+    const name = path.split("\\").pop() ?? path;
     for (const w of watchers.splice(0)) {
-      if (TRANSCRIPT.startsWith(w.dir)) {
-        w.wake([`${ID}.jsonl`]);
+      if (path.startsWith(w.dir)) {
+        w.wake([name]);
       } else {
         watchers.push(w);
       }
     }
   };
+  const write = (text: string): void => put(TRANSCRIPT, (ports.files.get(TRANSCRIPT) ?? "") + text);
   write(jsonl(claude.prompt("Synthetic first prompt"), claude.reply("Synthetic reply", { id: "m1" })));
 
   const pane = sim.addModPane(TAB, { role: "sleep", key: KEY });
@@ -90,8 +93,52 @@ async function strip() {
     notify: () => undefined,
     sleep: (ms: number) => sim.sleep(ms),
   } as unknown as AsyncContext;
-  return { sim, engine, view, cx, write };
+  return { sim, ports, engine, view, cx, write, put };
 }
+
+/** A Claude Code running `sessionId` in another tab, as its session file says (Claude writes it as it starts). */
+function openInAnotherTab(sim: Sim, put: (path: string, text: string) => void, sessionId: string): void {
+  sim.addTab("tb-other");
+  const other = sim.addTerminal({ agent: "claude", tab: "tb-other" });
+  const pid = sim.term(other.address).agentPid ?? 0;
+  put(
+    `C:\\Users\\tester\\.claude\\sessions\\${pid}.json`,
+    JSON.stringify({ pid, sessionId, cwd: CWD, startedAt: sim.now }),
+  );
+}
+
+describe("a sleeping tab whose session is opened elsewhere (finding 2 of the blind review)", () => {
+  it("says so and blocks Resume as soon as Claude's sessions folder changes, without a round", async () => {
+    const { sim, engine, view, cx, put } = await strip();
+    await engine.load();
+    view.tick(cx);
+    await settle();
+    assert.equal(engine.record(KEY)?.state, "asleep");
+    openInAnotherTab(sim, put, ID);
+    await settle();
+    assert.equal(engine.record(KEY)?.state, "elsewhere");
+  });
+
+  it("says so when shown, if it was opened while nothing watched", async () => {
+    const { sim, ports, engine, view, cx } = await strip();
+    await engine.load();
+    // Written without waking any watch: only the show can find it.
+    openInAnotherTab(sim, (path, text) => ports.files.set(path, text), ID);
+    view.tick(cx);
+    await settle();
+    assert.equal(engine.record(KEY)?.state, "elsewhere");
+  });
+
+  it("stays asleep when another session is opened", async () => {
+    const { sim, engine, view, cx, put } = await strip();
+    await engine.load();
+    view.tick(cx);
+    await settle();
+    openInAnotherTab(sim, put, "1a1b1c1d-2e2f-4a4b-8c8d-9e9f0a0b0c0d");
+    await settle();
+    assert.equal(engine.record(KEY)?.state, "asleep");
+  });
+});
 
 describe("a sleeping tab left on screen", () => {
   it("reads the conversation once when shown, and not again however much is written to it", async () => {

@@ -45,6 +45,8 @@ export const STALE_FLOW_MS = 60_000;
 export const BIND_RETRY_MS = 10_000;
 /** A started agent that is up but silent this long counts as up. */
 export const SETTLE_MS = 4_000;
+/** How long a started agent may take to report (its screen drawn) before it is shown anyway. */
+export const REPORT_WAIT_MS = 10_000;
 /** How long a new shell may take to show its prompt before the command is typed anyway. */
 export const PROMPT_WAIT_MS = 10_000;
 /** Process snapshots while waiting for a started agent: at most this often. */
@@ -62,6 +64,8 @@ export const CONFIRM_CLOSED_MS = 1_500;
 /** A silent agent (one that reports nothing) is looked for at most this often. */
 export const SILENT_CHECK_MS = 60_000;
 const POLL_MS = 250;
+/** A terminal Herdr does not list is looked up with `hc get` at most this often. */
+const LOOK_EVERY_MS = 1_000;
 const PANE_WAIT_MS = 3_000;
 export function newCoordinator() {
     return {
@@ -134,6 +138,8 @@ export class Engine {
     absentSince = new Map();
     bindTried = new Map();
     flowSince = new Map();
+    /** The last `hc get` of a terminal Herdr does not list (look). */
+    looked = new Map();
     /** When a bound agent's process was found gone while Herdr still showed its status (by terminal address). */
     goneUnderReport = new Map();
     constructor(o) {
@@ -228,6 +234,7 @@ export class Engine {
             await this.observe(term);
         }
         await this.reconcile(terms);
+        this.sweepStrays();
     }
     /**
      * "Sessions · N" for the live copy of the tab bar. Setting a shared value
@@ -312,7 +319,11 @@ export class Engine {
         const key = sessionKey(adapter.id, sessionId);
         const existing = this.record(key);
         if (existing !== null && !RUNNING.includes(existing.state) && existing.terminal !== term.address) {
-            // The session sleeps in another tab and was opened here by hand: that tab shows "open elsewhere".
+            // The session sleeps in another tab and was opened here by hand: that tab shows "open elsewhere"
+            // now, not only once someone presses its Resume.
+            if (existing.state === "asleep" || existing.state === "interrupted") {
+                await this.act(key, () => this.dispatch(key, { t: "openElsewhere", where: term.address }));
+            }
             return null;
         }
         await this.label(term, adapter.id, sessionId);
@@ -470,6 +481,49 @@ export class Engine {
         }
     }
     /**
+     * Suspender panes no record owns, in a tab a session lives in: left over by
+     * a flow that went wrong (a split Herdr showed late, a copy closed half-way).
+     * Only Suspender splits panes with its name, and only for a sleeping
+     * session, so such a pane shows nothing anyone can use. It is closed once
+     * it has stayed unowned GONE_GRACE_MS while nothing was being slept or woken
+     * (a pane being placed is not owned yet). Never in a tab without a session:
+     * that pane may be the tab's only one.
+     */
+    sweepStrays() {
+        const panes = this.host.panes();
+        const records = this.records();
+        const owned = new Set(records.map((r) => r.pane));
+        const lived = new Set();
+        for (const r of records) {
+            const at = r.pane ?? (r.terminal !== null ? this.paneOf(r.terminal) : null);
+            const tab = panes.find((p) => p.pane === at)?.tab;
+            if (tab !== undefined) {
+                lived.add(tab);
+            }
+        }
+        const acting = [...this.co.busy.keys()].some((key) => this.busy(key));
+        const now = this.ports.now();
+        const present = new Set(panes.map((p) => `stray:${p.pane}`));
+        for (const mark of [...this.absentSince.keys()]) {
+            if (mark.startsWith("stray:") && !present.has(mark)) {
+                this.absentSince.delete(mark);
+            }
+        }
+        for (const p of panes) {
+            const mark = `stray:${p.pane}`;
+            if (acting || p.mod !== MOD_NAME || owned.has(p.pane) || !lived.has(p.tab)) {
+                this.absentSince.delete(mark);
+                continue;
+            }
+            const since = this.absentSince.get(mark) ?? now;
+            this.absentSince.set(mark, since);
+            if (now - since >= GONE_GRACE_MS) {
+                this.absentSince.delete(mark);
+                this.host.run("pane.close", { pane: p.pane });
+            }
+        }
+    }
+    /**
      * A sleep whose copy was closed after the record said "asleep" (or
      * "interrupted") but before the pane took over: the terminal is still
      * attached, the time and the facts are missing. Its pane is there; finish
@@ -482,7 +536,7 @@ export class Engine {
             if (now === null || !unfinished(now) || now.pane === null) {
                 return;
             }
-            const flow = { prepared: now.pane, pending: null };
+            const flow = { prepared: now.pane, pending: null, splitFrom: null };
             await this.placeSleepPane(key, flow, now.info.transcriptSize === null, now.forced);
         });
     }
@@ -877,6 +931,58 @@ export class Engine {
     async refreshOnShow(key) {
         await this.load();
         await this.reread(key);
+        await this.recheckOpen(key);
+    }
+    /**
+     * What the Sessions list shows for running sessions (name, branch, model…),
+     * as a sleeping session has it from its sleep. The panel asks while it is
+     * shown (R34: the transcript is read when shown, and only if it changed:
+     * the adapter checks the file's size and time against what was read last).
+     * A record a copy is acting on is left alone; nothing new, no write.
+     */
+    async refreshRunning() {
+        await this.load();
+        for (const rec of this.records()) {
+            if (!RUNNING.includes(rec.state) || rec.terminal === null || this.busy(rec.key)) {
+                continue;
+            }
+            const prev = rec.info.sessionId === rec.sessionId && rec.info.transcriptSize !== null ? rec.info : undefined;
+            const info = await this.adapter(rec.agent)
+                .snapshot(rec.sessionId, rec.cwd, this.ports, prev)
+                .catch(() => null);
+            if (info === null) {
+                continue;
+            }
+            await this.patch(rec.key, (r) => {
+                if (r.sessionId === info.sessionId && RUNNING.includes(r.state)) {
+                    r.info = info;
+                }
+            });
+        }
+    }
+    /**
+     * Is a sleeping session open in another tab or program now, or no longer?
+     * Asked when the strip is shown and when the agent's sessions change (a
+     * folder watch, no timer): "open elsewhere" shows before anyone presses
+     * Resume. A check that could not tell (no process list) changes nothing.
+     */
+    async recheckOpen(key) {
+        await this.load();
+        const rec = this.record(key);
+        if (rec === null || this.busy(key)) {
+            return;
+        }
+        if (rec.state === "elsewhere") {
+            await this.recheckElsewhere(key);
+            return;
+        }
+        if (rec.state !== "asleep" && rec.state !== "interrupted") {
+            return;
+        }
+        const open = await this.adapter(rec.agent).openElsewhere(rec.sessionId, this.ports);
+        if (open.open && open.unsure !== true) {
+            await this.act(key, () => this.dispatch(key, { t: "openElsewhere", where: open.where ?? "" }));
+        }
     }
     /** Is the conversation still there, and what changed in it since the sleep ("updated after sleep · +N"). */
     async reread(key) {
@@ -1000,7 +1106,7 @@ export class Engine {
             }
         }
     }
-    async dispatch(key, ev, flow = { prepared: null, pending: null }) {
+    async dispatch(key, ev, flow = { prepared: null, pending: null, splitFrom: null }) {
         const rec = this.record(key);
         if (rec === null) {
             return null;
@@ -1163,7 +1269,7 @@ export class Engine {
             return;
         }
         const target = rec.terminal !== null ? this.paneOf(rec.terminal) : null;
-        const pane = await this.newSleepPane(rec, target);
+        const pane = await this.newSleepPane(rec, target, flow);
         if (pane === null) {
             return;
         }
@@ -1177,17 +1283,23 @@ export class Engine {
             r.tabId = tab;
         });
     }
-    /** Our pane beside `anchor` (else beside any pane of the tab, else in a new tab of the space). */
-    async newSleepPane(rec, anchor) {
-        const before = new Set(this.host.panes().map((p) => p.pane));
-        const props = { role: "sleep", key: rec.key };
-        const beside = anchor ?? this.host.panes().find((p) => p.tab === rec.tabId)?.pane ?? null;
-        if (beside !== null) {
-            this.host.run("pane.split", { pane: beside, direction: "right", mod: MOD_NAME, props });
+    /**
+     * Our pane beside `anchor` (else beside any pane of the tab, else in a new
+     * tab of the space). Once per flow: a later call waits for the same pane.
+     */
+    async newSleepPane(rec, anchor, flow) {
+        if (flow.splitFrom === null) {
+            flow.splitFrom = new Set(this.host.panes().map((p) => p.pane));
+            const props = { role: "sleep", key: rec.key };
+            const beside = anchor ?? this.host.panes().find((p) => p.tab === rec.tabId)?.pane ?? null;
+            if (beside !== null) {
+                this.host.run("pane.split", { pane: beside, direction: "right", mod: MOD_NAME, props });
+            }
+            else {
+                this.host.run("tab.new", { space: rec.spaceId, mod: MOD_NAME, props });
+            }
         }
-        else {
-            this.host.run("tab.new", { space: rec.spaceId, mod: MOD_NAME, props });
-        }
+        const before = flow.splitFrom;
         return this.waitFor(() => this.host.panes().find((p) => !before.has(p.pane) && p.mod === MOD_NAME)?.pane ?? null, PANE_WAIT_MS);
     }
     /** `stopped`: the agent was just stopped (not lost); `forced`: by `terminal.kill`. */
@@ -1247,6 +1359,7 @@ export class Engine {
         }
         const failed = async (reason, address) => {
             if (address !== null) {
+                this.looked.delete(address);
                 await this.discard(address);
             }
             this.setProgress(key, null);
@@ -1267,10 +1380,9 @@ export class Engine {
             "--no-notify",
             "--cwd",
             rec.cwd,
-            "--label",
-            `herdr.space=${rec.spaceId}`,
-            "--label",
-            `herdr.tab=${rec.tabId}`,
+            // No herdr.space / herdr.tab yet: without them Herdr keeps the terminal
+            // out of its screens (measured), so nobody sees a bare shell with the
+            // command typed into it. They are added once the agent runs.
             ...Object.entries(labels).flatMap(([k, v]) => ["--label", `${k}=${v}`]),
         ];
         this.setProgress(key, "starting");
@@ -1289,19 +1401,20 @@ export class Engine {
         }
         // Its prompt first: a command typed before the shell reads input may be lost.
         await this.waitForPrompt(address);
-        if (!this.alive(address) && this.term(address) !== null) {
+        const prompted = await this.look(address);
+        if (prompted !== null && prompted.state !== "live") {
             return failed("reason.exited", address);
         }
         await this.ports.hc(["keys", address, ...typedKeys(line), "enter"]);
         const typedAt = this.ports.now();
         // Up when the agent runs under the shell with the command's arguments.
-        // Herdr lists the terminal only once it adopts it; an agent at its own
-        // prompt (Codex's update question) may report nothing to Herdr.
+        // Herdr lists the terminal only once it adopts it (`hc get` until then);
+        // an agent at its own prompt (Codex's update question) may report nothing.
         let found = null;
         let lastSnapshot = Number.NEGATIVE_INFINITY;
         const end = typedAt + START_TIMEOUT_MS;
         while (this.ports.now() < end) {
-            const term = this.term(address);
+            const term = await this.look(address);
             if (term !== null && term.state !== "live") {
                 return failed("reason.exited", address);
             }
@@ -1322,13 +1435,29 @@ export class Engine {
         if (found === null) {
             return failed("reason.timeout", address);
         }
+        // Its process can be there before its screen is drawn (measured: the shell's
+        // screen showed for a moment). It reports its status once it is at its
+        // prompt; one that reports nothing (Codex's update question) is shown
+        // after REPORT_WAIT_MS all the same.
+        const drawnBy = Math.min(end, this.ports.now() + REPORT_WAIT_MS);
+        while (!found.reported && this.ports.now() < drawnBy) {
+            await this.pause(POLL_MS);
+            const term = await this.look(address);
+            if (term === null || term.state !== "live") {
+                return failed("reason.exited", address);
+            }
+            found.reported = adapter.matches(toTerminalView(term)) && term.status !== null;
+        }
+        // The agent runs: now Herdr may show it, in a pane of the session's tab.
+        await this.ports.hc(["label", address, `herdr.space=${rec.spaceId}`, `herdr.tab=${rec.tabId}`]).catch(() => null);
+        const pane = await this.waitFor(() => this.paneOf(address), PANE_WAIT_MS);
+        this.looked.delete(address);
         this.co.agents.set(address, found);
         this.co.checkedAt.set(address, this.ports.now());
         const started = this.term(address);
         if (started !== null) {
             this.co.seen.set(address, signature(started));
         }
-        const pane = await this.waitFor(() => this.paneOf(address), PANE_WAIT_MS);
         if (pane === null) {
             return failed("reason.noPane", address);
         }
@@ -1367,6 +1496,27 @@ export class Engine {
                 }
             },
         };
+    }
+    /**
+     * A terminal as Herdr lists it, or as `hc get` describes one Herdr does not
+     * show (yet): the shell a wake starts stays out of Herdr's screens until its
+     * agent runs. `hc get` is a process: at most once per LOOK_EVERY_MS for a
+     * terminal, the last answer in between.
+     */
+    async look(address) {
+        const listed = this.term(address);
+        if (listed !== null) {
+            return listed;
+        }
+        const last = this.looked.get(address);
+        const now = this.ports.now();
+        if (last !== undefined && now - last.at < LOOK_EVERY_MS) {
+            return last.term;
+        }
+        const got = await this.ports.hc(["get", address, "--json"]).catch(() => null);
+        const term = got === null || got.code !== 0 ? null : normalizeTerminal(parseJson(got.stdout));
+        this.looked.set(address, { at: now, term });
+        return term;
     }
     /** Until the new shell shows something (its prompt), at most PROMPT_WAIT_MS. */
     async waitForPrompt(address) {

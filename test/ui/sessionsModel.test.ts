@@ -307,9 +307,16 @@ describe("popupFacts: the order of the approved mockup, no data no item", () => 
     );
   });
 
-  it("shows no context bar when only the text is known", () => {
-    const f = popupFacts(rec("x", "asleep", { info: { contextText: "640k / 1M" } }), { ...base, usedMb: null });
-    assert.equal(f.context, null);
+  it("shows the tokens in use, without a bar, when the window (and so the fill) is unknown", () => {
+    // Blind review: "contextPct: null, хотя contextText: "53k" записано" — and the popup had no context at all.
+    const f = popupFacts(rec("x", "asleep", { info: { contextText: "53k" } }), { ...base, usedMb: null });
+    assert.deepEqual(f.context, { pct: null, label: "Context", detail: "53k in use" });
+    const known = popupFacts(rec("y", "asleep", { info: { contextText: "53k / 1M", contextPct: 5 } }), {
+      ...base,
+      usedMb: null,
+    });
+    assert.ok(popupHeight(f) < popupHeight(known), "no bar: a line shorter than with one");
+    assert.ok(popupHeight(f) > popupHeight(popupFacts(rec("z", "asleep"), { ...base, usedMb: null })));
   });
 
   it("marks interrupted as a warning and a running agent without a time", () => {

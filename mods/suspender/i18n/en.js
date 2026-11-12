@@ -53,6 +53,8 @@ export const en = {
     "popup.prompt": "Prompt",
     "popup.reply": "Reply",
     "popup.context": "Context {pct}%",
+    "popup.contextUnknown": "Context",
+    "popup.contextInUse": "{amount} in use",
     "popup.tokens": "Tokens",
     "popup.branch": "Branch",
     "popup.model": "Model",
