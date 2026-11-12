@@ -11,7 +11,7 @@ import { closeOverlay, openOverlay, settings } from "herdr";
 import { scaleOf, windowPx } from "../core/scale.js";
 import { t } from "../i18n/index.js";
 import { MOD_NAME } from "../runtime/engine.js";
-import { agentIcon, icon, palette, TONE_COLOR } from "./kit.js";
+import { agentIcon, icon, palette, stateMark, TONE_COLOR } from "./kit.js";
 import { FACT_GAP_PX, FACT_ROW_PX, POPUP_WIDTH, popupFacts, popupPosition, popupSize, QUOTE_GAP_PX, QUOTE_LABEL_PX, QUOTE_LINE_PX, QUOTE_TEXT, TITLE_LINE_PX, TITLE_TEXT, } from "./sessionsModel.js";
 /** How long the pointer rests on a row or a strip before its popup opens. */
 export const SHOW_DELAY_MS = 350;
@@ -148,6 +148,7 @@ export function factsFor(engine, ports, key, usedMb) {
         sep: ports.sep,
         now: ports.now(),
         usedMb,
+        checking: engine.checking(key),
     });
 }
 /** Role "popup": the facts of one session, drawn in the overlay `hoverPopup` opened. */
@@ -204,7 +205,7 @@ export class PopupView {
             .text_size(11.5)
             .child(agentIcon(facts.agent, color, cx, this.ports.now()))
             .child(div().child(facts.agentName))
-            .child(div().ml_auto().px(8).rounded(10).bg(color("raised")).text_color(tone).whitespace_nowrap().child(facts.state)));
+            .child(stateMark(facts.state, tone, facts.moving).ml_auto().px(8).rounded(10).bg(color("raised"))));
         if (facts.titleLines.length > 0) {
             // Whole lines, wrapped by sessionsModel (the popup's height counts them);
             // the full name in a tooltip when even three lines cut it.

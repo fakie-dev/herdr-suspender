@@ -58,6 +58,10 @@ const WATCHED: readonly string[] = ["asleep", "interrupted", "elsewhere"];
 const SPINNER_PX = 12;
 const STEP_GAP = 8;
 
+/** The wake's spinner, turned natively (only while drawn). */
+const spinner = (tint: Color): Element =>
+  svg(`${ICONS}/spinner.svg`).size(SPINNER_PX).flex_none().text_color(tint).spin(900);
+
 /** A theme colour by name (theme() names every one the mod uses; a missing one draws nothing). */
 function palette(): (name: string) => Color {
   const th = theme();
@@ -292,7 +296,7 @@ export class SleepPane {
         ? h_flex()
             .gap(STEP_GAP)
             .items_center()
-            .child(svg(`${ICONS}/spinner.svg`).size(SPINNER_PX).text_color(color("accent")).spin(900))
+            .child(spinner(color("accent")))
             .children(
               steps.map((s) =>
                 div()
@@ -322,10 +326,19 @@ export class SleepPane {
                       progress: this.engine.progress(this.key),
                       fresh: this.engine.freshness(this.key),
                     }),
-                room,
+                rec.state === "stopping" ? Math.max(0, room - SPINNER_PX - STEP_GAP) : room,
                 measure,
               ).map((line) => div().whitespace_nowrap().child(line)),
             );
+    // Falling asleep turns the same spinner before its lines (they have that much less room).
+    const statusLine =
+      rec.state === "stopping"
+        ? h_flex()
+            .gap(STEP_GAP)
+            .items_center()
+            .child(spinner(color("accent")))
+            .child(status)
+        : status;
 
     // In a pane too narrow for the labels, each button folds to its icon, its label in a tooltip.
     const folded = fit.buttons === "icon";
@@ -418,7 +431,7 @@ export class SleepPane {
             )
             .children(buttons),
         )
-        .child(h_flex().pl(STRIP_STATUS_INDENT).text_size(STRIP_STATUS_TEXT).child(status))
+        .child(h_flex().pl(STRIP_STATUS_INDENT).text_size(STRIP_STATUS_TEXT).child(statusLine))
     );
   }
 }

@@ -38,6 +38,13 @@ that every pair is listed. A transition returns the new state and a list of effe
 `kill`, `placeSleepPane`, `startAgent`, `removeRecord`, ...). The engine runs the effects; the machine never
 touches Herdr.
 
+A running record read from the store is "checking" until the engine has confirmed it in this run (the leader saw
+its agent in its terminal, bound it, or changed its state): a terminal lost with a restart comes back as a shell
+and turns `interrupted` only after the leader's look and its grace. The copies of a window share what was
+confirmed; the leader sets `suspender.checked` once in a round that confirmed something, so every copy redraws.
+The panel and the popup draw "checking", falling asleep and waking with a spinner (`stateMark`); a sleeping state
+is what its pane shows and is never "checking".
+
 ## Sleeping
 
 1. Snapshot: the adapter reads the transcript (title, first prompt, last reply, branch, model, message count,
@@ -221,7 +228,8 @@ row, where the tile was, so it stays level with the title in any UI font and at 
 
 The mod is meant to cost almost nothing while nobody touches it.
 
-- No timers for animation. Animations are Herdr's native `.transition`, `.loop`, `.frames` and `.spin`.
+- No timers for animation. Animations are Herdr's native `.transition`, `.loop`, `.frames` and `.spin`. A
+  spinner is drawn only beside a state that is under way, so a settled list animates nothing.
   `cx.timer` runs only the 5-second data round and the leader's 10-second stamp.
 - Process memory is read only while the panel is open and at most every 30 seconds, and once at Sleep: one
   PowerShell call on Windows (the tree and the private working sets together), one `ps` elsewhere. A "uses"

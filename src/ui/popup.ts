@@ -14,7 +14,7 @@ import { scaleOf, type WindowPx, type WindowRect, type WindowSize, windowPx } fr
 import { t } from "../i18n/index.ts";
 import type { Ports } from "../platform/ports.ts";
 import { type Engine, MOD_NAME } from "../runtime/engine.ts";
-import { agentIcon, icon, palette, TONE_COLOR } from "./kit.ts";
+import { agentIcon, icon, palette, stateMark, TONE_COLOR } from "./kit.ts";
 import {
   FACT_GAP_PX,
   FACT_ROW_PX,
@@ -187,6 +187,7 @@ export function factsFor(engine: Engine, ports: Ports, key: SessionKey, usedMb: 
     sep: ports.sep,
     now: ports.now(),
     usedMb,
+    checking: engine.checking(key),
   });
 }
 
@@ -261,9 +262,7 @@ export class PopupView {
         .text_size(11.5)
         .child(agentIcon(facts.agent, color, cx, this.ports.now()))
         .child(div().child(facts.agentName))
-        .child(
-          div().ml_auto().px(8).rounded(10).bg(color("raised")).text_color(tone).whitespace_nowrap().child(facts.state),
-        ),
+        .child(stateMark(facts.state, tone, facts.moving).ml_auto().px(8).rounded(10).bg(color("raised"))),
     );
     if (facts.titleLines.length > 0) {
       // Whole lines, wrapped by sessionsModel (the popup's height counts them);

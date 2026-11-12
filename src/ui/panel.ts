@@ -24,7 +24,7 @@ import { treesMemoryMb } from "../platform/proc.ts";
 import type { Engine } from "../runtime/engine.ts";
 import type { Host } from "../runtime/host.ts";
 import type { Updater } from "../runtime/updater.ts";
-import { agentIcon, ICONS, icon, type Palette, palette, TONE_COLOR } from "./kit.ts";
+import { agentIcon, ICONS, icon, type Palette, palette, stateMark, TONE_COLOR } from "./kit.ts";
 import { anchorRect, factsFor, hoverPopup } from "./popup.ts";
 import {
   fitRow,
@@ -38,7 +38,7 @@ import {
   ROW_TEXT,
   ROW_TITLE_PX,
   rowMemory,
-  stateWord,
+  shownState,
   type UsedFigure,
   usedNow,
 } from "./sessionsModel.ts";
@@ -435,16 +435,8 @@ export class PanelView {
     const used = usedNow(rec, this.used);
     const memory = rowMemory(rec, used);
     const fit = fitRow(rec, this.size.width, memory?.text ?? null, ports.sep, uiMeasure, scale);
-    const tone =
-      TONE_COLOR[
-        rec.state === "interrupted"
-          ? "warn"
-          : isSleeping(rec.state)
-            ? rec.state === "missing" || rec.state === "error"
-              ? "error"
-              : "sleep"
-            : "live"
-      ];
+    const checking = engine.checking(rec.key);
+    const shown = shownState(rec, checking);
     const title = rec.info.title ?? agentName;
 
     const items: Element[] = [];
@@ -481,9 +473,10 @@ export class PanelView {
       );
     }
 
-    // Sleep for a running agent, Resume for a sleeping one; nothing while it is changing.
-    const action =
-      rec.state === "running" || rec.state === "working"
+    // Sleep for a running agent, Resume for a sleeping one; nothing while it is changing or not known yet.
+    const action = checking
+      ? null
+      : rec.state === "running" || rec.state === "working"
         ? { name: "moon", label: t("panel.sleep"), run: () => engine.sleep(rec.key) }
         : rec.state === "asleep" || rec.state === "interrupted" || rec.state === "error"
           ? {
@@ -538,9 +531,7 @@ export class PanelView {
               .gap(8)
               .items_center()
               .child(div().flex_1().min_w(0).truncate().text_size(12.5).text_color(color("foreground")).child(title))
-              .child(
-                div().flex_none().whitespace_nowrap().text_size(11).text_color(color(tone)).child(stateWord(rec.state)),
-              )
+              .child(stateMark(shown.word, color(TONE_COLOR[shown.tone]), shown.moving).text_size(11))
               .when(action !== null, (el) =>
                 el.child(
                   div()

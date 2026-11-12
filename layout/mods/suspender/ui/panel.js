@@ -17,9 +17,9 @@ import { sessionsShown } from "../core/layout.js";
 import { reportedSize, scaleOf, windowPx } from "../core/scale.js";
 import { t } from "../i18n/index.js";
 import { treesMemoryMb } from "../platform/proc.js";
-import { agentIcon, ICONS, icon, palette, TONE_COLOR } from "./kit.js";
+import { agentIcon, ICONS, icon, palette, stateMark, TONE_COLOR } from "./kit.js";
 import { anchorRect, factsFor, hoverPopup } from "./popup.js";
-import { fitRow, groupSessions, isSleeping, MemoryPolicy, memoryFreedText, ROW_ITEM_GAP, ROW_SMALL_TEXT, ROW_TEXT, ROW_TITLE_PX, rowMemory, stateWord, usedNow, } from "./sessionsModel.js";
+import { fitRow, groupSessions, isSleeping, MemoryPolicy, memoryFreedText, ROW_ITEM_GAP, ROW_SMALL_TEXT, ROW_TEXT, ROW_TITLE_PX, rowMemory, shownState, usedNow, } from "./sessionsModel.js";
 import { uiMeasure } from "./textWidth.js";
 import { ACTION_LABEL, BUTTON_ICON, BUTTON_PAD_X, BUTTON_TEXT, FOOTER_BOX, FOOTER_LABEL, FOOTER_PAD_X, FOOTER_TEXT, fitFooter, fitUpdateLine, LINE_GAP, LINE_LEAD, LINE_PAD_X, LINE_TEXT, updateLine, } from "./updateLine.js";
 /** Running sessions' memory is read at most this often, and only while the panel is shown. */
@@ -346,13 +346,8 @@ export class PanelView {
         const used = usedNow(rec, this.used);
         const memory = rowMemory(rec, used);
         const fit = fitRow(rec, this.size.width, memory?.text ?? null, ports.sep, uiMeasure, scale);
-        const tone = TONE_COLOR[rec.state === "interrupted"
-            ? "warn"
-            : isSleeping(rec.state)
-                ? rec.state === "missing" || rec.state === "error"
-                    ? "error"
-                    : "sleep"
-                : "live"];
+        const checking = engine.checking(rec.key);
+        const shown = shownState(rec, checking);
         const title = rec.info.title ?? agentName;
         const items = [];
         fit.segs.forEach((seg, i) => {
@@ -383,16 +378,18 @@ export class PanelView {
                 .text_color(color("dim"))
                 .child(`+${fit.hidden}`));
         }
-        // Sleep for a running agent, Resume for a sleeping one; nothing while it is changing.
-        const action = rec.state === "running" || rec.state === "working"
-            ? { name: "moon", label: t("panel.sleep"), run: () => engine.sleep(rec.key) }
-            : rec.state === "asleep" || rec.state === "interrupted" || rec.state === "error"
-                ? {
-                    name: "play",
-                    label: t(rec.state === "error" ? "strip.retry" : "strip.resume"),
-                    run: () => engine.resume(rec.key),
-                }
-                : null;
+        // Sleep for a running agent, Resume for a sleeping one; nothing while it is changing or not known yet.
+        const action = checking
+            ? null
+            : rec.state === "running" || rec.state === "working"
+                ? { name: "moon", label: t("panel.sleep"), run: () => engine.sleep(rec.key) }
+                : rec.state === "asleep" || rec.state === "interrupted" || rec.state === "error"
+                    ? {
+                        name: "play",
+                        label: t(rec.state === "error" ? "strip.retry" : "strip.resume"),
+                        run: () => engine.resume(rec.key),
+                    }
+                    : null;
         // The agent's icon is centred on the title's line, not put at the row's top: a box
         // as tall as that line, beside it (the second line stays indented under the title).
         const tile = h_flex()
@@ -430,7 +427,7 @@ export class PanelView {
             .gap(8)
             .items_center()
             .child(div().flex_1().min_w(0).truncate().text_size(12.5).text_color(color("foreground")).child(title))
-            .child(div().flex_none().whitespace_nowrap().text_size(11).text_color(color(tone)).child(stateWord(rec.state)))
+            .child(stateMark(shown.word, color(TONE_COLOR[shown.tone]), shown.moving).text_size(11))
             .when(action !== null, (el) => el.child(div()
             .id(`row-action-${rec.key}`)
             .flex_none()

@@ -265,7 +265,8 @@ export function fitRow(
 
 // ---- the popup
 
-export type Tone = "live" | "sleep" | "warn" | "error";
+/** "pending": not known yet (checking), in a neutral colour. */
+export type Tone = "live" | "sleep" | "warn" | "error" | "pending";
 
 export interface PopupRow {
   id: "branch" | "model" | "messages" | "memory" | "folder" | "session";
@@ -281,6 +282,8 @@ export interface PopupFacts {
   /** The state word, with the time for a sleeper ("asleep · 14:20"). */
   state: string;
   tone: Tone;
+  /** Something is under way (checking, stopping, waking): the state is drawn with a spinner. */
+  moving: boolean;
   /** The whole name (the tooltip shows it when the lines cut it). */
   title: string | null;
   /** The name as the popup draws it: up to TITLE_MAX_LINES lines, an ellipsis only past the last. */
@@ -313,6 +316,29 @@ const TONE: Readonly<Record<SessionState, Tone>> = {
   error: "error",
 };
 
+/** What a row and the popup say about a session's state (`shownState`). */
+export interface ShownState {
+  word: string;
+  tone: Tone;
+  /** Something is under way: drawn with a spinner. */
+  moving: boolean;
+}
+
+/** States in which something is under way: the session is falling asleep or waking. */
+const MOVING: ReadonlySet<SessionState> = new Set(["stopping", "waking"]);
+
+/**
+ * What to show for a session: its state, or "checking" while the engine has not
+ * confirmed a running record in this run (`Engine.checking`), so a session lost
+ * in a restart does not say "running" for seconds before "interrupted".
+ */
+export function shownState(rec: SessionRecord, checking: boolean): ShownState {
+  if (checking) {
+    return { word: t("state.checking"), tone: "pending", moving: true };
+  }
+  return { word: stateWord(rec.state), tone: TONE[rec.state], moving: MOVING.has(rec.state) };
+}
+
 /** The state's word ("asleep", "working", …). */
 export const stateWord = (state: SessionState): string => t(`state.${state}`);
 
@@ -338,7 +364,7 @@ function contextFacts(pct: number | null, text: string | null): PopupFacts["cont
 /** What the popup shows, in the order of the approved mockup (session-info.html v4). */
 export function popupFacts(
   rec: SessionRecord,
-  o: { agentName: string; home: string; sep: Sep; now: number; usedMb: number | null },
+  o: { agentName: string; home: string; sep: Sep; now: number; usedMb: number | null; checking?: boolean },
 ): PopupFacts {
   const info = rec.info;
   const rows: PopupRow[] = [];
@@ -370,11 +396,15 @@ export function popupFacts(
   rows.push({ id: "session", label: t("popup.session"), value: midId(sessionId), copy: sessionId });
 
   const pct = info.contextPct === null ? null : Math.max(0, Math.min(100, Math.round(info.contextPct)));
+  const checking = o.checking === true;
+  const shown = shownState(rec, checking);
   return {
     agent: rec.agent,
     agentName: o.agentName,
-    state: stateText(rec, o.now),
-    tone: TONE[rec.state],
+    // The row's word, with the time a sleeper went to sleep.
+    state: checking ? shown.word : stateText(rec, o.now),
+    tone: shown.tone,
+    moving: shown.moving,
     title: present(info.title),
     ...titleLayout(present(info.title)),
     prompt: present(info.firstPrompt),

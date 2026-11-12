@@ -216,6 +216,19 @@ const TONE = {
     missing: "error",
     error: "error",
 };
+/** States in which something is under way: the session is falling asleep or waking. */
+const MOVING = new Set(["stopping", "waking"]);
+/**
+ * What to show for a session: its state, or "checking" while the engine has not
+ * confirmed a running record in this run (`Engine.checking`), so a session lost
+ * in a restart does not say "running" for seconds before "interrupted".
+ */
+export function shownState(rec, checking) {
+    if (checking) {
+        return { word: t("state.checking"), tone: "pending", moving: true };
+    }
+    return { word: stateWord(rec.state), tone: TONE[rec.state], moving: MOVING.has(rec.state) };
+}
 /** The state's word ("asleep", "working", …). */
 export const stateWord = (state) => t(`state.${state}`);
 /** The state word of a session; a sleeper's and an interrupted one's carry the time they went. */
@@ -265,11 +278,15 @@ export function popupFacts(rec, o) {
     const sessionId = info.sessionId || rec.sessionId;
     rows.push({ id: "session", label: t("popup.session"), value: midId(sessionId), copy: sessionId });
     const pct = info.contextPct === null ? null : Math.max(0, Math.min(100, Math.round(info.contextPct)));
+    const checking = o.checking === true;
+    const shown = shownState(rec, checking);
     return {
         agent: rec.agent,
         agentName: o.agentName,
-        state: stateText(rec, o.now),
-        tone: TONE[rec.state],
+        // The row's word, with the time a sleeper went to sleep.
+        state: checking ? shown.word : stateText(rec, o.now),
+        tone: shown.tone,
+        moving: shown.moving,
         title: present(info.title),
         ...titleLayout(present(info.title)),
         prompt: present(info.firstPrompt),

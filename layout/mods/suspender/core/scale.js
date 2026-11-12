@@ -48,6 +48,15 @@ export const reportedSize = (size) => ({
  * multiplies it by the zoom; the UI font size does not touch it.
  */
 export const AGENT_ICON = modPx(16);
+// ---- a state under way
+/**
+ * The spinner before a state that is under way (checking, falling asleep,
+ * waking) in a Sessions row and the popup's header: a little smaller than the
+ * state's 11 px text, so the row keeps its height. Turned by Herdr (`spin`).
+ */
+export const STATE_SPINNER = modPx(10);
+/** Between the spinner and the state's word. */
+export const STATE_SPINNER_GAP = modPx(4);
 // ---- the Sleep pill
 /**
  * Herdr's frame around a floating mod: 5 px above and below the content and a

@@ -48,6 +48,7 @@ export const en = {
 
   // The state word of a session in the list and in the popup.
   "state.running": "running",
+  "state.checking": "checking",
   "state.working": "working",
   "state.confirming": "asking",
   "state.stopping": "stopping",

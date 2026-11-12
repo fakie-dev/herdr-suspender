@@ -28,6 +28,8 @@ export const REV_KEY = "suspender.rev";
 export const PROGRESS_KEY = "suspender.progress";
 /** "Sessions · N" for the live copy of the tab bar, which reads it with shared() (runtime/tabsClone.ts). */
 export const TAB_LABEL_KEY = "suspender.tabLabel";
+/** Set when the leader has confirmed sessions' states in this run: every copy redraws ("checking" ends). */
+export const CHECKED_KEY = "suspender.checked";
 /** The terminal's own pid when it was bound: a restart gives it a new one. */
 export const LABEL_PID = "suspender.pid";
 export const LEADER_STALE_MS = 15_000;
@@ -98,6 +100,8 @@ export function newCoordinator() {
         silentLook: new Map(),
         splits: new Map(),
         sleepPanes: new Map(),
+        confirmed: new Set(),
+        confirmedNews: false,
     };
 }
 const RUNNING = ["running", "working", "confirming"];
@@ -196,6 +200,22 @@ export class Engine {
     progress(key) {
         return this.co.progress.get(key) ?? null;
     }
+    /**
+     * The record says the agent runs, but the engine has not confirmed it in this
+     * run: after a restart the terminal may have come back as a bare shell, which
+     * shows as "interrupted" only after the leader's look and its grace. Only
+     * running states: a sleeping one is what its pane shows.
+     */
+    checking(key) {
+        const rec = this.record(key);
+        return rec !== null && RUNNING.includes(rec.state) && !this.co.confirmed.has(key);
+    }
+    confirm(key) {
+        if (!this.co.confirmed.has(key)) {
+            this.co.confirmed.add(key);
+            this.co.confirmedNews = true;
+        }
+    }
     freshness(key) {
         return this.co.fresh.get(key) ?? null;
     }
@@ -255,6 +275,11 @@ export class Engine {
         await this.lateSplits();
         await this.reconcile(terms);
         this.sweepStrays();
+        if (this.co.confirmedNews) {
+            // Once per round that confirmed something: setting a shared value redraws every copy.
+            this.co.confirmedNews = false;
+            this.host.setShared(CHECKED_KEY, this.ports.now());
+        }
     }
     /** Whether a split for this session's pane may still show (lateSplits). */
     awaitingPane(key) {
@@ -362,6 +387,7 @@ export class Engine {
             return true;
         });
         this.bindTried.delete(term.address);
+        this.confirm(key);
         this.co.checkedAt.set(term.address, this.ports.now());
         this.co.seen.set(term.address, signature(term));
         await this.noteAgent(term, adapter);
@@ -388,6 +414,8 @@ export class Engine {
             }
             return;
         }
+        // Its agent is in its terminal: the state the record says is true in this run.
+        this.confirm(key);
         if (this.busy(key) || !RUNNING.includes(rec.state)) {
             return;
         }
@@ -805,6 +833,9 @@ export class Engine {
             return this.record(key)?.terminal === term.address ? key : rec.key;
         }
         await this.label(term, rec.agent, sessionId);
+        if (this.co.confirmed.has(rec.key)) {
+            this.confirm(key);
+        }
         for (const set of [this.co.whenDone]) {
             if (set.delete(rec.key)) {
                 set.add(key);
@@ -1162,6 +1193,7 @@ export class Engine {
         }
         const step = transition(rec.state, ev);
         if (step.state !== rec.state) {
+            this.confirm(key);
             await this.patch(key, (r) => {
                 r.state = step.state;
                 if (step.state !== "error") {

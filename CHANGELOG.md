@@ -27,6 +27,10 @@ and the project uses [Semantic Versioning](https://semver.org/).
 
 ### Changed
 
+- Right after Herdr starts, a session the mod has not looked at yet says "checking" with a small spinner in
+  Sessions and in its popup, instead of "running". Before, a session whose agent was lost with the restart said
+  "running" for a few seconds and then "interrupted". Falling asleep and waking turn the same spinner, in the row,
+  the popup and the sleeping pane; a settled state draws none, so nothing moves while nothing is under way.
 - Sessions and the popup show each agent's own icon, the one Herdr's tab bar and Agents list show, instead of a
   square with a letter. The icon comes from Herdr's program table, so a sleeping session has it too, and an icon
   changed in Herdr's `programs.json` changes here as well. Herdr is asked for the table once per start (it checks

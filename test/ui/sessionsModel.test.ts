@@ -17,6 +17,7 @@ import {
   popupHeight,
   popupPosition,
   rowMemory,
+  shownState,
   sleepingCount,
   TITLE_LINE_PX,
   TITLE_MAX_LINES,
@@ -709,5 +710,32 @@ describe("wrapping costs what is drawn (user: the popup said «This view could n
         );
       }
     }
+  });
+});
+
+describe("the state a row and the popup show: checking, and states in progress", () => {
+  const base = { agentName: "Claude Code", home: HOME, sep: "\\" as const, now: 0, usedMb: null };
+
+  it("a running record not confirmed in this run says checking, in a neutral colour, with motion", () => {
+    assert.deepEqual(shownState(rec("a", "running"), true), { word: "checking", tone: "pending", moving: true });
+    const f = popupFacts(rec("a", "running"), { ...base, checking: true });
+    assert.deepEqual([f.state, f.tone, f.moving], ["checking", "pending", true]);
+  });
+
+  it("a confirmed one says what it is, still", () => {
+    assert.deepEqual(shownState(rec("a", "running"), false), { word: "running", tone: "live", moving: false });
+    assert.deepEqual(shownState(rec("w", "working"), false), { word: "working", tone: "live", moving: false });
+    const f = popupFacts(rec("a", "running"), { ...base, checking: false });
+    assert.deepEqual([f.state, f.tone, f.moving], ["running", "live", false]);
+  });
+
+  it("falling asleep and waking move; resting states do not", () => {
+    assert.equal(shownState(rec("s", "stopping"), false).moving, true);
+    assert.equal(shownState(rec("k", "waking"), false).moving, true);
+    for (const state of ["asleep", "interrupted", "confirming", "elsewhere", "missing", "error"] as const) {
+      assert.equal(shownState(rec("r", state), false).moving, false, state);
+    }
+    assert.equal(popupFacts(rec("s", "stopping"), base).moving, true);
+    assert.equal(popupFacts(rec("z", "asleep"), base).moving, false);
   });
 });

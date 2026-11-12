@@ -22,6 +22,8 @@ const WATCHED = ["asleep", "interrupted", "elsewhere"];
 /** The wake's steps: the spinner and the gap before each step. */
 const SPINNER_PX = 12;
 const STEP_GAP = 8;
+/** The wake's spinner, turned natively (only while drawn). */
+const spinner = (tint) => svg(`${ICONS}/spinner.svg`).size(SPINNER_PX).flex_none().text_color(tint).spin(900);
 /** A theme colour by name (theme() names every one the mod uses; a missing one draws nothing). */
 function palette() {
     const th = theme();
@@ -235,7 +237,7 @@ export class SleepPane {
             ? h_flex()
                 .gap(STEP_GAP)
                 .items_center()
-                .child(svg(`${ICONS}/spinner.svg`).size(SPINNER_PX).text_color(color("accent")).spin(900))
+                .child(spinner(color("accent")))
                 .children(steps.map((s) => div()
                 .flex_none()
                 .whitespace_nowrap()
@@ -254,7 +256,15 @@ export class SleepPane {
                     agentName,
                     progress: this.engine.progress(this.key),
                     fresh: this.engine.freshness(this.key),
-                }), room, measure).map((line) => div().whitespace_nowrap().child(line)));
+                }), rec.state === "stopping" ? Math.max(0, room - SPINNER_PX - STEP_GAP) : room, measure).map((line) => div().whitespace_nowrap().child(line)));
+        // Falling asleep turns the same spinner before its lines (they have that much less room).
+        const statusLine = rec.state === "stopping"
+            ? h_flex()
+                .gap(STEP_GAP)
+                .items_center()
+                .child(spinner(color("accent")))
+                .child(status)
+            : status;
         // In a pane too narrow for the labels, each button folds to its icon, its label in a tooltip.
         const folded = fit.buttons === "icon";
         const buttons = actions.map((a, i) => h_flex()
@@ -318,7 +328,7 @@ export class SleepPane {
             .text_color(color("muted"))
             .children(items))
             .children(buttons))
-            .child(h_flex().pl(STRIP_STATUS_INDENT).text_size(STRIP_STATUS_TEXT).child(status)));
+            .child(h_flex().pl(STRIP_STATUS_INDENT).text_size(STRIP_STATUS_TEXT).child(statusLine)));
     }
 }
 /** "{agent} is still answering": Sleep when done / Interrupt and sleep / Cancel. Closing it any other way is Cancel. */

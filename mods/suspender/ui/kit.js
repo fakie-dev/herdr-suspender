@@ -4,7 +4,7 @@ import { h_flex } from "gpui-base";
 import { image, svg } from "gpui-kit";
 import { knownAgents, panes, theme } from "herdr";
 import { AgentLooks } from "../core/agentLook.js";
-import { AGENT_ICON } from "../core/scale.js";
+import { AGENT_ICON, STATE_SPINNER, STATE_SPINNER_GAP } from "../core/scale.js";
 export const ICONS = "mods/suspender/icons";
 /** A theme colour by name (theme() names every one the mod uses; a missing one draws nothing). */
 export function palette() {
@@ -17,6 +17,7 @@ export const TONE_COLOR = {
     sleep: "accent",
     warn: "working",
     error: "blocked",
+    pending: "muted",
 };
 const GLYPH = { claude: "C", codex: "X" };
 /** The agent's little square: a glyph on a raised tile (colours from the theme only). */
@@ -74,3 +75,20 @@ export function agentIcon(agent, color, cx, now) {
 }
 /** A tinted icon from the mod's own folder. */
 export const icon = (name, size, tint) => svg(`${ICONS}/${name}.svg`).size(size).flex_none().text_color(tint);
+/** How long the spinner takes to turn once (the same as the sleeping pane's and the update line's). */
+export const SPIN_MS = 900;
+/**
+ * A state's word, after a spinner when something is under way (`ShownState.moving`).
+ * The spinner turns natively and only while drawn: a settled state draws none, so
+ * nothing animates while nothing is under way.
+ */
+export function stateMark(word, tint, moving) {
+    return h_flex()
+        .flex_none()
+        .gap(STATE_SPINNER_GAP)
+        .items_center()
+        .whitespace_nowrap()
+        .text_color(tint)
+        .when(moving, (el) => el.child(svg(`${ICONS}/spinner.svg`).size(STATE_SPINNER).flex_none().text_color(tint).spin(SPIN_MS)))
+        .child(word);
+}
