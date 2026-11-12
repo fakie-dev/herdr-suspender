@@ -34,6 +34,24 @@ describe("terminal cell", () => {
     }
   });
 
+  it("applies terminal_line_height the way Herdr does", () => {
+    // Geist Mono 15 -> 20 px base row; JetBrains Mono 19 -> 25 px base row.
+    assert.equal(look({ font_family: "Geist Mono", font_size: 15, terminal_line_height: 1.3 }).cellH, 26);
+    // 25 x 1.3 is 32.5 in doubles, but Herdr holds the value as float32 (1.2999999), so the row is 32.
+    assert.equal(look({ font_size: 19, terminal_line_height: 1.3 }).cellH, 32);
+    // No field, or 1, changes nothing; neither does a value that is not a number.
+    const base = look({ font_size: 19 }).cellH;
+    assert.equal(base, 25);
+    assert.equal(look({ font_size: 19, terminal_line_height: 1 }).cellH, base);
+    assert.equal(look({ font_size: 19, terminal_line_height: "tall" }).cellH, base);
+  });
+
+  it("clamps terminal_line_height to 0.8 - 2", () => {
+    assert.equal(look({ font_size: 20, terminal_line_height: 5 }).cellH, 52); // 26 x 2
+    assert.equal(look({ font_size: 20, terminal_line_height: 0.1 }).cellH, 21); // 26 x 0.8 = 20.8
+    assert.equal(look({ font_size: 20, terminal_line_height: -1 }).cellH, 21);
+  });
+
   it("rounds in device pixels under zoom", () => {
     const l = look({ zoom: 1.1 });
     assert.ok(Math.abs(l.cellW * 1.1 - 9) < 1e-9, `cellW ${l.cellW}`);

@@ -210,7 +210,16 @@ export const DEFAULT_ROWS = 30;
 export const SCREEN_DIM = 0.3;
 const positive = (value, fallback) => typeof value === "number" && Number.isFinite(value) && value > 0 ? value : fallback;
 const nonNegative = (value, fallback) => typeof value === "number" && Number.isFinite(value) && value >= 0 ? value : fallback;
-/** From `settings()`: the shown layout's terminal font, size, padding and the zoom. */
+/** Herdr's `terminal_line_height` range and default; the value is stored as float32. */
+const LINE_HEIGHT_MIN = 0.8;
+const LINE_HEIGHT_MAX = 2;
+/** `adjusted_cell_height`: round(round(device px x font height) x line height), one px at least. */
+function cellHeight(device, fontHeight, lineHeight) {
+    const raw = typeof lineHeight === "number" && Number.isFinite(lineHeight) ? lineHeight : 1;
+    const lh = Math.fround(Math.min(LINE_HEIGHT_MAX, Math.max(LINE_HEIGHT_MIN, raw)));
+    return Math.max(1, Math.round(Math.round(device * fontHeight) * lh));
+}
+/** From `settings()`: the shown layout's terminal font, size, line height, padding and the zoom. */
 export function screenLook(look) {
     const named = look["font_family"];
     const font = typeof named === "string" && named !== "" ? named : FALLBACK_FONT;
@@ -220,7 +229,7 @@ export function screenLook(look) {
     const metrics = FONTS[font.toLowerCase()] ?? FALLBACK_METRICS;
     const device = size * zoom;
     const cellW = Math.max(1, Math.round(device * metrics.advance)) / zoom;
-    const cellH = Math.max(1, Math.round(device * metrics.height)) / zoom;
+    const cellH = cellHeight(device, metrics.height, look["terminal_line_height"]) / zoom;
     const pad = look["terminal_padding"];
     const padX = nonNegative(Array.isArray(pad) ? pad[0] : pad, 0);
     const padY = nonNegative(Array.isArray(pad) ? (pad[1] ?? pad[0]) : pad, 0);
