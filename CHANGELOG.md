@@ -35,6 +35,10 @@ and the project uses [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- Sleep no longer puts another tab's Claude Code session to sleep. On Windows a tab's session was looked up by
+  the folder its shell was in, and one session in that folder was taken even when it ran in another space's tab
+  (a new tab's shell starts where the focused pane was; Claude is started after a `cd`). The session is now the
+  Claude running under the tab's own shell. A tab whose Claude was started elsewhere is now found too.
 - A session you open again in a new tab, after its tab was closed (a hung agent, say), is found in that tab. Its
   Sessions row kept the closed tab and clicking it said "tab.select failed: no such tab". The same goes for a
   terminal moved to another tab or space. A record already pointing at a closed tab corrects itself on the next look.

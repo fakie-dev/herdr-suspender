@@ -40,20 +40,69 @@ describe("claude: discoverSession", () => {
     assert.equal(p.execCalls.length, 0);
   });
 
-  it("matches by folder and start time when the shell is in the foreground", async () => {
-    const p = fakePorts();
-    const t = terminal({ createdMs: 1_000_000, foreground: { pid: 100, argv: ["bash"], name: "bash" } });
-    p.files.set(`${SESSIONS}/201.json`, claudePidFile({ pid: 201, sessionId: A_ID, cwd: CWD, startedAt: 1_000_500 }));
-    // Same folder but started before this terminal existed: not ours.
-    p.files.set(`${SESSIONS}/202.json`, claudePidFile({ pid: 202, sessionId: OLD_ID, cwd: CWD, startedAt: 900_000 }));
-    // Started later, other folder.
-    p.files.set(
-      `${SESSIONS}/203.json`,
-      claudePidFile({ pid: 203, sessionId: OTHER_ID, cwd: `${HOME}/dev/x`, startedAt: 1_000_600 }),
+  it("takes the session whose Claude runs under the shell in the foreground", async () => {
+    // 201 runs under this shell (100); 202's file outlived its process; 203 runs under another shell.
+    const p = scriptExec(fakePorts({ sep: "\\" }), () =>
+      ok("201\t100\t1000500\tclaude.exe\tclaude\r\n203\t300\t1000600\tclaude.exe\tclaude\r\n"),
     );
-    p.files.set(`${SESSIONS}/203.abc.key`, "not json");
+    const cwd = "C:\\Users\\tester\\dev\\app";
+    const sessions = "C:\\Users\\tester\\.claude\\sessions";
+    const t = terminal({ cwd, createdMs: 1_000_000, foreground: { pid: 100, argv: [], name: "pwsh.exe" } });
+    p.files.set(`${sessions}\\201.json`, claudePidFile({ pid: 201, sessionId: A_ID, cwd, startedAt: 1_000_500 }));
+    p.files.set(`${sessions}\\202.json`, claudePidFile({ pid: 202, sessionId: OLD_ID, cwd, startedAt: 1_000_550 }));
+    p.files.set(`${sessions}\\203.json`, claudePidFile({ pid: 203, sessionId: OTHER_ID, cwd, startedAt: 1_000_600 }));
+    p.files.set(`${sessions}\\203.abc.key`, "not json");
     assert.equal(await claudeAdapter.discoverSession(t, p), A_ID);
-    assert.equal(p.execCalls.length, 0, "no process query when the files settle it");
+  });
+
+  it("never takes the one session in the shell's folder when it runs under another terminal", async () => {
+    // Measured live: a new tab's shell starts in the folder of the pane focused before, and the
+    // person starts Claude elsewhere. A session started later in that folder, in another space's
+    // tab, was the only one found there and was taken: Sleep then put the other space's session
+    // to sleep here.
+    const p = scriptExec(fakePorts({ sep: "\\" }), () => ok("202\t300\t1000600\tclaude.exe\tclaude\r\n"));
+    const cwd = "C:\\Users\\tester\\dev\\app";
+    const sessions = "C:\\Users\\tester\\.claude\\sessions";
+    p.files.set(`${sessions}\\202.json`, claudePidFile({ pid: 202, sessionId: OTHER_ID, cwd, startedAt: 1_000_600 }));
+    const t = terminal({ cwd, createdMs: 1_000_000, foreground: { pid: 100, argv: [], name: "pwsh.exe" } });
+    assert.equal(await claudeAdapter.discoverSession(t, p), null);
+  });
+
+  it("does not take a pid file whose pid now belongs to another program", async () => {
+    const p = scriptExec(fakePorts({ sep: "\\" }), () => ok("201\t100\t1000500\tnotepad.exe\tnotepad\r\n"));
+    const cwd = "C:\\Users\\tester\\dev\\app";
+    const sessions = "C:\\Users\\tester\\.claude\\sessions";
+    p.files.set(`${sessions}\\201.json`, claudePidFile({ pid: 201, sessionId: A_ID, cwd, startedAt: 1_000_500 }));
+    const t = terminal({ cwd, createdMs: 1_000_000, foreground: { pid: 100, argv: [], name: "pwsh.exe" } });
+    assert.equal(await claudeAdapter.discoverSession(t, p), null);
+  });
+
+  it("finds its own session though the shell says another folder (Claude was started after a cd)", async () => {
+    const p = scriptExec(fakePorts({ sep: "\\" }), () => ok("201\t100\t900000\tclaude.exe\tclaude\r\n"));
+    const sessions = "C:\\Users\\tester\\.claude\\sessions";
+    p.files.set(
+      `${sessions}\\201.json`,
+      claudePidFile({ pid: 201, sessionId: A_ID, cwd: "C:\\Users\\tester\\dev\\real", startedAt: 900_000 }),
+    );
+    const t = terminal({
+      cwd: "C:\\Users\\tester\\dev\\stale",
+      createdMs: 1_000_000,
+      foreground: { pid: 100, argv: [], name: "pwsh.exe" },
+    });
+    assert.equal(await claudeAdapter.discoverSession(t, p), A_ID);
+  });
+
+  it("takes the Claude nearest the shell when that Claude runs another one", async () => {
+    const p = scriptExec(fakePorts({ sep: "\\" }), () =>
+      ok("150\t201\t1000700\tclaude.exe\tclaude -p x\r\n201\t100\t1000500\tclaude.exe\tclaude\r\n"),
+    );
+    const cwd = "C:\\Users\\tester\\dev\\app";
+    const sessions = "C:\\Users\\tester\\.claude\\sessions";
+    // Listed first, one level deeper.
+    p.files.set(`${sessions}\\150.json`, claudePidFile({ pid: 150, sessionId: OTHER_ID, cwd, startedAt: 1_000_700 }));
+    p.files.set(`${sessions}\\201.json`, claudePidFile({ pid: 201, sessionId: A_ID, cwd, startedAt: 1_000_500 }));
+    const t = terminal({ cwd, createdMs: 1_000_000, foreground: { pid: 100, argv: [], name: "pwsh.exe" } });
+    assert.equal(await claudeAdapter.discoverSession(t, p), A_ID);
   });
 
   it("tells two sessions in one folder apart by the process tree", async () => {

@@ -11,7 +11,7 @@
     }
   },
   "files": {
-    "adapters/claude.js": "e141e8f08b5eae138289c8a3da0b3a01543e140de3dc534df9a07711ef5baa54",
+    "adapters/claude.js": "9a54edc70d2b99153867cd0f259dfcf2d2417a70332f3d1698ee9e553c918f27",
     "adapters/codex.js": "30e27277275560d12a4d3e4af7bc02a2ff6c91d7c7aa7922d62e2fc86a598e1f",
     "adapters/common.js": "e39aa977fde6d89a3691778a29839841fa26ecec90e05d98750b9ab6d3a21c80",
     "adapters/contract.js": "2861d157163513931e693b9595181d23ed2a23b49db815a0f73cf4482a01d444",

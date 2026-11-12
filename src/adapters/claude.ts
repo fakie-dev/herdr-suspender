@@ -6,7 +6,7 @@
 
 import type { SessionInfo } from "../core/model.ts";
 import type { Ports } from "../platform/ports.ts";
-import { descendsFrom, liveProcessesOrNull, processDetails } from "../platform/proc.ts";
+import { descendsFrom, liveProcessesOrNull, type ProcessDetail, processDetails } from "../platform/proc.ts";
 import {
   contextFields,
   emptyInfo,
@@ -346,21 +346,66 @@ async function discoverSession(t: TerminalView, p: Ports): Promise<string | null
       return own.sessionId;
     }
   }
-  const candidates = (await liveSessions(p)).filter(
-    (s) => sameDir(s.cwd, t.cwd, p) && s.startedAt >= t.createdMs - START_SLACK_MS,
-  );
-  if (candidates.length === 1) {
-    return candidates[0]?.sessionId ?? null;
-  }
-  if (candidates.length > 1 && fg !== null) {
-    // Two sessions in one folder: the one whose process runs under this terminal's shell.
-    const tree = await processDetails(p);
-    const ours = candidates.filter((s) => descendsFrom(tree, s.pid, fg.pid));
-    return ours.length === 1 ? (ours[0]?.sessionId ?? null) : null;
+  if (fg !== null) {
+    // Windows: the shell is in the foreground. Its own Claude is the one running under it. The
+    // shell's folder says nothing: a new tab's shell starts where the focused pane was and Claude
+    // is started after a cd, and a session started later in that folder may run in another space.
+    const live = await liveSessions(p);
+    if (live.length > 0) {
+      const own = nearestUnder(await processDetails(p), live, fg.pid);
+      if (own !== null) {
+        return own.sessionId;
+      }
+    }
+  } else {
+    const candidates = (await liveSessions(p)).filter(
+      (s) => sameDir(s.cwd, t.cwd, p) && s.startedAt >= t.createdMs - START_SLACK_MS,
+    );
+    if (candidates.length === 1) {
+      return candidates[0]?.sessionId ?? null;
+    }
   }
   // No session file (yet): `claude --resume <id>` / `--session-id <id>` in the visible argv.
   const argv = fg?.argv ?? [];
   return argv.some((a) => a === "--resume" || a === "-r" || a === "--session-id") ? uuidIn(argv) : null;
+}
+
+/**
+ * The live session whose Claude runs under `shell`, nearest to it: a Claude
+ * that runs another one (`claude -p`) is the terminal's, not its child. A pid
+ * file whose process is gone, or whose pid now belongs to something else, is
+ * not in the tree as a Claude and does not count.
+ */
+function nearestUnder(tree: readonly ProcessDetail[], live: readonly LiveSession[], shell: number): LiveSession | null {
+  let best: { session: LiveSession; depth: number } | null = null;
+  for (const s of live) {
+    const proc = tree.find((d) => d.pid === s.pid);
+    if (proc === undefined || !/claude/i.test(proc.name)) {
+      continue;
+    }
+    const depth = depthUnder(tree, s.pid, shell);
+    if (depth !== null && (best === null || depth < best.depth)) {
+      best = { session: s, depth };
+    }
+  }
+  return best?.session ?? null;
+}
+
+/** How many parents up from `pid` `ancestor` is (1: its parent), or null if it is not above it. */
+function depthUnder(tree: readonly ProcessDetail[], pid: number, ancestor: number, maxDepth = 8): number | null {
+  const parent = new Map(tree.map((d) => [d.pid, d.ppid]));
+  let current = pid;
+  for (let depth = 1; depth <= maxDepth; depth++) {
+    const next = parent.get(current);
+    if (next === undefined || next === current) {
+      return null;
+    }
+    if (next === ancestor) {
+      return depth;
+    }
+    current = next;
+  }
+  return null;
 }
 
 async function openElsewhere(
