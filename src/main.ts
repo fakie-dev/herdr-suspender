@@ -14,15 +14,18 @@
 // built around it, or around Herdr's own tab bar when the copy cannot be used.
 
 import { type AsyncContext, type Context, div, type Element, View } from "gpui-kit";
-import { appHome, props as herdrProps, layout, nextCommand, notify, run, updates, writeTextFile } from "herdr";
-import { buildLivingLayout, LAYOUT_NAME, sessionsToggle } from "./core/layout.ts";
+import { appHome, props as herdrProps, keys, layout, nextCommand, notify, run, updates, writeTextFile } from "herdr";
+import { buildLivingLayout, LAYOUT_NAME, sessionsShown, sessionsToggle } from "./core/layout.ts";
 import type { SessionKey } from "./core/model.ts";
+import { MOD_VERSION } from "./core/release.ts";
 import { SHIPPED_MAIN, SHIPPED_MAIN_VERSION } from "./core/shippedMain.ts";
 import { herdrPorts } from "./platform/ports.ts";
+import { fetchRelease, herdrUpdateFiles, openInBrowser } from "./platform/updateFiles.ts";
 import { type Choice, Engine, newCoordinator, TICK_MS } from "./runtime/engine.ts";
 import { herdrHost } from "./runtime/herdrHost.ts";
 import { syncLayout } from "./runtime/layoutSync.ts";
 import { CLONE_NAME, type TabsOutcome, tabsKeeper } from "./runtime/tabsClone.ts";
+import { Updater } from "./runtime/updater.ts";
 import { PanelView } from "./ui/panel.ts";
 import { PillView } from "./ui/pill.ts";
 import { PopupView } from "./ui/popup.ts";
@@ -116,6 +119,59 @@ export function togglePanel(copy: string): void {
   }
 }
 
+/** The mod's own updates (runtime/updater.ts), one per module load: the copies of this window share it. */
+let updater: Updater | null = null;
+let updaterLoaded: Promise<void> | null = null;
+
+function modUpdates(): Updater {
+  if (updater === null) {
+    const platform = herdrPorts().platform;
+    updater = new Updater({
+      files: herdrUpdateFiles(platform),
+      appHome: appHome(),
+      version: MOD_VERSION,
+      fetchText: (url) => fetchRelease(url, MOD_VERSION),
+      notify: (n) => {
+        try {
+          notify(n);
+        } catch {
+          // No window to show it in (a check run).
+        }
+      },
+      bindings: () => {
+        try {
+          return keys();
+        } catch {
+          return [];
+        }
+      },
+      openPage: (url) => openInBrowser(platform, url),
+      now: () => Date.now(),
+      // Each copy redraws from its own round when the revision moved (PanelView.tick).
+      changed: () => undefined,
+    });
+  }
+  return updater;
+}
+
+/** Reads update.json and finishes what the build before this one started; once per module load. */
+function loadUpdates(): Promise<void> {
+  updaterLoaded ??= modUpdates()
+    .load()
+    .catch(() => undefined);
+  return updaterLoaded;
+}
+
+/**
+ * The command `suspender.updates` (the toast of a new release): shows Sessions
+ * if it is not on screen. One press reaches every shown copy; the first acts.
+ */
+function showPanel(copy: string): void {
+  if (!sessionsShown(layout())) {
+    togglePanel(copy);
+  }
+}
+
 /**
  * A layout when there is none yet, with nothing to wait for: built from the
  * main.json this Herdr ships, written at once and only if the file is absent.
@@ -199,17 +255,21 @@ export default class Suspender extends View {
     } else if (props.role === "pill") {
       this.pill = new PillView(engine, host);
     } else if (props.role === "panel") {
-      this.panel = new PanelView({ engine, host, ports, mode: "panel", overlay: null });
+      this.panel = new PanelView({ engine, host, ports, mode: "panel", overlay: null, updates: modUpdates() });
     } else if (props.role === "window" || props.role === undefined) {
       // `mod.open` gives no role: the Sessions list in a window of its own.
       const overlay = typeof props.overlay === "string" ? props.overlay : null;
-      this.panel = new PanelView({ engine, host, ports, mode: "window", overlay });
+      this.panel = new PanelView({ engine, host, ports, mode: "window", overlay, updates: modUpdates() });
     }
 
     if (this.popup === null && this.confirm === null) {
       cx.spawn(async (cx) => {
         const toast = (text: string): void => host.notify(text, "warning");
         await tabsAndLayout((ms) => cx.sleep(ms), toast);
+      });
+      cx.spawn(async (cx) => {
+        await loadUpdates();
+        cx.notify();
       });
     }
 
@@ -218,6 +278,13 @@ export default class Suspender extends View {
     const round = async (cx: AsyncContext): Promise<void> => {
       const before = engine.revision();
       await engine.tick();
+      if (this.popup === null && this.confirm === null) {
+        // At most once a day, and only once loaded: the first round is long before the check is due.
+        cx.spawn(async () => {
+          await loadUpdates();
+          await modUpdates().tick();
+        });
+      }
       this.sleep?.tick(cx);
       this.panel?.tick(cx);
       if (engine.revision() !== before) {
@@ -243,6 +310,8 @@ export default class Suspender extends View {
         cx.spawn(async (cx) => {
           if (command === "panel") {
             togglePanel(id);
+          } else if (command === "updates") {
+            showPanel(id);
           } else if (command === "toggle-focused") {
             await engine.toggleFocused();
           } else if (command === "resume-all") {

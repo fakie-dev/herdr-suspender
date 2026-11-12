@@ -12,7 +12,7 @@
 
 import { h_flex, v_flex } from "gpui-base";
 import type { AsyncContext } from "gpui-kit";
-import { type Context, div, type Element } from "gpui-kit";
+import { type Context, div, type Element, svg } from "gpui-kit";
 import { closeOverlay, layout, settings, spaces } from "herdr";
 import { SEPARATOR } from "../core/fit.ts";
 import { sessionsShown } from "../core/layout.ts";
@@ -23,7 +23,8 @@ import type { Ports } from "../platform/ports.ts";
 import { treesMemoryMb } from "../platform/proc.ts";
 import type { Engine } from "../runtime/engine.ts";
 import type { Host } from "../runtime/host.ts";
-import { agentTile, icon, type Palette, palette, TONE_COLOR } from "./kit.ts";
+import type { Updater } from "../runtime/updater.ts";
+import { agentTile, ICONS, icon, type Palette, palette, TONE_COLOR } from "./kit.ts";
 import { anchorRect, factsFor, hoverPopup } from "./popup.ts";
 import {
   fitRow,
@@ -42,6 +43,24 @@ import {
   usedNow,
 } from "./sessionsModel.ts";
 import { uiMeasure } from "./textWidth.ts";
+import {
+  ACTION_LABEL,
+  BUTTON_ICON,
+  BUTTON_PAD_X,
+  BUTTON_TEXT,
+  FOOTER_BOX,
+  FOOTER_LABEL,
+  FOOTER_PAD_X,
+  FOOTER_TEXT,
+  fitFooter,
+  fitUpdateLine,
+  LINE_GAP,
+  LINE_LEAD,
+  LINE_PAD_X,
+  LINE_TEXT,
+  type LineAction,
+  updateLine,
+} from "./updateLine.ts";
 
 /** Running sessions' memory is read at most this often, and only while the panel is shown. */
 export const MEMORY_EVERY_MS = 30_000;
@@ -56,7 +75,18 @@ export interface PanelOptions {
   mode: "panel" | "window";
   /** The window's overlay id (mode "window"). */
   overlay: string | null;
+  /** The mod's own updates: the line on top and the switch at the bottom. Absent: neither is drawn. */
+  updates?: Updater | null;
 }
+
+/** Each update button's icon when its label folds. */
+const ACTION_ICON: Readonly<Record<LineAction, string>> = {
+  update: "download",
+  whatsNew: "notes",
+  rollBack: "undo",
+  page: "link",
+  dismiss: "close",
+};
 
 export class PanelView {
   /** As Herdr reports it: window px. */
@@ -68,6 +98,8 @@ export class PanelView {
   /** Running sessions' facts (name, branch, model…): read when shown, then at most every 30 s. */
   private reading = false;
   private readonly facts = new MemoryPolicy(MEMORY_EVERY_MS);
+  /** The updater's revision this copy last drew. */
+  private drawnUpdate = -1;
   private readonly o: PanelOptions;
 
   constructor(o: PanelOptions) {
@@ -84,6 +116,10 @@ export class PanelView {
    * conversation changed).
    */
   tick(cx: AsyncContext): void {
+    const updates = this.o.updates;
+    if (updates !== undefined && updates !== null && updates.revision() !== this.drawnUpdate) {
+      cx.notify();
+    }
     if (!this.reading && this.facts.due(this.o.ports.now(), this.shown())) {
       this.reading = true;
       cx.spawn(async (task) => {
@@ -151,6 +187,7 @@ export class PanelView {
   }
 
   render(_cx: Context): Element {
+    this.drawnUpdate = this.o.updates?.revision() ?? -1;
     const color = palette();
     const scale = scaleOf(settings());
     const records = this.o.engine.records();
@@ -161,6 +198,8 @@ export class PanelView {
         .map((s) => ({ id: s.id, name: s.name })),
     );
     const freed = memoryFreedText(records);
+    const updateBar = this.updateBar(color, scale);
+    const footer = this.footer(color, scale);
     const header = h_flex()
       .h(42)
       .flex_none()
@@ -226,7 +265,138 @@ export class PanelView {
         cx.notify();
       })
       .child(header)
-      .child(body);
+      .when(updateBar !== null, (el) => el.child(updateBar ?? div()))
+      .child(body)
+      .when(footer !== null, (el) => el.child(footer ?? div()));
+  }
+
+  /** The line on top: a release to update to, an update under way, or how the last one ended. */
+  private updateBar(color: Palette, scale: Scale): Element | null {
+    const u = this.o.updates;
+    if (u === undefined || u === null) {
+      return null;
+    }
+    const line = updateLine(u.state(), u.version, u.available(), u.busy(), u.backupPath);
+    if (line === null) {
+      return null;
+    }
+    const mode = fitUpdateLine(line, this.size.width, scale, uiMeasure);
+    const tone =
+      line.tone === "accent" ? "accent" : line.tone === "done" ? "done" : line.tone === "error" ? "blocked" : "working";
+    const run = (action: LineAction): Promise<unknown> => {
+      if (action === "update") {
+        return u.update();
+      }
+      if (action === "rollBack") {
+        return u.rollback();
+      }
+      if (action === "dismiss") {
+        return u.dismiss();
+      }
+      u.whatsNew();
+      return Promise.resolve();
+    };
+    const button = (action: LineAction): Element => {
+      const label = t(ACTION_LABEL[action]);
+      const folded = mode === "icon" || action === "dismiss";
+      return h_flex()
+        .id(`update-${action}`)
+        .flex_none()
+        .h(20)
+        .px(folded ? 4 : BUTTON_PAD_X)
+        .items_center()
+        .rounded(5)
+        .text_size(BUTTON_TEXT)
+        .text_color(color(action === "update" ? "accent" : "muted"))
+        .cursor_pointer()
+        .hover((s) => s.bg(color("hover")))
+        .tooltip(label)
+        .on_mouse_down("left", (_e, cx) => cx.stop_propagation())
+        .on_click((_e, cx) => this.act(() => run(action), cx))
+        .child(
+          folded ? icon(ACTION_ICON[action], BUTTON_ICON, color(action === "update" ? "accent" : "muted")) : label,
+        );
+    };
+    const lead = line.spinning
+      ? svg(`${ICONS}/spinner.svg`).size(LINE_LEAD).flex_none().text_color(color(tone)).spin(900)
+      : h_flex()
+          .size(LINE_LEAD)
+          .flex_none()
+          .items_center()
+          .justify_center()
+          .child(div().size(6).rounded(3).bg(color(tone)));
+    return h_flex()
+      .id("update-line")
+      .flex_none()
+      .px(LINE_PAD_X)
+      .py(6)
+      .gap(LINE_GAP)
+      .items_center()
+      .border_b(1)
+      .border_color(color("border"))
+      .text_size(LINE_TEXT)
+      .child(lead)
+      .child(
+        div()
+          .id("update-text")
+          .flex_1()
+          .min_w(0)
+          .truncate()
+          .text_color(color("foreground"))
+          .when(line.detail !== null, (el) => el.tooltip(line.detail ?? ""))
+          .child(line.text),
+      )
+      .children(line.actions.map(button));
+  }
+
+  /** The bottom: this build's version and the switch for the daily check. */
+  private footer(color: Palette, scale: Scale): Element | null {
+    const u = this.o.updates;
+    if (u === undefined || u === null) {
+      return null;
+    }
+    const on = u.state().checks;
+    const mode = fitFooter(this.size.width, scale, uiMeasure);
+    const box = h_flex()
+      .size(FOOTER_BOX)
+      .flex_none()
+      .items_center()
+      .justify_center()
+      .rounded(3)
+      .border(1)
+      .border_color(color(on ? "accent" : "border"))
+      .when(on, (el) => el.bg(color("accent")).child(icon("check", FOOTER_BOX - 2, color("accent_foreground"))));
+    return h_flex()
+      .id("update-footer")
+      .flex_none()
+      .h(28)
+      .px(FOOTER_PAD_X)
+      .gap(LINE_GAP)
+      .items_center()
+      .border_t(1)
+      .border_color(color("border"))
+      .text_size(FOOTER_TEXT)
+      .text_color(color("dim"))
+      .child(
+        div()
+          .flex_1()
+          .min_w(0)
+          .truncate()
+          .child(t("update.footer.version", { version: u.version })),
+      )
+      .child(
+        h_flex()
+          .id("update-checks")
+          .flex_none()
+          .gap(LINE_GAP)
+          .items_center()
+          .cursor_pointer()
+          .tooltip(t("update.footer.checks"))
+          .on_mouse_down("left", (_e, cx) => cx.stop_propagation())
+          .on_click((_e, cx) => this.act(() => u.setChecks(!on), cx))
+          .child(box)
+          .when(mode !== "icon", (el) => el.child(mode === "icon" ? "" : t(FOOTER_LABEL[mode]))),
+      );
   }
 
   private group(g: Group, color: Palette, scale: Scale): Element[] {

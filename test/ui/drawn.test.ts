@@ -416,3 +416,82 @@ describe("the agent's tile beside the title (user: «иконка агента �
     assert.ok(texts(header).includes("Claude Code"), "the name beside it");
   });
 });
+
+const { World, LIVE } = await import("../update/world.ts");
+const { Updater, STARTUP_DELAY_MS } = await import("../../src/runtime/updater.ts");
+
+describe("the update line and the switch in Sessions", () => {
+  async function withRelease() {
+    const w = new World();
+    w.install(LIVE, "0.1.2");
+    w.publish("0.1.3");
+    const updates = new Updater(w.deps("0.1.2"));
+    await updates.load();
+    w.now += STARTUP_DELAY_MS;
+    await updates.tick();
+    return { w, updates };
+  }
+
+  it("draws the release with its two buttons, labelled, and the switch on", async () => {
+    const { engine, sim, ports, cx } = await world();
+    const { updates } = await withRelease();
+    const root = sized(
+      new PanelView({ engine, host: sim, ports, mode: "panel", overlay: null, updates }),
+      cx,
+      368,
+      900,
+    );
+    const line = byId(root, "update-line");
+    assert.ok(line !== undefined, "the line is drawn");
+    assert.ok(texts(line).includes("Suspender 0.1.3 is out"));
+    for (const [id, label] of [
+      ["update-whatsNew", "What's new"],
+      ["update-update", "Update"],
+    ] as const) {
+      const button = byId(root, id);
+      assert.ok(button !== undefined && texts(button).includes(label), id);
+    }
+    const footer = byId(root, "update-footer");
+    assert.ok(footer !== undefined);
+    assert.ok(texts(footer).includes("Suspender 0.1.2"));
+    assert.ok(texts(footer).includes("Check for updates"));
+  });
+
+  it("folds the buttons to icons with their labels in tooltips on a narrow panel", async () => {
+    const { engine, sim, ports, cx } = await world();
+    const { updates } = await withRelease();
+    const root = sized(
+      new PanelView({ engine, host: sim, ports, mode: "panel", overlay: null, updates }),
+      cx,
+      150,
+      900,
+    );
+    const button = byId(root, "update-update");
+    assert.ok(button !== undefined);
+    assert.ok(!texts(button).includes("Update"), "no label");
+    assert.ok(has(button, "tooltip", "Update"));
+    assert.ok(
+      [...walk(button)].some((el) => el.kind === "svg"),
+      "its icon",
+    );
+  });
+
+  it("draws neither without an updater, and no line when nothing is newer", async () => {
+    const { engine, sim, ports, cx } = await world();
+    const bare = sized(new PanelView({ engine, host: sim, ports, mode: "panel", overlay: null }), cx, 368, 900);
+    assert.equal(byId(bare, "update-line"), undefined);
+    assert.equal(byId(bare, "update-footer"), undefined);
+    const w = new World();
+    w.install(LIVE, "0.1.2");
+    const updates = new Updater(w.deps("0.1.2"));
+    await updates.load();
+    const root = sized(
+      new PanelView({ engine, host: sim, ports, mode: "panel", overlay: null, updates }),
+      cx,
+      368,
+      900,
+    );
+    assert.equal(byId(root, "update-line"), undefined);
+    assert.ok(byId(root, "update-footer") !== undefined);
+  });
+});

@@ -13,14 +13,17 @@
 // (`mods/suspender-tabs`, runtime/tabsClone.ts) is right, and the layout is
 // built around it, or around Herdr's own tab bar when the copy cannot be used.
 import { div, View } from "gpui-kit";
-import { appHome, props as herdrProps, layout, nextCommand, notify, run, updates, writeTextFile } from "herdr";
-import { buildLivingLayout, LAYOUT_NAME, sessionsToggle } from "./core/layout.js";
+import { appHome, props as herdrProps, keys, layout, nextCommand, notify, run, updates, writeTextFile } from "herdr";
+import { buildLivingLayout, LAYOUT_NAME, sessionsShown, sessionsToggle } from "./core/layout.js";
+import { MOD_VERSION } from "./core/release.js";
 import { SHIPPED_MAIN, SHIPPED_MAIN_VERSION } from "./core/shippedMain.js";
 import { herdrPorts } from "./platform/ports.js";
+import { fetchRelease, herdrUpdateFiles, openInBrowser } from "./platform/updateFiles.js";
 import { Engine, newCoordinator, TICK_MS } from "./runtime/engine.js";
 import { herdrHost } from "./runtime/herdrHost.js";
 import { syncLayout } from "./runtime/layoutSync.js";
 import { CLONE_NAME, tabsKeeper } from "./runtime/tabsClone.js";
+import { Updater } from "./runtime/updater.js";
 import { PanelView } from "./ui/panel.js";
 import { PillView } from "./ui/pill.js";
 import { PopupView } from "./ui/popup.js";
@@ -105,6 +108,57 @@ export function togglePanel(copy) {
         run(step.command, step.args);
     }
 }
+/** The mod's own updates (runtime/updater.ts), one per module load: the copies of this window share it. */
+let updater = null;
+let updaterLoaded = null;
+function modUpdates() {
+    if (updater === null) {
+        const platform = herdrPorts().platform;
+        updater = new Updater({
+            files: herdrUpdateFiles(platform),
+            appHome: appHome(),
+            version: MOD_VERSION,
+            fetchText: (url) => fetchRelease(url, MOD_VERSION),
+            notify: (n) => {
+                try {
+                    notify(n);
+                }
+                catch {
+                    // No window to show it in (a check run).
+                }
+            },
+            bindings: () => {
+                try {
+                    return keys();
+                }
+                catch {
+                    return [];
+                }
+            },
+            openPage: (url) => openInBrowser(platform, url),
+            now: () => Date.now(),
+            // Each copy redraws from its own round when the revision moved (PanelView.tick).
+            changed: () => undefined,
+        });
+    }
+    return updater;
+}
+/** Reads update.json and finishes what the build before this one started; once per module load. */
+function loadUpdates() {
+    updaterLoaded ??= modUpdates()
+        .load()
+        .catch(() => undefined);
+    return updaterLoaded;
+}
+/**
+ * The command `suspender.updates` (the toast of a new release): shows Sessions
+ * if it is not on screen. One press reaches every shown copy; the first acts.
+ */
+function showPanel(copy) {
+    if (!sessionsShown(layout())) {
+        togglePanel(copy);
+    }
+}
 /**
  * A layout when there is none yet, with nothing to wait for: built from the
  * main.json this Herdr ships, written at once and only if the file is absent.
@@ -174,17 +228,21 @@ export default class Suspender extends View {
             this.pill = new PillView(engine, host);
         }
         else if (props.role === "panel") {
-            this.panel = new PanelView({ engine, host, ports, mode: "panel", overlay: null });
+            this.panel = new PanelView({ engine, host, ports, mode: "panel", overlay: null, updates: modUpdates() });
         }
         else if (props.role === "window" || props.role === undefined) {
             // `mod.open` gives no role: the Sessions list in a window of its own.
             const overlay = typeof props.overlay === "string" ? props.overlay : null;
-            this.panel = new PanelView({ engine, host, ports, mode: "window", overlay });
+            this.panel = new PanelView({ engine, host, ports, mode: "window", overlay, updates: modUpdates() });
         }
         if (this.popup === null && this.confirm === null) {
             cx.spawn(async (cx) => {
                 const toast = (text) => host.notify(text, "warning");
                 await tabsAndLayout((ms) => cx.sleep(ms), toast);
+            });
+            cx.spawn(async (cx) => {
+                await loadUpdates();
+                cx.notify();
             });
         }
         // Redraw only for news: a write in this window already redraws every copy
@@ -192,6 +250,13 @@ export default class Suspender extends View {
         const round = async (cx) => {
             const before = engine.revision();
             await engine.tick();
+            if (this.popup === null && this.confirm === null) {
+                // At most once a day, and only once loaded: the first round is long before the check is due.
+                cx.spawn(async () => {
+                    await loadUpdates();
+                    await modUpdates().tick();
+                });
+            }
             this.sleep?.tick(cx);
             this.panel?.tick(cx);
             if (engine.revision() !== before) {
@@ -217,6 +282,9 @@ export default class Suspender extends View {
                 cx.spawn(async (cx) => {
                     if (command === "panel") {
                         togglePanel(id);
+                    }
+                    else if (command === "updates") {
+                        showPanel(id);
                     }
                     else if (command === "toggle-focused") {
                         await engine.toggleFocused();

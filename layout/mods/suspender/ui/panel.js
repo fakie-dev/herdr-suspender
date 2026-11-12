@@ -10,21 +10,30 @@
 // Memory of running sessions is measured only while the panel is shown and at
 // most every 30 s, inside the round every copy already runs (no timer here).
 import { h_flex, v_flex } from "gpui-base";
-import { div } from "gpui-kit";
+import { div, svg } from "gpui-kit";
 import { closeOverlay, layout, settings, spaces } from "herdr";
 import { SEPARATOR } from "../core/fit.js";
 import { sessionsShown } from "../core/layout.js";
 import { reportedSize, scaleOf, windowPx } from "../core/scale.js";
 import { t } from "../i18n/index.js";
 import { treesMemoryMb } from "../platform/proc.js";
-import { agentTile, icon, palette, TONE_COLOR } from "./kit.js";
+import { agentTile, ICONS, icon, palette, TONE_COLOR } from "./kit.js";
 import { anchorRect, factsFor, hoverPopup } from "./popup.js";
 import { fitRow, groupSessions, isSleeping, MemoryPolicy, memoryFreedText, ROW_ITEM_GAP, ROW_SMALL_TEXT, ROW_TEXT, ROW_TITLE_PX, rowMemory, stateWord, usedNow, } from "./sessionsModel.js";
 import { uiMeasure } from "./textWidth.js";
+import { ACTION_LABEL, BUTTON_ICON, BUTTON_PAD_X, BUTTON_TEXT, FOOTER_BOX, FOOTER_LABEL, FOOTER_PAD_X, FOOTER_TEXT, fitFooter, fitUpdateLine, LINE_GAP, LINE_LEAD, LINE_PAD_X, LINE_TEXT, updateLine, } from "./updateLine.js";
 /** Running sessions' memory is read at most this often, and only while the panel is shown. */
 export const MEMORY_EVERY_MS = 30_000;
 /** The panel's width until Herdr reports it (window px at zoom 1). */
 const DEFAULT_WIDTH = 320;
+/** Each update button's icon when its label folds. */
+const ACTION_ICON = {
+    update: "download",
+    whatsNew: "notes",
+    rollBack: "undo",
+    page: "link",
+    dismiss: "close",
+};
 export class PanelView {
     /** As Herdr reports it: window px. */
     size = { width: windowPx(DEFAULT_WIDTH), height: windowPx(0) };
@@ -35,6 +44,8 @@ export class PanelView {
     /** Running sessions' facts (name, branch, model…): read when shown, then at most every 30 s. */
     reading = false;
     facts = new MemoryPolicy(MEMORY_EVERY_MS);
+    /** The updater's revision this copy last drew. */
+    drawnUpdate = -1;
     o;
     constructor(o) {
         this.o = o;
@@ -48,6 +59,10 @@ export class PanelView {
      * conversation changed).
      */
     tick(cx) {
+        const updates = this.o.updates;
+        if (updates !== undefined && updates !== null && updates.revision() !== this.drawnUpdate) {
+            cx.notify();
+        }
         if (!this.reading && this.facts.due(this.o.ports.now(), this.shown())) {
             this.reading = true;
             cx.spawn(async (task) => {
@@ -113,6 +128,7 @@ export class PanelView {
         });
     }
     render(_cx) {
+        this.drawnUpdate = this.o.updates?.revision() ?? -1;
         const color = palette();
         const scale = scaleOf(settings());
         const records = this.o.engine.records();
@@ -120,6 +136,8 @@ export class PanelView {
             .filter((s) => s.machine === null)
             .map((s) => ({ id: s.id, name: s.name })));
         const freed = memoryFreedText(records);
+        const updateBar = this.updateBar(color, scale);
+        const footer = this.footer(color, scale);
         const header = h_flex()
             .h(42)
             .flex_none()
@@ -175,7 +193,127 @@ export class PanelView {
             cx.notify();
         })
             .child(header)
-            .child(body);
+            .when(updateBar !== null, (el) => el.child(updateBar ?? div()))
+            .child(body)
+            .when(footer !== null, (el) => el.child(footer ?? div()));
+    }
+    /** The line on top: a release to update to, an update under way, or how the last one ended. */
+    updateBar(color, scale) {
+        const u = this.o.updates;
+        if (u === undefined || u === null) {
+            return null;
+        }
+        const line = updateLine(u.state(), u.version, u.available(), u.busy(), u.backupPath);
+        if (line === null) {
+            return null;
+        }
+        const mode = fitUpdateLine(line, this.size.width, scale, uiMeasure);
+        const tone = line.tone === "accent" ? "accent" : line.tone === "done" ? "done" : line.tone === "error" ? "blocked" : "working";
+        const run = (action) => {
+            if (action === "update") {
+                return u.update();
+            }
+            if (action === "rollBack") {
+                return u.rollback();
+            }
+            if (action === "dismiss") {
+                return u.dismiss();
+            }
+            u.whatsNew();
+            return Promise.resolve();
+        };
+        const button = (action) => {
+            const label = t(ACTION_LABEL[action]);
+            const folded = mode === "icon" || action === "dismiss";
+            return h_flex()
+                .id(`update-${action}`)
+                .flex_none()
+                .h(20)
+                .px(folded ? 4 : BUTTON_PAD_X)
+                .items_center()
+                .rounded(5)
+                .text_size(BUTTON_TEXT)
+                .text_color(color(action === "update" ? "accent" : "muted"))
+                .cursor_pointer()
+                .hover((s) => s.bg(color("hover")))
+                .tooltip(label)
+                .on_mouse_down("left", (_e, cx) => cx.stop_propagation())
+                .on_click((_e, cx) => this.act(() => run(action), cx))
+                .child(folded ? icon(ACTION_ICON[action], BUTTON_ICON, color(action === "update" ? "accent" : "muted")) : label);
+        };
+        const lead = line.spinning
+            ? svg(`${ICONS}/spinner.svg`).size(LINE_LEAD).flex_none().text_color(color(tone)).spin(900)
+            : h_flex()
+                .size(LINE_LEAD)
+                .flex_none()
+                .items_center()
+                .justify_center()
+                .child(div().size(6).rounded(3).bg(color(tone)));
+        return h_flex()
+            .id("update-line")
+            .flex_none()
+            .px(LINE_PAD_X)
+            .py(6)
+            .gap(LINE_GAP)
+            .items_center()
+            .border_b(1)
+            .border_color(color("border"))
+            .text_size(LINE_TEXT)
+            .child(lead)
+            .child(div()
+            .id("update-text")
+            .flex_1()
+            .min_w(0)
+            .truncate()
+            .text_color(color("foreground"))
+            .when(line.detail !== null, (el) => el.tooltip(line.detail ?? ""))
+            .child(line.text))
+            .children(line.actions.map(button));
+    }
+    /** The bottom: this build's version and the switch for the daily check. */
+    footer(color, scale) {
+        const u = this.o.updates;
+        if (u === undefined || u === null) {
+            return null;
+        }
+        const on = u.state().checks;
+        const mode = fitFooter(this.size.width, scale, uiMeasure);
+        const box = h_flex()
+            .size(FOOTER_BOX)
+            .flex_none()
+            .items_center()
+            .justify_center()
+            .rounded(3)
+            .border(1)
+            .border_color(color(on ? "accent" : "border"))
+            .when(on, (el) => el.bg(color("accent")).child(icon("check", FOOTER_BOX - 2, color("accent_foreground"))));
+        return h_flex()
+            .id("update-footer")
+            .flex_none()
+            .h(28)
+            .px(FOOTER_PAD_X)
+            .gap(LINE_GAP)
+            .items_center()
+            .border_t(1)
+            .border_color(color("border"))
+            .text_size(FOOTER_TEXT)
+            .text_color(color("dim"))
+            .child(div()
+            .flex_1()
+            .min_w(0)
+            .truncate()
+            .child(t("update.footer.version", { version: u.version })))
+            .child(h_flex()
+            .id("update-checks")
+            .flex_none()
+            .gap(LINE_GAP)
+            .items_center()
+            .cursor_pointer()
+            .tooltip(t("update.footer.checks"))
+            .on_mouse_down("left", (_e, cx) => cx.stop_propagation())
+            .on_click((_e, cx) => this.act(() => u.setChecks(!on), cx))
+            .child(box)
+            .when(mode !== "icon", (el) => el.child(mode === "icon" ? "" : t(FOOTER_LABEL[mode]))));
     }
     group(g, color, scale) {
         const head = h_flex()
