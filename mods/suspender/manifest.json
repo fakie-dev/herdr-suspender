@@ -30,7 +30,7 @@
     "core/shippedMain.js": "e3524555f0e34489d04ba2c2b6923d9a72937ac5725433e51cea63c2f90154d1",
     "core/store.js": "9c741792175fe46d1de51e10ddc52a1141c42f32954031c6e9a42aae6902e4d2",
     "core/updateState.js": "b0c6b607cd5aa546e1b461aa7d7d6fd94f7532795f7e0e9f2281f52c4647ce37",
-    "i18n/en.js": "404a3a7285986932666bea7e754e820cc46b4e66c3d469f3af51002e325840f1",
+    "i18n/en.js": "16ed9f646b7ed826324869629b21b736deece4cf8cf342ea8e41e4e0255c036a",
     "i18n/index.js": "637b3523edb0d70df3e05264e4f3fd3e12e82cf024b12cf2772becda412625f1",
     "icons/branch.svg": "c2226c59c3c69fc072f66e309dd3c5b1fd5cb5157c5699dfd1e896bc970822e0",
     "icons/check.svg": "606f1f65d58ab9edcc6d6bffca77021f74e9e57d6ec33483658e6462f3ad8c80",
@@ -56,7 +56,7 @@
     "runtime/layoutSync.js": "e3c3d95976b8bcdf4ad8e704849b0aa9429014d204d259ea60e3a24e33034b19",
     "runtime/swap.js": "5ac6e3037566440265d5c0d8eee9ed1990fbcf43adfdb13da5dec28a173b4dd5",
     "runtime/tabsClone.js": "20d8070aa50b1e105606c883c7d18b2536eb7551670975f23325fe759c77cc46",
-    "runtime/updater.js": "b610da964d157a9a8fc91963f597fa98f52039773b9e6ca0e4330786e930b8f6",
+    "runtime/updater.js": "eeab994c6b20357a995bb2dd02733b5095007896fefc21bee518af7d9f27550e",
     "runtime/utf8.js": "c2873284af64594bf971c2cfc568a37dc43bb14820ed1e04e702e1ba1e1df1e1",
     "ui/format.js": "f7d72525f7b1e2dea51c05cd1abefff4cde36742bc82eeb5ac0e4569751a7983",
     "ui/kit.js": "0adf6c5341d3adbfbbace3bd29b60ffbacb8f98fe7fa9be9440c5c7484861555",
@@ -67,6 +67,6 @@
     "ui/sleepPane.js": "80729fabef2eccf2cff64d2af389bf353e0e9ea5b00ab96aa131504729ce44f6",
     "ui/textWidth.js": "80c1ef5aeb81c98b6574d4a4329e43b3545aea5c3595be8c8869bd4c2594308d",
     "ui/toggle.js": "69dbf38da060685f75d24be4f286999e0aae34fac581b0385ac2bb04a64b6e2c",
-    "ui/updateLine.js": "1b97e46291165258db6da56b21c94e855e30d101cb566d402f861a6264c89f1d"
+    "ui/updateLine.js": "c4450230400e750b6e62892376517042237a26eda8be36f5517ffad66b038f0c"
   }
 }

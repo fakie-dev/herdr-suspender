@@ -67,6 +67,8 @@ export class Updater {
     working = null;
     /** When `working` was set: a task Herdr ended never clears it, so it lapses like a job. */
     workingSince = 0;
+    /** The job this window is at, while `working`. */
+    current = null;
     /** Bumped on every change the panel draws. */
     rev = 0;
     d;
@@ -124,7 +126,7 @@ export class Updater {
     /** What is under way: in this window, or (young enough) in another one. */
     busy() {
         if (this.working !== null && this.d.now() - this.workingSince < JOB_STALE_MS) {
-            return this.s.job ?? { kind: this.working, from: this.d.version, to: this.d.version, at: 0, keys: [] };
+            return this.current;
         }
         return jobAlive(this.s.job, this.d.now()) ? this.s.job : null;
     }
@@ -287,6 +289,7 @@ export class Updater {
         }
         this.working = job.kind;
         this.workingSince = this.d.now();
+        this.current = job;
         const now = this.d.now();
         const mine = await this.edit((s) => (jobAlive(s.job, now) ? null : { ...s, job, outcome: null }));
         if (!mine) {
@@ -440,10 +443,9 @@ export class Updater {
             this.d.notify({ title: t("update.back.title", { version: job.to }), level: "success" });
             return;
         }
-        const keys = job.keys.map((k) => `"${k.keys}": "${k.action}" in ${k.section}`).join(", ");
         this.d.notify({
             title: t("update.done.title", { version: job.to }),
-            body: [t("update.done.body"), ...(keys === "" ? [] : [t("update.done.keys", { keys })])].join(" "),
+            body: t(job.keys.length === 0 ? "update.done.body" : "update.done.newKeys"),
             level: "success",
         });
     }
@@ -463,17 +465,37 @@ export class Updater {
         this.d.notify(n);
     }
 }
-/** The toast for an update that did not happen. */
-export function updateNotice(o, backup) {
+/** Why an update stopped, in a few words. */
+export const whyText = (reason) => t(`update.why.${reason}`);
+/** The whole story of an update that stopped: what happened and what to do (the Sessions line's tooltip). */
+export function updateDetail(o, backup) {
     const reason = o.reason ?? "network";
     const params = { version: o.to, from: o.from, count: o.count ?? 0, backup };
-    const body = reason === "edited" || reason === "renamed" || reason === "noCheck" || reason === "busy" || reason === "broken"
-        ? t(`update.${reason}.body`, params)
-        : reason === "noBackup"
-            ? undefined
-            : t("update.tryLater");
+    return reason === "edited" ||
+        reason === "renamed" ||
+        reason === "noCheck" ||
+        reason === "noBackup" ||
+        reason === "busy" ||
+        reason === "broken"
+        ? t(`update.detail.${reason}`, params)
+        : t("update.detail.tryLater");
+}
+/** The keys to add after an update, as keys.json has them. */
+export const keysText = (o) => t("update.done.keys", { keys: o.keys.map((k) => `"${k.keys}": "${k.action}" in ${k.section}`).join(", ") });
+/** The toast for an update that did not happen: one short line each, the rest is in Sessions. */
+export function updateNotice(o, _backup) {
+    const reason = o.reason ?? "network";
+    const why = whyText(reason);
+    const said = `${why.slice(0, 1).toUpperCase()}${why.slice(1)}`;
+    const body = reason === "noBackup"
+        ? undefined
+        : t(REFUSALS.has(reason) || reason === "broken" || reason === "busy"
+            ? "update.toast.seeSessions"
+            : "update.toast.tryLater", {
+            why: said,
+        });
     return {
-        title: t(`update.${reason}.title`, params),
+        title: reason === "noBackup" ? said : t("update.not.title"),
         ...(body === undefined ? {} : { body }),
         level: reason === "broken" ? "error" : "warning",
     };

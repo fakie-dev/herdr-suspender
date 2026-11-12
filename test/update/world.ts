@@ -61,6 +61,8 @@ export class World {
   /** Runs inside the swap, after the folders moved and before it returns (Herdr reloading the mod). */
   duringSwap: (() => Promise<void>) | null = null;
   redraws = 0;
+  /** Runs as each toast is posted (to look at the panel at that moment). */
+  onNotify: (() => void) | null = null;
   /** The texts hashed, in order (Herdr hashes natively: a hash in script time is too slow there). */
   readonly hashed: string[] = [];
   hash: (text: string) => string = fileHash;
@@ -172,6 +174,7 @@ export class World {
       },
       notify: (n) => {
         this.notices.push(n);
+        this.onNotify?.();
       },
       bindings: () => this.bindings,
       hash: (text) => {

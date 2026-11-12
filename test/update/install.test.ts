@@ -6,6 +6,7 @@ import { describe, it } from "node:test";
 import { rawFileUrl } from "../../src/core/release.ts";
 import { JOB_STALE_MS } from "../../src/core/updateState.ts";
 import { STARTUP_DELAY_MS, Updater } from "../../src/runtime/updater.ts";
+import { updateLine } from "../../src/ui/updateLine.ts";
 import { APP, build, KEYS, LIVE, SESSIONS, STATE, WORK, World } from "./world.ts";
 
 const BACKUP = `${WORK}/backup/suspender`;
@@ -87,7 +88,7 @@ describe("updating", () => {
     assert.deepEqual(world.swaps, []);
     assert.equal(u.state().outcome?.reason, "mismatch");
     assert.equal(world.notices.length, 1);
-    assert.match(world.notices[0]?.title ?? "", /didn't match/);
+    assert.match(world.notices[0]?.body ?? "", /Checksum mismatch/);
   });
 
   it("is cancelled with nothing changed when the release has no manifest of its own version", async () => {
@@ -169,7 +170,14 @@ describe("updating", () => {
     assert.equal(u.state().outcome?.kind, "updated");
     assert.equal(world.ports.files.get(`${APP}/keys.json`), JSON.stringify(KEYS));
     onlyOwnPlaces(world);
-    assert.match(world.notices[0]?.body ?? "", /alt-shift-u.*suspender\.updates/);
+    assert.match(world.notices[0]?.body ?? "", /new keys/);
+    assert.deepEqual(u.state().outcome?.keys, [
+      { section: "global", keys: "alt-shift-u", action: "suspender.updates" },
+    ]);
+    assert.match(
+      updateLine(u.state(), "0.1.3", null, null)?.detail ?? "",
+      /"alt-shift-u": "suspender\.updates" in global/,
+    );
   });
 
   it("leaves sessions, the tab bar copy and every other file of the app alone", async () => {
@@ -227,7 +235,8 @@ describe("refusing", () => {
       nothingChanged(world, before);
       assert.deepEqual(world.fetched, [], edit);
       assert.equal(u.state().outcome?.reason, "edited", edit);
-      assert.match(world.notices[0]?.body ?? "", /by hand/, edit);
+      assert.match(world.notices[0]?.body ?? "", /See Sessions/, edit);
+      assert.match(updateLine(u.state(), "0.1.2", null, null)?.detail ?? "", /by hand/, edit);
     }
   });
 
@@ -263,7 +272,8 @@ describe("refusing", () => {
       assert.deepEqual(world.swaps, [], name);
       assert.deepEqual(world.fetched, [], name);
       assert.equal(u.state().outcome?.reason, "renamed", name);
-      assert.match(world.notices[0]?.body ?? "", /by hand/, name);
+      assert.match(world.notices[0]?.body ?? "", /See Sessions/, name);
+      assert.match(updateLine(u.state(), "0.1.2", null, null)?.detail ?? "", /by hand/, name);
     }
   });
 });
@@ -343,6 +353,19 @@ describe("after the swap", () => {
     assert.deepEqual(world.tree(STAGING), []);
     assert.deepEqual(world.notices, []);
     assert.equal(world.tree(LIVE).find(([p]) => p === "main.js")?.[1], build("0.1.2").get("main.js"));
+  });
+
+  it("never says it is updating to another version than the one it is updating to", async () => {
+    const { world, u } = await ready();
+    world.ports.files.set(`${LIVE}/ui/panel.js`, "// mine");
+    const seen: (string | null)[] = [];
+    world.onNotify = () => seen.push(u.busy()?.to ?? null);
+    await u.update();
+    assert.equal(world.notices.length, 1);
+    assert.ok(
+      seen.every((to) => to === null || to === "0.1.3"),
+      JSON.stringify(seen),
+    );
   });
 
   it("a task Herdr ended mid-update does not hold the button for good", async () => {

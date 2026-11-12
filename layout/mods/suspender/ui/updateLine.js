@@ -5,7 +5,7 @@
 // reported width goes through `toMod` first (core/scale.ts).
 import { toMod } from "../core/scale.js";
 import { t } from "../i18n/index.js";
-import { updateNotice } from "../runtime/updater.js";
+import { keysText, updateDetail, whyText } from "../runtime/updater.js";
 /** Padding on each side of the line and of the footer. */
 export const LINE_PAD_X = 12;
 export const FOOTER_PAD_X = 12;
@@ -49,18 +49,18 @@ export function updateLine(s, version, available, busy, backup = "suspender/upda
         if ((o.kind === "updated" || o.kind === "rolledBack") && o.to === version) {
             return {
                 text: t(o.kind === "updated" ? "update.line.updated" : "update.line.back", { version }),
-                detail: null,
+                detail: o.keys.length > 0 ? keysText(o) : null,
                 tone: "done",
                 spinning: false,
                 actions: o.kind === "updated" ? ["whatsNew", "rollBack", "dismiss"] : ["dismiss"],
             };
         }
         if ((o.kind === "refused" || o.kind === "failed") && o.from === version) {
-            const n = updateNotice(o, backup);
+            const reason = o.reason ?? "network";
             return {
-                text: n.title,
-                detail: n.body ?? null,
-                tone: n.level === "error" ? "error" : "warn",
+                text: reason === "noBackup" ? whyText(reason) : t("update.not.line", { why: whyText(reason) }),
+                detail: updateDetail(o, backup),
+                tone: reason === "broken" ? "error" : "warn",
                 spinning: false,
                 actions: o.reason === "noBackup" ? ["dismiss"] : ["page", "dismiss"],
             };

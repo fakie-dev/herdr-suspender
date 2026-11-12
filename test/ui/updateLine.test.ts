@@ -66,8 +66,8 @@ describe("the update line", () => {
   it("after a refusal: why, how to update by hand, and the release page", () => {
     const o = outcome({ kind: "refused", reason: "edited", count: 2 });
     const line = updateLine(state({ outcome: o, latest: "0.1.3" }), "0.1.2", "0.1.3", null);
-    assert.equal(line?.text, "Suspender wasn't updated: its files were changed");
-    assert.match(line?.detail ?? "", /2 files in mods\/suspender.*by hand/);
+    assert.equal(line?.text, "Not updated: files were changed");
+    assert.match(line?.detail ?? "", /2 file\(s\) in mods\/suspender.*by hand/);
     assert.deepEqual(line?.actions, ["page", "dismiss"]);
   });
 
