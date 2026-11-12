@@ -38,6 +38,7 @@ const SPEC_EVENTS = [
   "lostOnRestart",
   "forget",
   "startNew",
+  "runsHere",
 ];
 
 const RESUME_ARGV = ["claude", "--resume", "8d65845f-73cb-4be6-aa62-4ab2279d0de0"];
@@ -313,5 +314,23 @@ describe("restart and forgetting", () => {
       assert.deepEqual(transition(from, { t: "forget" }).effects, [{ e: "removeRecord" }], from);
     }
     assert.deepEqual(transition("running", { t: "forget" }).effects, []);
+  });
+});
+
+describe("a sleeping session found running in a terminal of Herdr", () => {
+  it("is running there, and its sleeping pane goes, from every sleeping state", () => {
+    for (const from of ["asleep", "interrupted", "elsewhere", "missing", "error"] as const) {
+      assert.deepEqual(
+        transition(from, { t: "runsHere" }),
+        { state: "running", effects: [{ e: "retireSleepPane" }] },
+        from,
+      );
+    }
+  });
+
+  it("changes nothing while it runs, or while a copy stops or wakes it", () => {
+    for (const from of ["running", "working", "confirming", "stopping", "waking"] as const) {
+      assert.deepEqual(transition(from, { t: "runsHere" }), { state: from, effects: [] }, from);
+    }
   });
 });

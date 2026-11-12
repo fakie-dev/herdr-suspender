@@ -235,17 +235,22 @@ describe("finding 4: the bare shell seen while waking", () => {
 });
 
 describe("finding 2: a session opened in another tab while asleep", () => {
-  it("is shown as open elsewhere at the leader's next round, before anyone presses Resume", async () => {
+  it("runs in that tab from the leader's next round: its terminal's own processes say so", async () => {
+    // Before: "open elsewhere", and the tab that ran it stayed unknown to the mod. A terminal of
+    // Herdr that runs the session is where it runs (a holder outside Herdr is still "elsewhere").
     const { sim, engine, claude } = world();
     await engine.tick();
     await engine.sleep(KEY);
     assert.equal(engine.record(KEY)?.state, "asleep");
+    const pane = engine.record(KEY)?.pane ?? "";
     sim.addTab("tb2");
     const other = sim.addTerminal({ agent: "claude", tab: "tb2" });
     claude.state.sessions.set(other.address, "s1");
     claude.state.elsewhere.set("s1", `pid ${sim.term(other.address).pid}`);
     await engine.tick();
-    assert.equal(engine.record(KEY)?.state, "elsewhere");
+    assert.deepEqual([engine.record(KEY)?.state, engine.record(KEY)?.terminal], ["running", other.address]);
+    assert.equal(sim.pane(pane), undefined, "its sleeping pane is closed");
+    assert.equal(sim.term(other.address).labels["suspender.session"], "s1", "and its terminal says so at once");
   });
 
   it("an agent in another tab running another session leaves the sleeping one as it is", async () => {

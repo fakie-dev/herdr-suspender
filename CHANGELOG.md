@@ -39,6 +39,12 @@ and the project uses [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- A session that sleeps in one tab and is opened again in another tab of Herdr (`/resume` there, or by hand) now
+  runs in that tab: its row follows it and its old sleeping pane closes. Before, a `/resume` dropped the tab's
+  own session from Sessions (Sleep then did nothing there), and a session opened by hand stayed "open elsewhere"
+  for good while the mod looked it up every ten seconds. "Open elsewhere" is now only for a session open outside
+  Herdr's tabs.
+- The same conversation open in two tabs no longer moves its row between them on every round.
 - A Codex tab no longer takes another space's Codex session. A Codex session was matched to a tab by the folder
   the tab's shell reported, so `cd elsewhere; codex` in one tab, with a Codex started later in that folder in
   another space, gave the first tab the second one's session (and a /new in one tab could be credited to another).

@@ -30,7 +30,12 @@ export type Event =
   | { t: "lostOnRestart" }
   | { t: "forget" }
   /** `argv`: the adapter's command for a new session in the same folder. */
-  | { t: "startNew"; argv: string[] };
+  | { t: "startNew"; argv: string[] }
+  /**
+   * A live terminal of Herdr runs this session, by its own process tree (a /resume
+   * there, the conversation opened again by hand): the engine has put the record there.
+   */
+  | { t: "runsHere" };
 
 export type EventType = Event["t"];
 
@@ -43,6 +48,8 @@ export type Effect =
   | { e: "checkTranscript" }
   | { e: "startAgent"; argv: string[] }
   | { e: "removeRecord" }
+  /** The session runs in a terminal now: its sleeping pane goes (and the name it pinned). */
+  | { e: "retireSleepPane" }
   /** `params` fill the text's placeholders the engine does not know itself (`{agent}` it does). */
   | { e: "notify"; key: string; params?: Record<string, string> };
 
@@ -72,6 +79,7 @@ export const EVENT_TYPES: readonly EventType[] = [
   "lostOnRestart",
   "forget",
   "startNew",
+  "runsHere",
 ];
 
 const IGNORE = "ignore";
@@ -99,6 +107,9 @@ const exitedOnItsOwn =
   (state: SessionState) =>
   (ev: { byUser: boolean }): Step =>
     ev.byUser ? forget(state)() : interrupt();
+
+/** Running in the terminal the engine found it in; the sleeping pane it left goes. */
+const runsHere = to("running", { e: "retireSleepPane" });
 
 /** A start that failed: the error, with Retry. */
 const startFailed = (ev: { reason: string }): Step => ({
@@ -128,6 +139,7 @@ export const TRANSITIONS: Readonly<Record<SessionState, Row>> = {
     lostOnRestart: interrupt,
     forget: IGNORE,
     startNew: IGNORE,
+    runsHere: IGNORE,
   },
   working: {
     sleep: to("confirming"),
@@ -150,6 +162,7 @@ export const TRANSITIONS: Readonly<Record<SessionState, Row>> = {
     lostOnRestart: interrupt,
     forget: IGNORE,
     startNew: IGNORE,
+    runsHere: IGNORE,
   },
   // The person pressed Sleep while the agent was answering. Choosing "sleep
   // when done" only closes the question; the engine remembers the choice and
@@ -175,6 +188,7 @@ export const TRANSITIONS: Readonly<Record<SessionState, Row>> = {
     lostOnRestart: interrupt,
     forget: IGNORE,
     startNew: IGNORE,
+    runsHere: IGNORE,
   },
   stopping: {
     sleep: IGNORE,
@@ -196,6 +210,7 @@ export const TRANSITIONS: Readonly<Record<SessionState, Row>> = {
     lostOnRestart: interrupt,
     forget: IGNORE,
     startNew: IGNORE,
+    runsHere: IGNORE,
   },
   asleep: {
     sleep: IGNORE,
@@ -217,6 +232,7 @@ export const TRANSITIONS: Readonly<Record<SessionState, Row>> = {
     lostOnRestart: IGNORE,
     forget: forget("asleep"),
     startNew: IGNORE,
+    runsHere: runsHere,
   },
   interrupted: {
     sleep: IGNORE,
@@ -238,6 +254,7 @@ export const TRANSITIONS: Readonly<Record<SessionState, Row>> = {
     lostOnRestart: IGNORE,
     forget: forget("interrupted"),
     startNew: IGNORE,
+    runsHere: runsHere,
   },
   waking: {
     sleep: IGNORE,
@@ -259,6 +276,7 @@ export const TRANSITIONS: Readonly<Record<SessionState, Row>> = {
     lostOnRestart: interrupt,
     forget: IGNORE,
     startNew: IGNORE,
+    runsHere: IGNORE,
   },
   // Resume stays blocked until the agent's own records say the other copy closed.
   elsewhere: {
@@ -281,6 +299,7 @@ export const TRANSITIONS: Readonly<Record<SessionState, Row>> = {
     lostOnRestart: IGNORE,
     forget: forget("elsewhere"),
     startNew: IGNORE,
+    runsHere: runsHere,
   },
   missing: {
     sleep: IGNORE,
@@ -302,6 +321,7 @@ export const TRANSITIONS: Readonly<Record<SessionState, Row>> = {
     lostOnRestart: IGNORE,
     forget: forget("missing"),
     startNew: (ev) => ({ state: "waking", effects: [{ e: "startAgent", argv: [...ev.argv] }] }),
+    runsHere: runsHere,
   },
   // A failed start: "Retry" is resume again; nothing retries by itself.
   error: {
@@ -324,6 +344,7 @@ export const TRANSITIONS: Readonly<Record<SessionState, Row>> = {
     lostOnRestart: IGNORE,
     forget: forget("error"),
     startNew: IGNORE,
+    runsHere: runsHere,
   },
 };
 

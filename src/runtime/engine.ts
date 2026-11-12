@@ -13,7 +13,7 @@
 import { emptyInfo } from "../adapters/common.ts";
 import type { AgentAdapter, TerminalView } from "../adapters/contract.ts";
 import { ADAPTERS } from "../adapters/index.ts";
-import { classifyTerminal, LABEL_AGENT, LABEL_STATE, sessionLabels } from "../core/classify.ts";
+import { classifyTerminal, LABEL_AGENT, LABEL_SESSION, LABEL_STATE, sessionLabels } from "../core/classify.ts";
 import { type Effect, type Event, transition } from "../core/machine.ts";
 import {
   type AgentId,
@@ -167,6 +167,8 @@ export interface Coordinator {
   confirmed: Set<SessionKey>;
   /** A session was confirmed since the copies were last told (CHECKED_KEY). */
   confirmedNews: boolean;
+  /** Terminals found running a session whose record holds another live terminal (heldElsewhere), by address. */
+  twins: Map<string, SessionKey>;
 }
 
 export function newCoordinator(): Coordinator {
@@ -187,6 +189,7 @@ export function newCoordinator(): Coordinator {
     sleepPanes: new Map(),
     confirmed: new Set(),
     confirmedNews: false,
+    twins: new Map(),
   };
 }
 
@@ -539,6 +542,13 @@ export class Engine {
       return null;
     }
     this.bindTried.set(term.address, now);
+    // A second terminal of a session another live terminal holds: not looked up again while that holds.
+    const twinOf = this.co.twins.get(term.address);
+    const twinRec = twinOf === undefined ? null : this.record(twinOf);
+    if (twinRec !== null && this.heldElsewhere(twinRec, term.address)) {
+      return null;
+    }
+    this.co.twins.delete(term.address);
     let sessionId: string | null = null;
     try {
       sessionId = await adapter.discoverSession(toTerminalView(term), this.ports);
@@ -551,11 +561,17 @@ export class Engine {
     const key = sessionKey(adapter.id, sessionId);
     const existing = this.record(key);
     if (existing !== null && !RUNNING.includes(existing.state) && existing.terminal !== term.address) {
-      // The session sleeps in another tab and was opened here by hand: that tab shows "open elsewhere"
-      // now, not only once someone presses its Resume.
-      if (existing.state === "asleep" || existing.state === "interrupted") {
-        await this.act(key, () => this.dispatch(key, { t: "openElsewhere", where: term.address }));
+      // The session sleeps in another tab (or says "open elsewhere") and runs here, by this
+      // terminal's own process tree: it runs here now. Not while a copy sleeps or wakes it.
+      if (!(await this.runsHere(key, term))) {
+        return null;
       }
+      this.bindTried.delete(term.address);
+      this.confirm(key);
+      return key;
+    }
+    if (existing !== null && this.heldElsewhere(existing, term.address)) {
+      this.co.twins.set(term.address, key);
       return null;
     }
     await this.label(term, adapter.id, sessionId);
@@ -596,6 +612,9 @@ export class Engine {
       if (agent !== undefined && isAgentId(agent)) {
         await this.bind(term, this.adapters[agent]);
       }
+      return;
+    }
+    if (this.heldElsewhere(rec, term.address)) {
       return;
     }
     // Its agent is in its terminal: the state the record says is true in this run.
@@ -1007,6 +1026,7 @@ export class Engine {
   private async rekey(rec: SessionRecord, term: HostTerminal, sessionId: string): Promise<SessionKey> {
     const key = sessionKey(rec.agent, sessionId);
     let moved = false;
+    let sleptElsewhere = false;
     await this.mutate((file) => {
       const old = file.sessions[rec.key];
       if (old === undefined) {
@@ -1014,9 +1034,11 @@ export class Engine {
       }
       delete file.sessions[rec.key];
       const there = file.sessions[key];
-      // A session that sleeps in another tab keeps its record there (that tab shows "open elsewhere");
-      // one this terminal already has is already moved.
-      if (there === undefined || (RUNNING.includes(there.state) && there.terminal !== term.address)) {
+      sleptElsewhere = there !== undefined && SLEEPING.includes(there.state) && !this.busy(key);
+      if (sleptElsewhere && there !== undefined) {
+        // It sleeps in another tab and runs here now (its /resume here): it moves here, with its facts.
+        placeAt(there, term);
+      } else if (there === undefined || (RUNNING.includes(there.state) && there.terminal !== term.address)) {
         file.sessions[key] = {
           ...old,
           key,
@@ -1035,6 +1057,9 @@ export class Engine {
       return this.record(key)?.terminal === term.address ? key : rec.key;
     }
     await this.label(term, rec.agent, sessionId);
+    if (sleptElsewhere) {
+      await this.act(key, () => this.dispatch(key, { t: "runsHere" }));
+    }
     if (this.co.confirmed.has(rec.key)) {
       this.confirm(key);
     }
@@ -1491,6 +1516,9 @@ export class Engine {
       case "removeRecord":
         await this.removeRecord(key);
         return null;
+      case "retireSleepPane":
+        await this.retireSleepPane(key);
+        return null;
       case "notify": {
         const reason = effect.params?.["reason"] ?? null;
         const agent = adapter.displayName;
@@ -1694,6 +1722,61 @@ export class Engine {
       return null;
     }
     return pin;
+  }
+
+  /**
+   * The session runs in a live terminal now (`runsHere`): the sleeping pane it
+   * left in its old tab shows nothing anyone can use. The name it pinned is let
+   * go first; the pane is closed last, as this copy may be that pane.
+   */
+  private async retireSleepPane(key: SessionKey): Promise<void> {
+    const rec = this.record(key);
+    if (rec === null) {
+      return;
+    }
+    const pane = rec.pane;
+    const pin = rec.spaceName;
+    await this.patch(key, (r) => {
+      r.pane = null;
+      r.sleptAtMs = null;
+      r.forced = false;
+    });
+    this.giveBack(await this.letGoOfSpaceName(key, pin));
+    if (pane !== null && this.paneExists(pane)) {
+      this.co.sleepPanes.delete(pane);
+      this.host.run("pane.close", { pane });
+    }
+  }
+
+  /**
+   * Session `key`, sleeping (or open elsewhere) in its old place, runs in live
+   * terminal `term`: the terminal's own process tree said so. Its record goes
+   * there as running and its sleeping pane goes. Never while a copy acts on it.
+   */
+  private async runsHere(key: SessionKey, term: HostTerminal): Promise<boolean> {
+    const rec = this.record(key);
+    if (rec === null || this.busy(key) || !SLEEPING.includes(rec.state)) {
+      return false;
+    }
+    await this.patch(key, (r) => {
+      placeAt(r, term);
+    });
+    await this.label(term, rec.agent, rec.sessionId);
+    await this.act(key, () => this.dispatch(key, { t: "runsHere" }));
+    return this.record(key)?.terminal === term.address;
+  }
+
+  /**
+   * The record's own terminal is alive and still says it runs this session:
+   * another terminal that runs it too (the conversation opened twice) does not
+   * take the record, or the two would take it back and forth every round.
+   */
+  private heldElsewhere(rec: SessionRecord, address: string): boolean {
+    if (rec.terminal === null || rec.terminal === address) {
+      return false;
+    }
+    const own = this.term(rec.terminal);
+    return own !== null && own.state === "live" && own.labels[LABEL_SESSION] === rec.sessionId;
   }
 
   /** Herdr's name again for a space the mod pinned, if nobody renamed it since. Never waits. */

@@ -27,6 +27,7 @@ export const EVENT_TYPES = [
     "lostOnRestart",
     "forget",
     "startNew",
+    "runsHere",
 ];
 const IGNORE = "ignore";
 /** A rule that always goes to `state` with `effects` (copied on every use). */
@@ -43,6 +44,8 @@ const wake = (ev) => ({
 });
 /** The person left the agent (`/exit`): forget it rather than keep a sleeping tab. A crash keeps it, interrupted. */
 const exitedOnItsOwn = (state) => (ev) => ev.byUser ? forget(state)() : interrupt();
+/** Running in the terminal the engine found it in; the sleeping pane it left goes. */
+const runsHere = to("running", { e: "retireSleepPane" });
 /** A start that failed: the error, with Retry. */
 const startFailed = (ev) => ({
     state: "error",
@@ -70,6 +73,7 @@ export const TRANSITIONS = {
         lostOnRestart: interrupt,
         forget: IGNORE,
         startNew: IGNORE,
+        runsHere: IGNORE,
     },
     working: {
         sleep: to("confirming"),
@@ -92,6 +96,7 @@ export const TRANSITIONS = {
         lostOnRestart: interrupt,
         forget: IGNORE,
         startNew: IGNORE,
+        runsHere: IGNORE,
     },
     // The person pressed Sleep while the agent was answering. Choosing "sleep
     // when done" only closes the question; the engine remembers the choice and
@@ -117,6 +122,7 @@ export const TRANSITIONS = {
         lostOnRestart: interrupt,
         forget: IGNORE,
         startNew: IGNORE,
+        runsHere: IGNORE,
     },
     stopping: {
         sleep: IGNORE,
@@ -138,6 +144,7 @@ export const TRANSITIONS = {
         lostOnRestart: interrupt,
         forget: IGNORE,
         startNew: IGNORE,
+        runsHere: IGNORE,
     },
     asleep: {
         sleep: IGNORE,
@@ -159,6 +166,7 @@ export const TRANSITIONS = {
         lostOnRestart: IGNORE,
         forget: forget("asleep"),
         startNew: IGNORE,
+        runsHere: runsHere,
     },
     interrupted: {
         sleep: IGNORE,
@@ -180,6 +188,7 @@ export const TRANSITIONS = {
         lostOnRestart: IGNORE,
         forget: forget("interrupted"),
         startNew: IGNORE,
+        runsHere: runsHere,
     },
     waking: {
         sleep: IGNORE,
@@ -201,6 +210,7 @@ export const TRANSITIONS = {
         lostOnRestart: interrupt,
         forget: IGNORE,
         startNew: IGNORE,
+        runsHere: IGNORE,
     },
     // Resume stays blocked until the agent's own records say the other copy closed.
     elsewhere: {
@@ -223,6 +233,7 @@ export const TRANSITIONS = {
         lostOnRestart: IGNORE,
         forget: forget("elsewhere"),
         startNew: IGNORE,
+        runsHere: runsHere,
     },
     missing: {
         sleep: IGNORE,
@@ -244,6 +255,7 @@ export const TRANSITIONS = {
         lostOnRestart: IGNORE,
         forget: forget("missing"),
         startNew: (ev) => ({ state: "waking", effects: [{ e: "startAgent", argv: [...ev.argv] }] }),
+        runsHere: runsHere,
     },
     // A failed start: "Retry" is resume again; nothing retries by itself.
     error: {
@@ -266,6 +278,7 @@ export const TRANSITIONS = {
         lostOnRestart: IGNORE,
         forget: forget("error"),
         startNew: IGNORE,
+        runsHere: runsHere,
     },
 };
 export function transition(s, ev) {
