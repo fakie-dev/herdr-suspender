@@ -220,6 +220,25 @@ describe("the popup in a window too short for all its fact rows", () => {
 });
 
 describe("running sessions' rows in a shown panel (finding 5 of the blind review)", () => {
+  it("say what a running session uses the way Sleep counts what it frees (user: «1.5 GB freed?»)", async () => {
+    const { sim, ports } = await world();
+    const agent = sim.addTerminal({ agent: "claude" });
+    const running = rec("r1", "running", { key: "claude:r1" as SessionKey, terminal: agent.address });
+    const engine = { records: () => [running], refreshRunning: async () => undefined } as unknown as Engine;
+    const panel = new PanelView({ engine, host: sim, ports, mode: "window", overlay: null });
+    let measured: Promise<unknown> = Promise.resolve();
+    const cx = {
+      spawn: (task: (cx: AsyncContext) => Promise<unknown>) => {
+        measured = task(cx);
+      },
+      notify: () => undefined,
+    } as unknown as AsyncContext;
+    panel.tick(cx);
+    await measured;
+    // The sim's private working sets: 40 MB the shell, 200 MB the agent (its tasklist says 10 MB each).
+    assert.equal((panel as unknown as { used: Map<SessionKey, number> }).used.get("claude:r1" as SessionKey), 240);
+  });
+
   it("have their facts read when the panel shows, then at most every 30 s", async () => {
     const { sim, ports } = await world();
     let reads = 0;

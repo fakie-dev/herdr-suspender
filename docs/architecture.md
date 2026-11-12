@@ -58,7 +58,8 @@ touches Herdr.
    is killed and the record says `forced`.
 4. What is left of the terminal is ended: the shell the agent ran in, still running out of sight, with
    `terminal.kill`; a terminal that kept its pane (park failed and Herdr showed a toast) by closing the pane, as
-   before. Then `hc rm`, and the record becomes `asleep` with the memory that was freed.
+   before. Then `hc rm`, and the record becomes `asleep` with the memory that was freed: the private working
+   set of the terminal's process tree, taken right before the stop ([ADR 10](adr/0010-memory-is-the-private-working-set.md)).
 
 Stop commands are typed with `hc keys`, not `hc send`: `send` wraps text in a tag when `HC_TERMINAL_ID` is
 inherited, and the agent would receive the tag.
@@ -149,7 +150,8 @@ The mod is meant to cost almost nothing while nobody touches it.
 
 - No timers for animation. Animations are Herdr's native `.transition`, `.loop`, `.frames` and `.spin`.
   `cx.timer` runs only the 5-second data round and the leader's 10-second stamp.
-- Process memory is read only while the panel is open and at most every 30 seconds.
+- Process memory is read only while the panel is open and at most every 30 seconds, and once at Sleep: one
+  PowerShell call on Windows (the tree and the private working sets together), one `ps` elsewhere.
 - A transcript is read when a session goes to sleep, when its strip is shown, and right after the session is
   closed in another window, each time only if the file changed (size and modification time are compared
   first). Nothing watches it while the strip stays on screen: a session open elsewhere writes all the time,
@@ -171,7 +173,8 @@ The mod is meant to cost almost nothing while nobody touches it.
 
 ## Platforms
 
-Everything that differs by OS is in `platform/`: process lists and memory (`tasklist` on Windows, `ps` on macOS
+Everything that differs by OS is in `platform/`: process lists and memory (`tasklist` and
+PowerShell on Windows, where a session's memory is its private working set; `ps` and the resident size on macOS
 and Linux), file stat, the shell, and the path separator. Nothing in `core/` or `adapters/` names an OS.
 CI runs the tests on Windows, macOS and Linux; the mod itself has been used on Windows only.
 

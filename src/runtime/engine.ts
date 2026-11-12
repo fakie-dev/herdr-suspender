@@ -34,7 +34,7 @@ import {
 } from "../core/store.ts";
 import { hasMessage, t } from "../i18n/index.ts";
 import type { Ports } from "../platform/ports.ts";
-import { allProcesses, type ProcessDetail, processDetails, subtree } from "../platform/proc.ts";
+import { allProcesses, type ProcessDetail, processDetails, subtree, treesMemoryMb } from "../platform/proc.ts";
 import { sleepingCount } from "../ui/sessionsModel.ts";
 import { type Host, type HostTerminal, normalizeTerminal, toTerminalView } from "./host.ts";
 
@@ -1465,11 +1465,9 @@ export class Engine {
     })();
   }
 
-  /** Resident memory of a terminal's process and everything under it, in MB. Both lists start at once. */
+  /** What a terminal's process and everything under it give back by ending, in MB (`treesMemoryMb`). */
   private async memoryMb(root: number): Promise<number | null> {
-    const [tree, all] = await Promise.all([processDetails(this.ports), allProcesses(this.ports)]);
-    const kb = subtree(tree, root).reduce((sum, pid) => sum + (all.get(pid)?.rssKb ?? 0), 0);
-    return kb > 0 ? Math.round(kb / 1024) : null;
+    return (await treesMemoryMb(this.ports, [root])).get(root) ?? null;
   }
 
   /**

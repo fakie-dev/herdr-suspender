@@ -696,6 +696,12 @@ describe("one leading copy", () => {
 });
 
 describe("memory freed", () => {
+  it("records what the agent's tree gives back: its private working set, not the working set", async () => {
+    // The sim's tasklist says 10 000 K a process; its private working sets are 40 MB (shell) and 200 MB (agent).
+    const { engine } = await asleep();
+    assert.equal(engine.record(KEY)?.memFreedMb, 240);
+  });
+
   it("counts a terminal's process and everything under it, once each", () => {
     const d = (pid: number, ppid: number) => ({ pid, ppid, name: "x", startMs: null, commandLine: null });
     // 10 → 11 → 12, 10 → 13; 20 is someone else's; 0 is its own parent (System Idle).
@@ -705,5 +711,20 @@ describe("memory freed", () => {
     // A table of hundreds of processes in one pass (descendsFrom per process would rebuild its map each time).
     const big = Array.from({ length: 3000 }, (_, i) => d(i + 1, i));
     assert.equal(subtree(big, 1).length, 3000);
+  });
+
+  it("leaves out a process whose parent id now belongs to a younger process (Windows reuses ids)", () => {
+    const d = (pid: number, ppid: number, startMs: number | null) => ({
+      pid,
+      ppid,
+      name: "x",
+      startMs,
+      commandLine: null,
+    });
+    // 11 started after the shell 10: its child. 30 started before 10: its parent was an earlier process 10.
+    const list = [d(10, 1, 5_000), d(11, 10, 6_000), d(12, 11, 6_000), d(30, 10, 1_000), d(31, 30, 1_500)];
+    assert.deepEqual(subtree(list, 10).sort(), [10, 11, 12]);
+    // Unknown start times are taken as they are.
+    assert.deepEqual(subtree([d(10, 1, null), d(11, 10, 1_000)], 10).sort(), [10, 11]);
   });
 });

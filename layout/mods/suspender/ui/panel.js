@@ -16,8 +16,7 @@ import { SEPARATOR } from "../core/fit.js";
 import { sessionsShown } from "../core/layout.js";
 import { reportedSize, scaleOf, windowPx } from "../core/scale.js";
 import { t } from "../i18n/index.js";
-import { allProcesses, processDetails } from "../platform/proc.js";
-import { subtree } from "../runtime/engine.js";
+import { treesMemoryMb } from "../platform/proc.js";
 import { agentTile, icon, palette, TONE_COLOR } from "./kit.js";
 import { anchorRect, factsFor, hoverPopup } from "./popup.js";
 import { fitRow, groupSessions, isSleeping, MemoryPolicy, memoryFreedText, ROW_ITEM_GAP, ROW_SMALL_TEXT, ROW_TEXT, rowMemory, stateWord, } from "./sessionsModel.js";
@@ -81,7 +80,7 @@ export class PanelView {
             task.notify();
         });
     }
-    /** Resident memory of each running session's terminal and everything under it, in MB. */
+    /** What each running session's terminal and everything under it would give back, in MB: as freed at sleep. */
     async measure() {
         const pids = new Map(this.o.host.terminals().map((term) => [term.address, term.pid]));
         const roots = this.o.engine
@@ -93,11 +92,11 @@ export class PanelView {
         if (roots.length === 0) {
             return result;
         }
-        const [tree, all] = await Promise.all([processDetails(this.o.ports), allProcesses(this.o.ports)]);
+        const mb = await treesMemoryMb(this.o.ports, roots.map(([, root]) => root));
         for (const [key, root] of roots) {
-            const kb = subtree(tree, root).reduce((sum, pid) => sum + (all.get(pid)?.rssKb ?? 0), 0);
-            if (kb > 0) {
-                result.set(key, Math.round(kb / 1024));
+            const used = mb.get(root);
+            if (used !== undefined) {
+                result.set(key, used);
             }
         }
         return result;

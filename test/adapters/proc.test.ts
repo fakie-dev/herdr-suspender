@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import type { ExecResult } from "../../src/platform/ports.ts";
-import { descendsFrom, memoryKb, processDetails, statFile } from "../../src/platform/proc.ts";
+import { descendsFrom, memoryKb, processDetails, statFile, treesMemoryMb } from "../../src/platform/proc.ts";
 import { type FakePorts, fakePorts } from "../fakePorts.ts";
 
 type Script = (cmd: string, args: string[]) => ExecResult;
@@ -132,5 +132,72 @@ describe("statFile", () => {
     assert.deepEqual(mac.execCalls[0], { cmd: "stat", args: ["-f", "%z %m", "/Users/t/a.jsonl"] });
     const gone = scripted(fakePorts({ sep: "/" }), () => ({ code: 1, stdout: "", stderr: "No such file" }));
     assert.equal(await statFile("/home/t/b.jsonl", "linux", gone.exec), null);
+  });
+});
+
+describe("memory a session gives back (user: «1.5 GB freed for a chat with one message?»)", () => {
+  // Measured on Windows, a fresh Claude Code with its MCP servers: 31 processes, working sets adding up to
+  // 1442 MB, private working sets to 702 MB; ending them made 878 MB available. The working set counts the
+  // pages a process shares with others (node.exe, system DLLs) once per process; the private working set is
+  // what Task Manager shows as a process's memory and what goes back when it ends.
+  const windows = (perfOk = true) =>
+    scripted(fakePorts({ sep: "\\" }), (cmd) => {
+      if (cmd !== "powershell.exe") {
+        return ok('"pwsh.exe","10","Console","1","120 000 K"\r\n"claude.exe","11","Console","1","280 000 K"');
+      }
+      return ok(
+        [
+          "P\t10\t4\t1800000000000",
+          "P\t11\t10\t1800000001000",
+          "P\t12\t11\t1800000002000",
+          "P\t13\t11\t1800000002000",
+          "P\t20\t4\t1800000000000",
+          ...(perfOk
+            ? [
+                `M\t0\t${8 * 1024}`,
+                `M\t10\t${37 * 1024 * 1024}`,
+                `M\t11\t${194 * 1024 * 1024}`,
+                `M\t12\t${54 * 1024 * 1024}`,
+                `M\t13\t${1 * 1024 * 1024}`,
+                `M\t20\t${500 * 1024 * 1024}`,
+              ]
+            : []),
+        ].join("\r\n"),
+      );
+    });
+
+  it("on Windows is the private working set of the terminal's tree, from one PowerShell call", async () => {
+    const p = windows();
+    const mb = await treesMemoryMb(p, [10, 11, 99]);
+    assert.equal(mb.get(10), 37 + 194 + 54 + 1);
+    assert.equal(mb.get(11), 194 + 54 + 1);
+    assert.equal(mb.has(99), false);
+    assert.equal(p.execCalls.length, 1);
+    assert.equal(p.execCalls[0]?.cmd, "powershell.exe");
+    assert.match(p.execCalls[0]?.args.join(" ") ?? "", /WorkingSetPrivate/);
+  });
+
+  it("is unknown, not the working set, when Windows gives no private working set", async () => {
+    const p = windows(false);
+    assert.equal((await treesMemoryMb(p, [10])).has(10), false);
+  });
+
+  it("on macOS and Linux is the resident size, from one ps call", async () => {
+    const p = scripted(fakePorts({ sep: "/", now: 1_800_000_000_000 }), () =>
+      ok("  900     1    01:05  2048\n  901   900       07 204800\n  950     1    01:00 999999\n"),
+    );
+    const mb = await treesMemoryMb(p, [900]);
+    assert.equal(mb.get(900), 202);
+    assert.equal(p.execCalls.length, 1);
+    assert.equal(p.execCalls[0]?.cmd, "ps");
+  });
+
+  it("starts nothing without a tree to measure, and is empty when the tool fails", async () => {
+    const p = scripted(fakePorts({ sep: "\\" }), () => {
+      throw new Error("no PowerShell");
+    });
+    assert.equal((await treesMemoryMb(p, [])).size, 0);
+    assert.equal(p.execCalls.length, 0);
+    assert.equal((await treesMemoryMb(p, [10])).size, 0);
   });
 });

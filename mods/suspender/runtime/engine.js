@@ -16,7 +16,7 @@ import { transition } from "../core/machine.js";
 import { isAgentId, sessionKey, } from "../core/model.js";
 import { defaultStorePath, parseStore, readStore, STORE_ATTEMPTS, StoreConflictError, serializeStore, } from "../core/store.js";
 import { hasMessage, t } from "../i18n/index.js";
-import { allProcesses, processDetails, subtree } from "../platform/proc.js";
+import { allProcesses, processDetails, subtree, treesMemoryMb } from "../platform/proc.js";
 import { sleepingCount } from "../ui/sessionsModel.js";
 import { normalizeTerminal, toTerminalView } from "./host.js";
 /** The mod's folder name: what `pane.split {mod}` asks for. */
@@ -1253,11 +1253,9 @@ export class Engine {
             });
         })();
     }
-    /** Resident memory of a terminal's process and everything under it, in MB. Both lists start at once. */
+    /** What a terminal's process and everything under it give back by ending, in MB (`treesMemoryMb`). */
     async memoryMb(root) {
-        const [tree, all] = await Promise.all([processDetails(this.ports), allProcesses(this.ports)]);
-        const kb = subtree(tree, root).reduce((sum, pid) => sum + (all.get(pid)?.rssKb ?? 0), 0);
-        return kb > 0 ? Math.round(kb / 1024) : null;
+        return (await treesMemoryMb(this.ports, [root])).get(root) ?? null;
     }
     /**
      * The adapter's graceful stop, with our pane already in the terminal's slot

@@ -485,7 +485,7 @@ export class Sim implements Host {
     base.exec = async (cmd, args) => {
       this.execCalls.push({ cmd, args });
       if (/powershell/i.test(cmd)) {
-        return ok(this.processTable());
+        return ok(args.join(" ").includes("WorkingSetPrivate") ? this.memoryTable() : this.processTable());
       }
       return /tasklist/i.test(cmd) ? ok(this.taskList()) : { code: 127, stdout: "", stderr: "sim: no such tool" };
     };
@@ -507,6 +507,22 @@ export class Sim implements Host {
         lines.push(
           `${t.agentPid}\t${t.pid}\t\t${name}\t"C:\\bin\\${name}" ${(t.ran ?? t.agent).split(" ").slice(1).join(" ")}`,
         );
+      }
+    }
+    return lines.join("\r\n");
+  }
+
+  /** Every process as `treesMemoryMb` reads PowerShell: P pid, ppid, start; M pid, private working set in bytes. */
+  private memoryTable(): string {
+    const MB = 1024 * 1024;
+    const lines: string[] = [];
+    for (const t of this.terms.values()) {
+      if (t.state !== "live" || t.pid === null) {
+        continue;
+      }
+      lines.push(`P\t${t.pid}\t1\t`, `M\t${t.pid}\t${40 * MB}`);
+      if (t.agent !== null && t.agentPid !== null) {
+        lines.push(`P\t${t.agentPid}\t${t.pid}\t`, `M\t${t.agentPid}\t${200 * MB}`);
       }
     }
     return lines.join("\r\n");

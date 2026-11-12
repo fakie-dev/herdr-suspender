@@ -5,7 +5,10 @@
 // native call each (tasklist / ps, robocopy / stat). `processDetails` is the
 // expensive one on Windows (PowerShell: nothing else built in lists parents
 // and command lines since wmic was removed) and is only for rare paths:
-// telling two sessions in one folder apart.
+// telling two sessions in one folder apart. `treesMemoryMb` is one PowerShell
+// call too (the tree and the private working sets together; about 1.3 s, where
+// PowerShell and tasklist side by side took 1.1 s and two processes), made at
+// Sleep and, while the Sessions panel is open, at most every 30 seconds.
 
 import type { ExecResult, Platform, Ports } from "./ports.ts";
 
@@ -210,9 +213,12 @@ export function subtree(list: readonly ProcessDetail[], root: number): number[] 
   if (!list.some((d) => d.pid === root)) {
     return [];
   }
+  const startOf = new Map(list.map((d) => [d.pid, d.startMs]));
   const children = new Map<number, number[]>();
   for (const d of list) {
-    if (d.pid !== d.ppid) {
+    // Windows reuses ids: a process older than the one now holding its parent id is not that one's child.
+    const parentStart = startOf.get(d.ppid) ?? null;
+    if (d.pid !== d.ppid && !(d.startMs !== null && parentStart !== null && d.startMs < parentStart)) {
       const siblings = children.get(d.ppid);
       if (siblings === undefined) {
         children.set(d.ppid, [d.pid]);
@@ -232,6 +238,87 @@ export function subtree(list: readonly ProcessDetail[], root: number): number[] 
     }
   }
   return queue;
+}
+
+const WINDOWS_MEMORY = [
+  "[Console]::OutputEncoding = [Text.Encoding]::UTF8",
+  "Get-CimInstance Win32_Process -Property ProcessId,ParentProcessId,CreationDate | ForEach-Object {",
+  "  $start = ''; if ($_.CreationDate) { $start = ([DateTimeOffset]$_.CreationDate).ToUnixTimeMilliseconds() }",
+  '  "P`t$($_.ProcessId)`t$($_.ParentProcessId)`t$start"',
+  "}",
+  "Get-CimInstance Win32_PerfRawData_PerfProc_Process -Property IDProcess,WorkingSetPrivate | ForEach-Object {",
+  '  "M`t$($_.IDProcess)`t$($_.WorkingSetPrivate)"',
+  "}",
+].join("\n");
+
+/**
+ * Every process with its parent and start, and the KiB it would give back by ending. Windows: the private
+ * working set (Task Manager's memory column), not tasklist's working set, which also counts, once per
+ * process, the pages it shares with others (node.exe, system DLLs): measured on a fresh Claude Code with
+ * its MCP servers, 1442 MB of working sets against 702 MB private, and 878 MB came back when it ended.
+ * macOS and Linux: the resident size, from the same ps call as the tree. Null when nothing could be read.
+ */
+async function processMemory(p: Ports): Promise<{ tree: ProcessDetail[]; kb: Map<number, number> } | null> {
+  const tree: ProcessDetail[] = [];
+  const kb = new Map<number, number>();
+  if (p.platform === "windows") {
+    const out = await run(p.exec, "powershell.exe", ["-NoProfile", "-NonInteractive", "-Command", WINDOWS_MEMORY]);
+    for (const line of out?.stdout.split(/\r?\n/) ?? []) {
+      const [kind, pid, a, b] = line.split("\t");
+      const id = Number(pid);
+      if (!pid || !Number.isFinite(id)) {
+        continue;
+      }
+      if (kind === "P" && a) {
+        tree.push({ pid: id, ppid: Number(a), startMs: b ? Number(b) : null, name: "", commandLine: null });
+      } else if (kind === "M" && a) {
+        kb.set(id, Math.round(Number(a) / 1024));
+      }
+    }
+  } else {
+    const now = p.now();
+    const out = await run(p.exec, "ps", ["-A", "-o", "pid=,ppid=,etime=,rss="]);
+    for (const line of out?.stdout.split("\n") ?? []) {
+      const match = /^\s*(\d+)\s+(\d+)\s+(\S+)\s+(\d+)\s*$/.exec(line);
+      if (match === null) {
+        continue;
+      }
+      const seconds = elapsedSeconds(match[3] ?? "");
+      const pid = Number(match[1]);
+      tree.push({
+        pid,
+        ppid: Number(match[2]),
+        startMs: seconds === null ? null : now - seconds * 1000,
+        name: "",
+        commandLine: null,
+      });
+      kb.set(pid, Number(match[4]));
+    }
+  }
+  return tree.length === 0 ? null : { tree, kb };
+}
+
+/**
+ * The memory, in MB, that the tree under each root (a terminal's process) would give back by ending: one
+ * process start for all of them. Freed at sleep and used while running are both this, so they compare.
+ * A root with nothing known is left out: no figure rather than another kind of figure.
+ */
+export async function treesMemoryMb(p: Ports, roots: readonly number[]): Promise<Map<number, number>> {
+  const result = new Map<number, number>();
+  if (roots.length === 0) {
+    return result;
+  }
+  const memory = await processMemory(p);
+  if (memory === null) {
+    return result;
+  }
+  for (const root of roots) {
+    const kb = subtree(memory.tree, root).reduce((sum, pid) => sum + (memory.kb.get(pid) ?? 0), 0);
+    if (kb > 0) {
+      result.set(root, Math.round(kb / 1024));
+    }
+  }
+  return result;
 }
 
 function splitPath(path: string): { dir: string; name: string } {

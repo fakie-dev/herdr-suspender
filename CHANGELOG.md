@@ -13,6 +13,11 @@ and the project uses [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- "Memory freed" and "uses" on Windows were about twice what a session really gives back. They added up the
+  working set of every process of the session (the shell, the agent and its MCP servers), which counts the
+  memory those processes share once for each of them: a fresh Claude Code said 1.5 GB where 0.7 to 0.8 GB came
+  back. Both now count the private working set, the figure Task Manager shows. Sessions put to sleep before
+  keep their old figure until they sleep again.
 - The popup of a session whose first prompt or last reply is long no longer says "This view could not be
   rendered · interrupted". Its text is now wrapped only as far as it is drawn (two lines), instead of all of it
   and then cut one character at a time, which took Herdr past its time limit for a script (about 110 ms per
