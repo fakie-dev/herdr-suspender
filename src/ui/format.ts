@@ -64,7 +64,8 @@ export function stripStatus(rec: SessionRecord, o: StatusOptions): string {
   if (rec.forced) {
     parts.push(t("strip.stoppedForcefully"));
   }
-  if (o.fresh !== null) {
+  // Only new messages are news (no «+0 messages»).
+  if (o.fresh !== null && o.fresh.added > 0) {
     parts.push(t("strip.updatedAfterSleep", { time: clock(o.fresh.atMs, o.now), count: o.fresh.added }));
   }
   return parts.join(JOIN);

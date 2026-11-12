@@ -57,6 +57,8 @@ export const TICK_MS = 5_000;
 export const START_TIMEOUT_MS = 30_000;
 /** An agent missing from its labelled terminal this long has left (or was lost). */
 export const ABSENT_GRACE_MS = 3_000;
+/** A sleeping pane asked for may still show this long after (a busy window); then it is not waited for. */
+export const LATE_PANE_MS = 60_000;
 /** A record's terminal or pane missing this long is gone for good (not still loading). */
 export const GONE_GRACE_MS = 10_000;
 /** A stopping or waking that nobody carries on for this long is resolved by the leader. */
@@ -138,6 +140,10 @@ export interface Coordinator {
   seen: Map<string, string>;
   /** When a silent agent's process was last looked for (by terminal address). */
   silentLook: Map<string, number>;
+  /** Sleeping panes asked for and not shown yet, by session (lateSplits). */
+  splits: Map<SessionKey, Split>;
+  /** Panes known to be sleeping panes, with their session (props are not in panes(): sweepStrays). */
+  sleepPanes: Map<string, SessionKey>;
 }
 
 export function newCoordinator(): Coordinator {
@@ -154,6 +160,8 @@ export function newCoordinator(): Coordinator {
     commands: new Map(),
     seen: new Map(),
     silentLook: new Map(),
+    splits: new Map(),
+    sleepPanes: new Map(),
   };
 }
 
@@ -221,6 +229,14 @@ interface Outcome {
   next: Event;
   /** Runs after `next` is applied (the store already says so). */
   after?: () => Promise<void>;
+}
+
+/** A sleeping pane asked for and not shown yet: where it will show, and what was there before. */
+export interface Split {
+  /** The tab it was split in (null: a new tab). */
+  tab: string | null;
+  before: Set<string>;
+  at: number;
 }
 
 /** State kept across the effects of one flow. */
@@ -372,8 +388,15 @@ export class Engine {
     for (const term of terms) {
       await this.observe(term);
     }
+    await this.lateSplits();
     await this.reconcile(terms);
     this.sweepStrays();
+  }
+
+  /** Whether a split for this session's pane may still show (lateSplits). */
+  private awaitingPane(key: SessionKey | undefined): boolean {
+    const split = key === undefined ? undefined : this.co.splits.get(key);
+    return split !== undefined && this.ports.now() - split.at < LATE_PANE_MS;
   }
 
   /**
@@ -594,7 +617,10 @@ export class Engine {
       if (RUNNING.includes(rec.state)) {
         gone = live.size > 0 && (rec.terminal === null || !live.has(rec.terminal));
       } else if (SLEEPING.includes(rec.state)) {
-        gone = rec.pane === null || !panes.has(rec.pane);
+        gone = rec.pane === null ? !this.awaitingPane(key) : !panes.has(rec.pane);
+        if (rec.pane !== null && !gone) {
+          this.co.sleepPanes.set(rec.pane, key);
+        }
         if (!gone && unfinished(rec)) {
           await this.finishSleep(rec);
           continue;
@@ -623,18 +649,24 @@ export class Engine {
   }
 
   /**
-   * Suspender panes no record owns, in a tab a session lives in: left over by
-   * a flow that went wrong (a split Herdr showed late, a copy closed half-way).
-   * Only Suspender splits panes with its name, and only for a sleeping
-   * session, so such a pane shows nothing anyone can use. It is closed once
-   * it has stayed unowned GONE_GRACE_MS while nothing was being slept or woken
-   * (a pane being placed is not owned yet). Never in a tab without a session:
+   * Sleeping panes whose session no longer owns them, in a tab a session
+   * lives in: left over by a flow that went wrong (a split Herdr showed after
+   * its session was forgotten, a copy closed half-way). Such a pane shows
+   * nothing anyone can use. It is closed once it has stayed so GONE_GRACE_MS
+   * while nothing was being slept or woken. Never in a tab without a session:
    * that pane may be the tab's only one.
+   *
+   * Herdr's panes() gives a mod pane's name, not its props (role, key), so
+   * "a sleeping pane of session K" is what this window knows: the panes its
+   * copies split for K (newSleepPane, lateSplits) and the panes records own.
+   * Any other Suspender pane (a Sessions list split in by hand, a sleeping
+   * pane left from before Herdr was opened and owned by nobody) is never
+   * closed here (ADR 7).
    */
   private sweepStrays(): void {
     const panes = this.host.panes();
     const records = this.records();
-    const owned = new Set(records.map((r) => r.pane));
+    const owner = new Map(records.filter((r) => r.pane !== null).map((r) => [r.pane, r.key]));
     const lived = new Set<string>();
     for (const r of records) {
       const at = r.pane ?? (r.terminal !== null ? this.paneOf(r.terminal) : null);
@@ -651,9 +683,19 @@ export class Engine {
         this.absentSince.delete(mark);
       }
     }
+    for (const [pane, key] of [...this.co.sleepPanes]) {
+      const now = owner.get(pane);
+      if (!panes.some((p) => p.pane === pane)) {
+        this.co.sleepPanes.delete(pane);
+      } else if (now !== undefined && now !== key) {
+        // Its record moved to another id (rekey): it is that one's.
+        this.co.sleepPanes.set(pane, now);
+      }
+    }
     for (const p of panes) {
       const mark = `stray:${p.pane}`;
-      if (acting || p.mod !== MOD_NAME || owned.has(p.pane) || !lived.has(p.tab)) {
+      const session = p.mod === MOD_NAME ? this.co.sleepPanes.get(p.pane) : undefined;
+      if (acting || session === undefined || owner.has(p.pane) || this.awaitingPane(session) || !lived.has(p.tab)) {
         this.absentSince.delete(mark);
         continue;
       }
@@ -1177,11 +1219,11 @@ export class Engine {
       now.transcriptMtimeMs !== null &&
       before.transcriptMtimeMs !== null &&
       (now.transcriptMtimeMs > before.transcriptMtimeMs || now.transcriptSize !== before.transcriptSize);
-    if (newer && now.transcriptMtimeMs !== null) {
-      this.co.fresh.set(key, {
-        atMs: now.transcriptMtimeMs,
-        added: Math.max(0, (now.messages ?? 0) - (before.messages ?? 0)),
-      });
+    // Only new messages are news: a resume elsewhere that added none (its own
+    // records, a title) is not "updated after sleep · +0 messages".
+    const added = Math.max(0, (now.messages ?? 0) - (before.messages ?? 0));
+    if (newer && now.transcriptMtimeMs !== null && added > 0) {
+      this.co.fresh.set(key, { atMs: now.transcriptMtimeMs, added });
     }
   }
 
@@ -1495,12 +1537,66 @@ export class Engine {
       } else {
         this.host.run("tab.new", { space: rec.spaceId, mod: MOD_NAME, props });
       }
+      const tab = beside === null ? null : (this.host.panes().find((p) => p.pane === beside)?.tab ?? null);
+      // Until it shows: a pane that comes after this flow stopped waiting is still this session's (lateSplits).
+      this.co.splits.set(rec.key, { tab, before: flow.splitFrom, at: this.ports.now() });
     }
-    const before = flow.splitFrom;
-    return this.waitFor(
-      () => this.host.panes().find((p) => !before.has(p.pane) && p.mod === MOD_NAME)?.pane ?? null,
-      PANE_WAIT_MS,
+    const split = this.co.splits.get(rec.key);
+    const pane = await this.waitFor(() => (split === undefined ? null : this.splitPane(split)), PANE_WAIT_MS);
+    if (pane !== null) {
+      this.co.splits.delete(rec.key);
+      this.co.sleepPanes.set(pane, rec.key);
+    }
+    return pane;
+  }
+
+  /** The Suspender pane a split asked for, once Herdr shows it: new since, in its tab, and nobody's yet. */
+  private splitPane(split: Split): string | null {
+    return (
+      this.host
+        .panes()
+        .find(
+          (p) =>
+            p.mod === MOD_NAME &&
+            !split.before.has(p.pane) &&
+            !this.co.sleepPanes.has(p.pane) &&
+            (split.tab === null || p.tab === split.tab),
+        )?.pane ?? null
     );
+  }
+
+  /**
+   * Splits whose pane showed after their flow stopped waiting (twice
+   * PANE_WAIT_MS: a busy window). The pane is its session's: a sleeping record
+   * without a pane takes it, so the record is not dropped as gone and the pane
+   * does not hang there. A pane whose session is gone by then is known as a
+   * sleeping pane all the same, so sweepStrays closes it. A split that never
+   * showed is forgotten after LATE_PANE_MS.
+   */
+  private async lateSplits(): Promise<void> {
+    const now = this.ports.now();
+    for (const [key, split] of [...this.co.splits]) {
+      if (this.busy(key)) {
+        continue;
+      }
+      const pane = this.splitPane(split);
+      if (pane === null) {
+        if (now - split.at >= LATE_PANE_MS) {
+          this.co.splits.delete(key);
+        }
+        continue;
+      }
+      this.co.splits.delete(key);
+      this.co.sleepPanes.set(pane, key);
+      const rec = this.record(key);
+      if (rec !== null && SLEEPING.includes(rec.state) && (rec.pane === null || !this.paneExists(rec.pane))) {
+        const tab = this.host.panes().find((p) => p.pane === pane)?.tab ?? rec.tabId;
+        await this.patch(key, (r) => {
+          r.pane = pane;
+          r.tabId = tab;
+        });
+      }
+    }
   }
 
   /** `stopped`: the agent was just stopped (not lost); `forced`: by `terminal.kill`. */

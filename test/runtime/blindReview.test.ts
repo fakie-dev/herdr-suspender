@@ -75,30 +75,77 @@ describe("finding 1: two sleeping panes in one tab", () => {
     }
   });
 
-  // A second layer, for a pane left over by any cause: the leader closes a
-  // Suspender pane no record owns, in a tab a session lives in, once nothing
-  // is acting there.
-  it("a sleeping pane no session owns is closed by the leader, after a grace", async () => {
-    const { sim, engine } = world();
-    await engine.tick();
-    const stray = sim.addModPane(TAB, { role: "sleep", key: KEY });
-    await engine.tick();
-    assert.ok(sim.pane(stray), "not at once: a pane being placed is not owned yet");
-    await ticks(sim, engine, GONE_GRACE_MS + 5_000);
-    assert.equal(sim.pane(stray), undefined, "closed");
-    assert.equal(sim.row().length, 1, "the agent's pane stays");
-  });
-
-  it("leaves the session's own sleeping pane, and Suspender panes in tabs without a session", async () => {
+  // Review of F5, condition 2: a pane later than both waits of the flow.
+  it("a sleeping pane Herdr shows after the flow stopped waiting becomes its session's", async () => {
     const { sim, ports, engine } = world();
     await engine.tick();
+    sim.modPaneDelays = [7_000];
     await engine.sleep(KEY);
-    sim.addTab("tb-other");
-    const elsewhere = sim.addModPane("tb-other", { role: "sleep", key: "claude:gone" });
-    await ticks(sim, engine, GONE_GRACE_MS + 10_000);
-    const own = stored(ports)[KEY]?.pane ?? "";
-    assert.ok(sim.pane(own), "the record's pane stays");
-    assert.ok(sim.pane(elsewhere), "a tab with no session is not touched");
+    assert.equal(stored(ports)[KEY]?.pane, null, "the flow gave up waiting");
+    await ticks(sim, engine, GONE_GRACE_MS + 30_000);
+    const rec = stored(ports)[KEY];
+    assert.equal(rec?.state, "asleep", "the record is not dropped as gone");
+    assert.deepEqual(sleepPanes(sim), [rec?.pane], "it owns the pane that came late");
+    await engine.resume(KEY);
+    await ticks(sim, engine, 5_000);
+    assert.equal(engine.record(KEY)?.state, "running");
+    assert.deepEqual(sleepPanes(sim), [], "and Resume replaces it as usual");
+  });
+
+  it("a session whose pane is still on the way is not dropped as gone (20 s, past the record's grace)", async () => {
+    const { sim, ports, engine } = world();
+    await engine.tick();
+    sim.modPaneDelays = [20_000];
+    await engine.sleep(KEY);
+    await ticks(sim, engine, 40_000);
+    const rec = stored(ports)[KEY];
+    assert.equal(rec?.state, "asleep");
+    assert.deepEqual(sleepPanes(sim), [rec?.pane]);
+  });
+
+  // A second layer, for a pane left over all the same: the leader closes a
+  // sleeping pane its session no longer owns, in a tab a session lives in.
+  it("a sleeping pane whose session was forgotten before it showed is closed, after a grace", async () => {
+    const { sim, ports, engine, claude } = world();
+    const other = sim.addTerminal({ agent: "claude" });
+    claude.state.sessions.set(other.address, "s2");
+    await engine.tick();
+    sim.modPaneDelays = [7_000];
+    await engine.sleep(KEY);
+    await engine.forget(KEY);
+    assert.equal(stored(ports)[KEY], undefined);
+    await ticks(sim, engine, 10_000);
+    const stray = sleepPanes(sim)[0] ?? "";
+    assert.ok(sim.pane(stray), "it showed, and is not closed at once");
+    await ticks(sim, engine, GONE_GRACE_MS + 5_000);
+    assert.equal(sim.pane(stray), undefined, "closed");
+    assert.ok(sim.pane(other.pane), "the other session's pane stays");
+  });
+
+  it("never closes a Suspender pane that is not a sleeping one (a Sessions list split in by hand)", async () => {
+    const { sim, engine } = world();
+    await engine.tick();
+    // Herdr's panes() has no props: the mod cannot read this one's role, and must not guess it.
+    const list = sim.addModPane(TAB, { role: "panel" });
+    await ticks(sim, engine, GONE_GRACE_MS + 30_000);
+    assert.ok(sim.pane(list));
+  });
+
+  it("leaves the session's own sleeping pane, and a stray alone in a tab (closing it would close the tab)", async () => {
+    const { sim, ports, engine } = world();
+    await engine.tick();
+    sim.modPaneDelays = [7_000];
+    await engine.sleep(KEY);
+    await engine.forget(KEY);
+    await ticks(sim, engine, GONE_GRACE_MS + 30_000);
+    assert.equal(sleepPanes(sim).length, 1, "alone in its tab: left");
+    const w = world();
+    await w.engine.tick();
+    await w.engine.sleep(KEY);
+    await ticks(w.sim, w.engine, GONE_GRACE_MS + 30_000);
+    const own = stored(w.ports)[KEY]?.pane ?? "";
+    assert.ok(w.sim.pane(own), "the record's pane stays");
+    void ports;
   });
 });
 
@@ -191,6 +238,27 @@ describe("finding 2: a session opened in another tab while asleep", () => {
     claude.state.elsewhere.set("s1", "pid 4242");
     await engine.recheckOpen(KEY);
     assert.equal(engine.record(KEY)?.state, "elsewhere");
+  });
+});
+
+describe("review of F5: «Updated after sleep · +0 messages»", () => {
+  it("a conversation written to elsewhere without a new message is not called updated", async () => {
+    const { engine, claude } = world();
+    await engine.tick();
+    await engine.sleep(KEY);
+    // Resumed and left elsewhere: the file grew (a resume record), the messages did not.
+    claude.state.info.set("s1", { transcriptMtimeMs: 1_700_000_100_000, transcriptSize: 1_200, messages: 10 });
+    await engine.refreshOnShow(KEY);
+    assert.equal(engine.freshness(KEY), null);
+  });
+
+  it("one with new messages is, with how many", async () => {
+    const { engine, claude } = world();
+    await engine.tick();
+    await engine.sleep(KEY);
+    claude.state.info.set("s1", { transcriptMtimeMs: 1_700_000_100_000, transcriptSize: 1_200, messages: 12 });
+    await engine.refreshOnShow(KEY);
+    assert.equal(engine.freshness(KEY)?.added, 2);
   });
 });
 

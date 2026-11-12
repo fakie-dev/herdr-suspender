@@ -260,6 +260,12 @@ export class Sim implements Host {
         const show = (): void => {
           const j = this.paneList.indexOf(target);
           if (j === -1) {
+            // Herdr split it before the target closed and only reports it late: it holds the tab's room.
+            pane.size = Math.max(
+              0,
+              1 - this.paneList.filter((p) => p.tab === pane.tab).reduce((s, p) => s + p.size, 0),
+            );
+            this.paneList.push(pane);
             return;
           }
           target.size /= 2;

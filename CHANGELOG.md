@@ -12,7 +12,10 @@ and the project uses [Semantic Versioning](https://semver.org/).
   it. The agent still starts in your default shell, so the tab keeps that shell after you exit the agent.
 - A tab could end up with two sleeping panes, and one of them stayed next to the agent after Resume. It
   happened when Herdr took a moment to show the new pane: the mod then asked for a second one. It now waits
-  for the first, and a leftover sleeping pane that no session owns is closed.
+  for the first, even when it shows up long after (the sleeping tab then takes it instead of being dropped), and
+  a leftover sleeping pane that no session owns is closed. Other Suspender panes are never touched.
+- The strip no longer says "Updated after sleep · +0 messages" when the conversation was opened elsewhere but
+  nothing was added to it.
 - A sleeping session that you open in another tab (or another program) now shows "open elsewhere" and disables
   Resume within seconds, and again whenever you come back to its tab, not only after you press Resume.
 - Running sessions in the Sessions list show their title, branch and model as soon as they are known, like

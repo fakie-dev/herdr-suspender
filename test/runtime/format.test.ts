@@ -63,6 +63,10 @@ describe("strip status line", () => {
     );
   });
 
+  it("says nothing about work elsewhere when no message was added (review of F5: «+0 messages»)", () => {
+    assert.equal(stripStatus(rec(), { ...opts, fresh: { atMs: at(15, 20), added: 0 } }), "Asleep since 14:05");
+  });
+
   it("open elsewhere, gone from disk", () => {
     assert.equal(
       stripStatus(rec({ state: "elsewhere" }), opts),
