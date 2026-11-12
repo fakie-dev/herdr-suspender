@@ -39,6 +39,11 @@ and the project uses [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- A Codex tab no longer takes another space's Codex session. A Codex session was matched to a tab by the folder
+  the tab's shell reported, so `cd elsewhere; codex` in one tab, with a Codex started later in that folder in
+  another space, gave the first tab the second one's session (and a /new in one tab could be credited to another).
+  A session is now a tab's only when the process table shows that only the Codex running under that tab's shell
+  can have made it; when it cannot be told, the tab keeps the session it had.
 - A space no longer turns into `~` while its session sleeps. Herdr names a space nobody named after where its
   first terminal is, and with the agent put to sleep it had none left, so it fell back to the space's own folder,
   often your home. Sleep now keeps the name the space showed, and gives it back to Herdr when the last session

@@ -6,7 +6,7 @@
 // `~/.codex/session_index.jsonl`. `state_5.sqlite` is not read: Herdr's
 // runtime has no SQLite and the mod has no native packages.
 import { allProcesses, descendsFrom, processDetails, subtree } from "../platform/proc.js";
-import { baseName, contextFields, emptyInfo, gitInfo, isRecord, join, jsonLines, num, oneLine, readTranscript, sameDir, str, terminalPids, tokensText, uuidIn, } from "./common.js";
+import { baseName, contextFields, emptyInfo, gitInfo, isRecord, join, jsonLines, num, oneLine, readTranscript, str, terminalPids, tokensText, uuidIn, } from "./common.js";
 const DAY_MS = 86_400_000;
 const START_SLACK_MS = 2_000;
 /** A rollout written this recently is taken as open somewhere. */
@@ -61,38 +61,14 @@ async function findRollout(sessionId, p) {
     const name = hit(await p.list(archived));
     return name ? join(p, archived, name) : null;
 }
-/** `cwd` from a rollout's first line, even if the read cut that line short (base instructions are long). */
-function metaCwd(head) {
-    if (head === null) {
-        return null;
-    }
-    const end = head.indexOf("\n");
-    const first = end === -1 ? head : head.slice(0, end);
-    try {
-        const value = JSON.parse(first);
-        if (isRecord(value) && isRecord(value["payload"])) {
-            return str(value["payload"]["cwd"]);
-        }
-    }
-    catch {
-        // Cut short: fall back to the field itself.
-    }
-    const match = /"cwd"\s*:\s*("(?:[^"\\]|\\.)*")/.exec(first);
-    try {
-        return match?.[1] ? str(JSON.parse(match[1])) : null;
-    }
-    catch {
-        return null;
-    }
-}
 // ---- finding the session
 /**
  * Per terminal (address and creation time): how it looked when the process
  * table last could not tell its session, and when that was. The table is
- * asked again only once something changed (its foreground, title or status,
- * or the rollouts in its folder), and on Windows, where it is PowerShell,
- * at most once a minute: a Codex idle at its prompt with no rollout yet
- * costs no process at all.
+ * asked again only once something changed: at once for a new rollout (born
+ * rarely: a start, a /new), and for its foreground, title or status on
+ * Windows, where it is PowerShell, at most once a minute. A Codex idle at its
+ * prompt with no new rollout costs no process at all.
  */
 const undecided = new Map();
 const isCodex = (d) => /codex/i.test(`${d.name} ${d.commandLine ?? ""}`) && !/app-server/i.test(d.commandLine ?? "");
@@ -102,25 +78,58 @@ function codexProcesses(tree, shellPid) {
     return tree.filter((d) => below.has(d.pid) && isCodex(d));
 }
 /**
- * The rollouts our codex made: each goes to the codex that started last
- * before it was born (a rollout comes right after its process starts, or on
- * /new). Of ours, the newest is the session now (after /new, not the first).
+ * One per running Codex: the codex processes with no codex above them (npm's
+ * `node codex.js` starts the native codex as its child: one Codex, not two).
  */
-function newestOwn(tree, ours, candidates) {
-    const mine = new Set(ours.map((d) => d.pid));
-    const starts = tree
-        .filter(isCodex)
-        .filter((d) => d.startMs !== null)
-        .sort((a, b) => a.startMs - b.startMs);
-    const own = candidates.filter((c) => {
-        const maker = starts.filter((d) => d.startMs <= c.born + START_SLACK_MS).at(-1);
-        return maker !== undefined && mine.has(maker.pid);
-    });
-    return own.sort((a, b) => b.born - a.born)[0]?.id ?? null;
+function codexRoots(tree) {
+    const byPid = new Map(tree.map((d) => [d.pid, d]));
+    const codexAbove = (d) => {
+        let current = byPid.get(d.ppid);
+        for (let depth = 0; current !== undefined && depth < 8; depth++) {
+            if (current.pid === current.ppid) {
+                return false;
+            }
+            if (isCodex(current)) {
+                return true;
+            }
+            current = byPid.get(current.ppid);
+        }
+        return false;
+    };
+    return tree.filter((d) => isCodex(d) && d.startMs !== null && !codexAbove(d));
 }
+/**
+ * The Codex that made a rollout, or null when it cannot be told. Only a Codex
+ * running since before the rollout was born can have made it. One such Codex:
+ * it is that one's. Several: a Codex makes a session when it starts, so the one
+ * that started within START_SLACK_MS of the rollout's birth, if only one did;
+ * a rollout born later (a /new) that several could have made is nobody's. A
+ * Codex that has exited is not in the table, which is why the folder is never
+ * asked: a script's `codex exec` in the same folder is no evidence either way.
+ */
+function makerOf(born, codexes) {
+    const makers = codexes.filter((d) => d.startMs <= born + START_SLACK_MS);
+    if (makers.length === 1) {
+        return makers[0]?.pid ?? null;
+    }
+    const starters = makers.filter((d) => Math.abs(d.startMs - born) <= START_SLACK_MS);
+    return starters.length === 1 ? (starters[0]?.pid ?? null) : null;
+}
+/**
+ * The session of a terminal is found only through its own process tree: the
+ * shell's (Windows) or the agent's own (POSIX) process, never the terminal's
+ * folder. A shell's folder is where it was told it is (a new tab starts where
+ * the focused pane was, and `cd Y; codex` runs elsewhere), and another space
+ * may run a Codex in that same folder. Rollouts are listed by name only (the
+ * id carries its birth); the folder in them decides nothing.
+ */
 async function discoverSession(t, p) {
     const fg = t.foreground;
-    if (fg?.argv.includes("resume")) {
+    if (fg === null) {
+        // Nothing of the terminal's own to check a rollout against.
+        return null;
+    }
+    if (fg.argv.includes("resume")) {
         const id = uuidIn(fg.argv);
         if (id !== null) {
             return id;
@@ -138,39 +147,36 @@ async function discoverSession(t, p) {
         for (const name of await p.list(dir)) {
             const id = ROLLOUT.exec(name)?.[1]?.toLowerCase();
             const born = id ? uuidTime(id) : null;
-            if (!id || born === null || born < t.createdMs - START_SLACK_MS) {
-                continue;
-            }
-            const cwd = metaCwd(await p.readHead(join(p, dir, name), 64 * 1024));
-            if (cwd !== null && sameDir(cwd, t.cwd, p)) {
+            if (id && born !== null && born >= t.createdMs - START_SLACK_MS) {
                 candidates.push({ id, born });
             }
         }
     }
-    if (candidates.length === 1) {
-        return candidates[0]?.id ?? null;
-    }
-    if (fg === null) {
-        return null;
-    }
-    // Zero (resumed from the shell, or not written yet) or several: ask the process
-    // tree, unless it already could not tell and nothing changed since (see `undecided`).
+    // Ask the process tree, unless it already could not tell and nothing changed since (see `undecided`).
+    // A new rollout is asked about at once: rollouts are born rarely (a start, a /new).
     const key = `${t.address}@${t.createdMs}`;
-    const look = JSON.stringify([fg.pid, t.title ?? null, t.status, candidates.map((c) => c.id).sort()]);
+    const look = JSON.stringify([fg.pid, t.title ?? null, t.status]);
+    const rollouts = JSON.stringify(candidates.map((c) => c.id).sort());
     const last = undecided.get(key);
-    if (last !== undefined && (last.look === look || (p.platform === "windows" && now - last.at < DETAILS_EVERY_MS))) {
+    if (last !== undefined &&
+        last.rollouts === rollouts &&
+        (last.look === look || (p.platform === "windows" && now - last.at < DETAILS_EVERY_MS))) {
         return null;
     }
     const id = fromProcesses(await processDetails(p), fg.pid, candidates);
     if (id === null) {
-        undecided.set(key, { look, at: now });
+        undecided.set(key, { look, rollouts, at: now });
     }
     else {
         undecided.delete(key);
     }
     return id;
 }
-/** The session of the codex under shell `shellPid`: its `resume <id>`, else the newest rollout it made. */
+/**
+ * The session of the codex under shell `shellPid`: its `resume <id>`, else the
+ * newest rollout only it can have made (`makerOf`); null when no rollout is
+ * surely its own.
+ */
 function fromProcesses(tree, shellPid, candidates) {
     const ours = codexProcesses(tree, shellPid);
     for (const proc of ours) {
@@ -179,12 +185,13 @@ function fromProcesses(tree, shellPid, candidates) {
             return id;
         }
     }
-    const starts = ours.map((d) => d.startMs).filter((ms) => ms !== null);
-    if (starts.length === 0 || candidates.length === 0) {
-        return null;
-    }
-    const started = Math.min(...starts);
-    return newestOwn(tree, ours, candidates.filter((c) => c.born >= started - START_SLACK_MS));
+    const all = codexRoots(tree);
+    const mine = new Set(ours.map((d) => d.pid));
+    const own = candidates.filter((c) => {
+        const maker = makerOf(c.born, all);
+        return maker !== null && mine.has(maker);
+    });
+    return own.sort((a, b) => b.born - a.born)[0]?.id ?? null;
 }
 const noFacts = () => ({
     firstPrompt: null,

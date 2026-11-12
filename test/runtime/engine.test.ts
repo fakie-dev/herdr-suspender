@@ -541,6 +541,9 @@ describe("a session that changes inside the agent (/clear, /resume, Codex /new)"
   it("Codex /new takes the same path, and nothing is asked or started while it idles", async () => {
     const { sim, engine, codex } = world();
     const term = sim.addTerminal({ agent: "codex", status: "working" });
+    // Its shell in front, as Herdr reports a Windows terminal.
+    const shell = sim.term(term.address);
+    shell.foreground = { pid: shell.pid ?? 0, argv: ["pwsh.exe"], name: "pwsh.exe" };
     codex.state.sessions.set(term.address, "c1");
     await engine.tick();
     assert.equal(engine.record("codex:c1")?.state, "working");
@@ -558,10 +561,10 @@ describe("a session that changes inside the agent (/clear, /resume, Codex /new)"
     await engine.tick();
     assert.equal(engine.record("codex:c1"), null);
     assert.equal(engine.record("codex:c2")?.state, "running");
-    // Codex is asked without a process in front (its lookup would take a PowerShell
-    // snapshot to choose between sessions), for sessions started since the last look.
+    // Codex is asked with the terminal's own shell in front: a rollout is its session only
+    // through that shell's process tree (never by the folder), for sessions started since the last look.
     const view = codex.state.views.at(-1);
-    assert.equal(view?.foreground, null);
+    assert.equal(view?.foreground?.pid, shell.pid);
     assert.ok(
       (view?.createdMs ?? 0) >= checkedFrom - 30_000 && (view?.createdMs ?? 0) > sim.term(term.address).createdMs,
     );
@@ -579,6 +582,23 @@ describe("a session that changes inside the agent (/clear, /resume, Codex /new)"
     await engine.tick();
     assert.equal(engine.record("codex:cA")?.terminal, a.address);
     assert.equal(engine.record("codex:cB")?.terminal, b.address);
+  });
+});
+
+describe("a session is a terminal's only through its processes", () => {
+  it("an unbound Codex anywhere, in any folder, holds back a Codex rekey", async () => {
+    const { sim, engine, codex } = world();
+    sim.addTab("tb2", "sp2");
+    const a = sim.addTerminal({ agent: "codex", status: "working" });
+    codex.state.sessions.set(a.address, "cA");
+    await engine.tick();
+    // Another space runs a Codex in another folder, not bound yet (its session cannot be told).
+    sim.addTerminal({ agent: "codex", status: "idle", tab: "tb2", space: "sp2", cwd: "C:\\elsewhere\\y" });
+    codex.state.sessions.set(a.address, "cNew");
+    sim.setStatus(a.address, "idle");
+    await engine.tick();
+    assert.equal(engine.record("codex:cA")?.terminal, a.address);
+    assert.equal(engine.record("codex:cNew"), null);
   });
 });
 

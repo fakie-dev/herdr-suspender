@@ -40,15 +40,83 @@ describe("codex: discoverSession", () => {
     assert.equal(await codexAdapter.discoverSession(t, p), id);
   });
 
-  it("finds the rollout started in this folder after the terminal", async () => {
+  it("never takes a rollout for its folder alone: one new rollout in the terminal's folder is not enough", async () => {
+    // The only new rollout in the shell's folder, and no codex under the shell to have made it:
+    // it is some other terminal's (another space, a script), never this one's.
     const p = fakePorts({ now: NOW });
     const created = NOW - 60_000;
-    const ours = addRollout(p.files, created + 4_000, "1", CWD);
-    addRollout(p.files, created + 5_000, "2", `${HOME}/dev/other`);
-    addRollout(p.files, created - 3_600_000, "3", CWD);
+    addRollout(p.files, created + 4_000, "1", CWD);
     const t = terminal({ cwd: CWD, createdMs: created, foreground: { pid: 100, argv: ["bash"], name: "bash" } });
-    assert.equal(await codexAdapter.discoverSession(t, p), ours);
-    assert.equal(p.execCalls.length, 0);
+    assert.equal(await codexAdapter.discoverSession(t, p), null);
+  });
+
+  it("a shell that still says X while its codex runs in Y: takes its own rollout, not a later one made in X elsewhere", async () => {
+    // Tab A's shell reports X; A ran `cd Y; codex` (codex 101). Codex 201 in another space started later, in X.
+    const p = scriptExec(fakePorts({ now: NOW }), () =>
+      ok(
+        "  100     1    02:00 bash\n  101   100    01:00 codex\n  200     1    05:00 bash\n  201   200    00:30 codex\n",
+      ),
+    );
+    const own = addRollout(p.files, NOW - 59_000, "a", `${HOME}/dev/y`);
+    addRollout(p.files, NOW - 29_000, "b", CWD);
+    const a = terminal({ cwd: CWD, createdMs: NOW - 120_000, foreground: { pid: 100, argv: [], name: "bash" } });
+    assert.equal(await codexAdapter.discoverSession(a, p), own);
+  });
+
+  it("a /new made by an older codex elsewhere is not credited to the codex that started last", async () => {
+    // B's codex (201) started 8 minutes ago, ours (101) 30 s ago; B's /new 10 s ago is B's.
+    const p = scriptExec(fakePorts({ now: NOW }), () =>
+      ok(
+        "  100     1    05:00 bash\n  101   100    00:30 codex\n  200     1    09:00 bash\n  201   200    08:00 codex\n",
+      ),
+    );
+    const own = addRollout(p.files, NOW - 29_000, "a", CWD);
+    addRollout(p.files, NOW - 10_000, "b", CWD);
+    const a = terminal({ cwd: CWD, createdMs: NOW - 300_000, foreground: { pid: 100, argv: [], name: "bash" } });
+    assert.equal(await codexAdapter.discoverSession(a, p), own);
+  });
+
+  it("a rollout two live codexes could have made is nobody's: the id stays as it was", async () => {
+    // Both codexes run since before the rollout, which came long after either started (a /new).
+    const p = scriptExec(fakePorts({ now: NOW }), () =>
+      ok(
+        "  100     1    05:00 bash\n  101   100    04:00 codex\n  200     1    09:00 bash\n  201   200    08:00 codex\n",
+      ),
+    );
+    addRollout(p.files, NOW - 10_000, "b", CWD);
+    const a = terminal({ cwd: CWD, createdMs: NOW - 300_000, foreground: { pid: 100, argv: [], name: "bash" } });
+    assert.equal(await codexAdapter.discoverSession(a, p), null);
+  });
+
+  it("without the terminal's shell (no foreground), nothing is taken, however new the rollout", async () => {
+    const p = fakePorts({ now: NOW });
+    addRollout(p.files, NOW - 5_000, "c", CWD);
+    const a = terminal({ cwd: CWD, createdMs: NOW - 60_000, foreground: null });
+    assert.equal(await codexAdapter.discoverSession(a, p), null);
+    assert.equal(p.execCalls.length, 0, "and no process is asked: there is nothing of its own to ask about");
+  });
+
+  it("a Codex started through npm (node with the native codex under it) is one Codex, not two", async () => {
+    const p = scriptExec(fakePorts({ now: NOW }), () =>
+      ok(
+        "  100     1    05:00 bash\n  101   100    01:00 node /usr/lib/node_modules/@openai/codex/bin/codex.js\n  102   101    00:59 codex\n  200     1    09:00 bash\n  201   200    08:00 codex\n",
+      ),
+    );
+    const own = addRollout(p.files, NOW - 59_000, "a", CWD);
+    const a = terminal({ cwd: CWD, createdMs: NOW - 300_000, foreground: { pid: 100, argv: [], name: "bash" } });
+    assert.equal(await codexAdapter.discoverSession(a, p), own);
+  });
+
+  it("a Codex that started after a rollout cannot have made it", async () => {
+    // Ours (101) since 5 minutes, its /new 100 s ago; another Codex (201) started 30 s ago.
+    const p = scriptExec(fakePorts({ now: NOW }), () =>
+      ok(
+        "  100     1    06:00 bash\n  101   100    05:00 codex\n  200     1    01:00 bash\n  201   200    00:30 codex\n",
+      ),
+    );
+    const own = addRollout(p.files, NOW - 100_000, "a", CWD);
+    const a = terminal({ cwd: CWD, createdMs: NOW - 360_000, foreground: { pid: 100, argv: [], name: "bash" } });
+    assert.equal(await codexAdapter.discoverSession(a, p), own);
   });
 
   it("tells two new rollouts in one folder apart by the codex process under this shell", async () => {

@@ -12,7 +12,7 @@
   },
   "files": {
     "adapters/claude.js": "9a54edc70d2b99153867cd0f259dfcf2d2417a70332f3d1698ee9e553c918f27",
-    "adapters/codex.js": "30e27277275560d12a4d3e4af7bc02a2ff6c91d7c7aa7922d62e2fc86a598e1f",
+    "adapters/codex.js": "8dc7f8390da33d16c87a071c8c9cefe0863f357fdc19271727ea9466db328c94",
     "adapters/common.js": "e39aa977fde6d89a3691778a29839841fa26ecec90e05d98750b9ab6d3a21c80",
     "adapters/contract.js": "2861d157163513931e693b9595181d23ed2a23b49db815a0f73cf4482a01d444",
     "adapters/index.js": "a4782181721f06cd38de0b8a0a669c58a0e13e0442b03afa794a99a314aafe15",
@@ -51,7 +51,7 @@
     "platform/ports.js": "63c753f656b1469ce09edeb20f64f8ed3acb3a123a73d481a0b770a3b2d60758",
     "platform/proc.js": "07ad48d884f34b96d5c8a38760295eeae1cd6370fb0da1e4e037bbcf50a643b0",
     "platform/updateFiles.js": "62c332eafa0d130de7e1cc9857b24609529efeb8bdf01d74027a66a9517e442d",
-    "runtime/engine.js": "6fb9078459b03c83c6a71970caa953e2cae296b6960d4f2571964c4ecd68566b",
+    "runtime/engine.js": "6867988ad0efe629c94a6bc4e9e1e9d69480d76bb38472eed361c306cfa9b398",
     "runtime/herdrHost.js": "fccc3601fd20fb25ea04b08be212b181f0a46b69ef5067f1fcf75abb5f6fdacd",
     "runtime/host.js": "f01aaf7a8cb0514e606d3932e8701bb57139f01eb275765a7273f844e87dec3a",
     "runtime/layoutSync.js": "e3c3d95976b8bcdf4ad8e704849b0aa9429014d204d259ea60e3a24e33034b19",

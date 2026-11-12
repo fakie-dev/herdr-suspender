@@ -10,7 +10,7 @@
 // a person asked for in it (Sleep, Resume, Forget). Store writes say what they
 // replace, so two copies writing at once never lose each other's change.
 
-import { emptyInfo, sameDir } from "../adapters/common.ts";
+import { emptyInfo } from "../adapters/common.ts";
 import type { AgentAdapter, TerminalView } from "../adapters/contract.ts";
 import { ADAPTERS } from "../adapters/index.ts";
 import { classifyTerminal, LABEL_AGENT, LABEL_STATE, sessionLabels } from "../core/classify.ts";
@@ -934,8 +934,10 @@ export class Engine {
   private recheckView(term: HostTerminal, adapter: AgentAdapter): TerminalView {
     const view = toTerminalView(term);
     if (RECHECK[adapter.id] === "newer") {
+      // A new session since the last look is the cheap trigger; the terminal's own
+      // shell stays in front, so the adapter confirms it through the process tree.
       const since = this.co.checkedAt.get(term.address) ?? term.createdMs;
-      return { ...view, foreground: null, createdMs: Math.max(since, term.createdMs) };
+      return { ...view, createdMs: Math.max(since, term.createdMs) };
     }
     const known = this.co.agents.get(term.address);
     return known === undefined || known.shell !== term.pid
@@ -973,14 +975,17 @@ export class Engine {
       return key;
     }
     // Looked up by "sessions started since": while another agent of this kind runs
-    // in the folder without a record, the newer session may well be its own.
+    // without a record, anywhere, the newer session may well be its own.
     if (RECHECK[adapter.id] === "newer" && this.unboundNeighbour(term, adapter)) {
       return key;
     }
     return this.rekey(rec, term, sessionId);
   }
 
-  /** Another live terminal in the same folder runs this adapter's agent and has no record yet. */
+  /**
+   * Another live terminal runs this adapter's agent and has no record yet, in
+   * any folder: a folder is only where a shell was told it is.
+   */
   private unboundNeighbour(term: HostTerminal, adapter: AgentAdapter): boolean {
     const bound = new Set(this.records().map((r) => r.terminal));
     return this.host
@@ -990,7 +995,6 @@ export class Engine {
           x.address !== term.address &&
           x.state === "live" &&
           !bound.has(x.address) &&
-          sameDir(x.cwd, term.cwd, this.ports) &&
           adapter.matches(toTerminalView(x)),
       );
   }

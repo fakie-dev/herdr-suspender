@@ -35,6 +35,8 @@ interface SimTerminal extends HostTerminal {
   screen: string;
   /** The agent's own process under the shell, while it runs there. */
   agentPid: number | null;
+  /** When that process started (the process table says so). */
+  agentStartMs: number | null;
   /** What was typed to start the agent in the shell ("claude --resume s1"). */
   ran: string | null;
   /** What sits in the agent's prompt, not sent yet. */
@@ -213,6 +215,7 @@ export class Sim implements Host {
       screen: `screen of ${address}`,
       listed: true,
       agentPid: agent !== null && !opts.direct ? this.pidSeq++ : null,
+      agentStartMs: agent !== null && !opts.direct ? this.now - 59_000 : null,
       ran: null,
       input: "",
       submitted: [],
@@ -291,7 +294,18 @@ export class Sim implements Host {
     return [...this.terms.values()]
       .filter((t) => t.listed)
       .map(
-        ({ agent: _a, direct: _d, screen: _s, listed: _l, agentPid: _p, ran: _r, input: _i, submitted: _u, ...t }) => ({
+        ({
+          agent: _a,
+          direct: _d,
+          screen: _s,
+          listed: _l,
+          agentPid: _p,
+          agentStartMs: _st,
+          ran: _r,
+          input: _i,
+          submitted: _u,
+          ...t
+        }) => ({
           ...t,
           labels: { ...t.labels },
           argv: [...t.argv],
@@ -662,11 +676,11 @@ export class Sim implements Host {
       if (t.state !== "live" || t.pid === null) {
         continue;
       }
-      lines.push(`${t.pid}\t1\t\t${t.direct ? `${t.argv[0]}.exe` : "pwsh.exe"}\t${t.argv.join(" ")}`);
+      lines.push(`${t.pid}\t1\t${t.createdMs}\t${t.direct ? `${t.argv[0]}.exe` : "pwsh.exe"}\t${t.argv.join(" ")}`);
       if (t.agent !== null && t.agentPid !== null) {
         const name = `${t.agent}.exe`;
         lines.push(
-          `${t.agentPid}\t${t.pid}\t\t${name}\t"C:\\bin\\${name}" ${(t.ran ?? t.agent).split(" ").slice(1).join(" ")}`,
+          `${t.agentPid}\t${t.pid}\t${t.agentStartMs ?? ""}\t${name}\t"C:\\bin\\${name}" ${(t.ran ?? t.agent).split(" ").slice(1).join(" ")}`,
         );
       }
     }
@@ -743,6 +757,7 @@ export class Sim implements Host {
     }
     t.agent = agent;
     t.agentPid = this.pidSeq++;
+    t.agentStartMs = this.now;
     t.ran = this.shellRewrites?.(line) ?? line;
     // A program sets its title when it starts, whether or not it reports a status.
     t.title = AGENT_TITLE;
@@ -798,6 +813,7 @@ export class Sim implements Host {
       screen: "",
       listed: false,
       agentPid: null,
+      agentStartMs: null,
       ran: null,
       input: "",
       submitted: [],

@@ -197,7 +197,7 @@ describe("a Codex whose session is not known yet", () => {
     assert.equal(engine.records().length, 0);
   });
 
-  it("is found by its rollout as soon as it appears, still without a process", async () => {
+  it("is found by its rollout as soon as it appears, confirmed by one look at the process table", async () => {
     const { sim, ports, engine, cx } = idleCodex();
     await engine.tick();
     const firstLook = sim.execCalls.length;
@@ -212,7 +212,8 @@ describe("a Codex whose session is not known yet", () => {
     );
     await ticks(sim, engine, 10_000);
     assert.equal(engine.record(`codex:${id}`)?.terminal, cx.address);
-    assert.equal(sim.execCalls.length, firstLook);
+    // Only its own codex can have made it, and only the process table says so (never its folder).
+    assert.equal(sim.execCalls.length, firstLook + 1);
   });
 
   it("is asked the process table again when its terminal changes", async () => {
@@ -223,5 +224,28 @@ describe("a Codex whose session is not known yet", () => {
     sim.term(cx.address).title = "codex resume";
     await ticks(sim, engine, 60_000);
     assert.ok(sim.execCalls.length > firstLook, `${firstLook} ${sim.execCalls.length}`);
+  });
+
+  it("a rollout another space's Codex made in the same folder is that terminal's, not this one's", async () => {
+    const { sim, ports, engine, cx } = idleCodex();
+    await engine.tick();
+    // Another space, same folder: its Codex starts now and makes its session.
+    sim.addTab("tb9", "sp9");
+    const other = sim.addTerminal({ agent: "codex", status: "idle", cwd: CWD, tab: "tb9", space: "sp9" });
+    const otherTerm = sim.term(other.address);
+    otherTerm.foreground = { pid: otherTerm.pid ?? 0, argv: ["pwsh.exe"], name: "pwsh.exe" };
+    otherTerm.agentStartMs = sim.now;
+    const id = uuidV7(sim.now, "0b0e");
+    const d = new Date(sim.now);
+    const pad = (n: number): string => String(n).padStart(2, "0");
+    const day = `${d.getFullYear()}\\${pad(d.getMonth() + 1)}\\${pad(d.getDate())}`;
+    ports.files.set(
+      `C:\\Users\\tester\\.codex\\sessions\\${day}\\rollout-2027-01-15T08-00-00-${id}.jsonl`,
+      jsonl(codex.meta(id, CWD, d.toISOString())),
+    );
+    await ticks(sim, engine, 20_000);
+    assert.equal(engine.record(`codex:${id}`)?.terminal, other.address);
+    assert.ok(!engine.records().some((r) => r.terminal === cx.address), "this terminal is left unbound");
+    assert.equal(sim.term(cx.address).labels["suspender.session"], undefined, "and was never labelled with it");
   });
 });
