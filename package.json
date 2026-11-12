@@ -1,6 +1,6 @@
 {
   "name": "herdr-suspender",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "private": true,
   "description": "Herdr App mod: put Claude Code and Codex sessions to sleep to free their memory, resume them in the same tab, and restore them after a reboot",
   "keywords": [

@@ -5,6 +5,23 @@ and the project uses [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.1.1] - 2026-11-12
+
+Mostly fixes from an independent run on a clean 0.1.0 install, plus a shorter README.
+
+### Added
+
+- The sleeping tab follows Herdr's `terminal_line_height` setting (Herdr 0.1.16), so the dimmed last screen
+  keeps the row height of the real terminal. At the default of 1 nothing changes.
+
+### Changed
+
+- The README is shorter and plainer: what the mod is, how to install it, the two keys and how to remove it.
+  Install steps are given for Windows and for macOS / Linux (on a Mac the layout switch is `Cmd+Shift+L`).
+  How it works inside moved to `docs/architecture.md`.
+- `ROADMAP.md` has two new ideas: keep the text you typed in the prompt when the session goes to sleep, and
+  don't sleep a session while it still has background work running.
+
 ### Fixed
 
 - Waking a session no longer shows a bare shell with `claude --resume …` typed into it for several seconds. The
@@ -12,10 +29,10 @@ and the project uses [Semantic Versioning](https://semver.org/).
   it. The agent still starts in your default shell, so the tab keeps that shell after you exit the agent.
 - A tab could end up with two sleeping panes, and one of them stayed next to the agent after Resume. It
   happened when Herdr took a moment to show the new pane: the mod then asked for a second one. It now waits
-  for the first, even when it shows up long after (the sleeping tab then takes it instead of being dropped), and
-  a leftover sleeping pane that no session owns is closed. Other Suspender panes are never touched.
-- The strip no longer says "Updated after sleep · +0 messages" when the conversation was opened elsewhere but
-  nothing was added to it.
+  for the first. If that pane shows up late, the sleeping tab takes it instead of losing the session, and a
+  leftover sleeping pane that no session owns is closed.
+- The mod no longer closes panes that are yours. Only its own sleeping panes are ever cleaned up, and a late
+  pane is never taken from another tab.
 - A sleeping session that you open in another tab (or another program) now shows "open elsewhere" and disables
   Resume within seconds, and again whenever you come back to its tab, not only after you press Resume.
 - Running sessions in the Sessions list show their title, branch and model as soon as they are known, like
@@ -24,6 +41,13 @@ and the project uses [Semantic Versioning](https://semver.org/).
   "53k in use"), instead of leaving the line out.
 - In a narrow pane or at a large zoom, the strip's status wraps at words (two lines at most, then "…") instead
   of being cut mid-word, and the title is hidden rather than shown as a lone "…".
+- The strip no longer says "Updated after sleep · +0 messages" when the conversation was opened elsewhere but
+  nothing was added to it.
+
+### Known limits
+
+- The shell that wakes a session starts at 200×120 before it is shown, and the agent draws itself for that
+  size first. Claude Code redraws to fit and looks right. Codex has not been checked.
 
 ## [0.1.0] - 2026-11-12
 
@@ -70,4 +94,5 @@ First release.
   command, so the draft is dropped instead of being sent.
 - The interface is English only.
 
+[0.1.1]: https://github.com/fakie-dev/herdr-suspender/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/fakie-dev/herdr-suspender/releases/tag/v0.1.0
