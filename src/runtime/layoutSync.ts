@@ -9,7 +9,14 @@
 // loaded, no copy has looked yet) the layout keeps the mode it has. A main.json
 // with no place for Sessions beside Files and Changes gets the shipped tab bar.
 
-import { buildLivingLayout, LAYOUT_NAME, needsRebuild, type TabsMode, tabsModeOf } from "../core/layout.ts";
+import {
+  buildLivingLayout,
+  keepPersonChanges,
+  LAYOUT_NAME,
+  needsRebuild,
+  type TabsMode,
+  tabsModeOf,
+} from "../core/layout.ts";
 import { t } from "../i18n/index.ts";
 import type { Ports } from "../platform/ports.ts";
 
@@ -89,8 +96,14 @@ export async function syncLayout(d: LayoutSyncDeps): Promise<SyncOutcome> {
       once(d, "layout", t("notice.layoutOutdated", { version: d.herdrVersion }));
       return "kept";
     }
-    // Only if nobody changed the file since we read it: another copy may be doing the same.
-    if (await d.ports.writeText(livingPath, `${JSON.stringify(built.layout, null, 2)}\n`, currentText)) {
+    // What the person changed in the file (a block's mod) is kept. A block main.json no longer has is
+    // told by the copy whose write drops it: the next build no longer has it, so it is said once.
+    const kept = keepPersonChanges(built.layout, current, main);
+    // Only if nobody changed the file since we read it: another copy, or the person saving it, may have.
+    if (await d.ports.writeText(livingPath, `${JSON.stringify(kept.layout, null, 2)}\n`, currentText)) {
+      for (const block of kept.lost) {
+        d.toast(t("notice.blockLost", { mod: block.mod, id: block.id }));
+      }
       return "rebuilt";
     }
   }

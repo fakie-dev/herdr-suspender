@@ -240,6 +240,16 @@
   "suspender_generated": {
     "from": "5ae0c5da8ee9ed7ebde11f1ee0ab2710fba0970b4159cc6c88b00e6bdcf757f9",
     "generator": 5,
-    "tabs": "builtin"
+    "tabs": "builtin",
+    "base": {
+      "brand": "workspace-chrome",
+      "spaces": "spaces",
+      "agents": "agents",
+      "sidebar-footer": "workspace-chrome",
+      "tabs": "tabs",
+      "files": "files",
+      "changes": "changes",
+      "status": "workspace-status"
+    }
   }
 }

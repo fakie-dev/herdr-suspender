@@ -39,6 +39,9 @@ and the project uses [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- A mod you put in a block of `layouts/suspender.json` (the spaces sidebar swapped for a folders mod, say) stays
+  when Suspender rebuilds the layout after a Herdr update. Before, the rebuild put Herdr's own mod back without a
+  word. A block Herdr's new layout no longer has is dropped, and a toast says which.
 - Claude Code installed with npm on Windows (it runs as `node.exe`) is found in its tab, shown open elsewhere when
   it is, and no longer taken for a killed agent (put to sleep in the middle of its work) whenever its tab changed.
 - Resume right after Sleep no longer says a Codex session is open elsewhere: the rollout Codex wrote on its way

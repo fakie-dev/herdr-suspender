@@ -90,6 +90,7 @@ export const en = {
     "notice.tabGone": "This session's tab is gone; it leaves the list in a few seconds",
     "notice.skippedElsewhere": "Some sessions are open elsewhere and were skipped",
     "notice.layoutOutdated": "Suspender couldn't update its layout for Herdr {version}",
+    "notice.blockLost": 'Herdr\'s layout has no block "{id}" now, so your {mod} there is gone',
     "notice.tabsFallback": "Sessions moved left of the tabs",
     // Updates of the mod itself: the toasts, the line at the top of Sessions and the switch at its bottom.
     "update.out.title": "Suspender {version} is out",

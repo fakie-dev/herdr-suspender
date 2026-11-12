@@ -159,8 +159,37 @@ function insertPill(root) {
     ];
     return null;
 }
+/** Every block of a layout tree (in `children`, at any depth), the root included. */
+function blocks(root) {
+    const out = [];
+    const visit = (node) => {
+        out.push(node);
+        if (Array.isArray(node.children)) {
+            for (const child of node.children) {
+                if (isObject(child)) {
+                    visit(child);
+                }
+            }
+        }
+    };
+    visit(root);
+    return out;
+}
+/** Each block's mod by its id, as main.json has them: what the person may replace (`keepPersonChanges`). */
+function modsById(main) {
+    const out = {};
+    for (const node of blocks(main)) {
+        const mod = contentOf(node)?.mod;
+        if (typeof node.id === "string" && typeof mod === "string") {
+            out[node.id] = mod;
+        }
+    }
+    return out;
+}
+/** Suspender's own mods: never carried over from the layout on disk, always built as now. */
+const ourMod = (mod) => mod === MOD || mod === TABS_CLONE;
 /** `main` with `cloned_from` right after `type`, as Herdr's own clones have it. */
-function withOrigin(layout, mainVersion, hash, tabs) {
+function withOrigin(layout, mainVersion, hash, tabs, base) {
     const out = {};
     for (const [field, value] of Object.entries(layout)) {
         if (field === "cloned_from" || field === "suspender_generated") {
@@ -174,7 +203,8 @@ function withOrigin(layout, mainVersion, hash, tabs) {
     if (!("cloned_from" in out)) {
         out.cloned_from = { name: "main", version: mainVersion };
     }
-    out.suspender_generated = { from: hash, generator: GENERATOR_VERSION, tabs };
+    // `base`: the mods main.json had, so a later build can tell a mod the person put in from Herdr's own change.
+    out.suspender_generated = { from: hash, generator: GENERATOR_VERSION, tabs, base };
     return out;
 }
 export function buildLivingLayout(main, mainVersion, tabs = "builtin") {
@@ -194,7 +224,48 @@ export function buildLivingLayout(main, mainVersion, tabs = "builtin") {
     if (problem !== null) {
         return { ok: false, reason: problem };
     }
-    return { ok: true, layout: withOrigin(layout, mainVersion, layoutHash(main), tabs) };
+    return { ok: true, layout: withOrigin(layout, mainVersion, layoutHash(main), tabs, modsById(main)) };
+}
+/**
+ * `built` (a fresh build from `main`) with what the person changed in
+ * `current` (the living layout on disk): a block, by its id, whose mod they
+ * replaced keeps their content (mod and props). "Replaced" is against the mods
+ * main.json had when `current` was built (`base`); a layout from before that
+ * was recorded is compared with `main` itself. Suspender's own blocks, and a
+ * block of `built` that is ours (the tabs block showing the copy), are never
+ * changed. A block `main` no longer has is dropped: no place is invented.
+ */
+export function keepPersonChanges(built, current, main) {
+    const lost = [];
+    if (!isObject(current) || !isObject(main) || !isObject(built)) {
+        return { layout: built, lost };
+    }
+    const generated = isObject(current.suspender_generated) ? current.suspender_generated : null;
+    const recorded = isObject(generated?.["base"]) ? generated["base"] : null;
+    const before = recorded ?? modsById(main);
+    const layout = JSON.parse(JSON.stringify(built));
+    for (const node of blocks(current)) {
+        const content = contentOf(node);
+        const mod = content?.mod;
+        const id = node.id;
+        if (typeof id !== "string" || typeof mod !== "string" || content === null) {
+            continue;
+        }
+        // Our own blocks (toggle, panel, pill) have ids main.json never has, so they are not in `before`.
+        if (ourMod(mod) || !(id in before) || before[id] === mod) {
+            continue;
+        }
+        const target = blocks(layout).find((x) => x.id === id);
+        if (target === undefined) {
+            lost.push({ id, mod });
+            continue;
+        }
+        if (ourMod(contentOf(target)?.mod)) {
+            continue;
+        }
+        target.content = JSON.parse(JSON.stringify(content));
+    }
+    return { layout, lost };
 }
 /** The tab bar mode a living layout was built with (null: none, or not one of ours). */
 export function tabsModeOf(current) {

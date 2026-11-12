@@ -172,6 +172,10 @@ the file, and rebuilds if they differ. A write refused because another copy wrot
 retried, up to three times. The generator finds blocks by id and mod name. If it cannot, the last working file
 stays and a toast says so. See [ADR 2](adr/0002-living-layout.md). `scripts/build-layout.ts` renders the same
 generator against a fixture `main.json` into `layout/`, the ready-made card, and `pnpm check` compares it.
+A rebuild keeps what the person changed in a block: each build records the mod of every block of `main.json` by id (`suspender_generated.base`), and a block whose mod on disk differs
+keeps its content (a spaces sidebar swapped for a folders mod, say). Suspender's own blocks are rebuilt as always;
+a block the new `main.json` no longer has is dropped with one toast. See
+[ADR 16](adr/0016-a-rebuild-keeps-the-persons-block-mods.md).
 
 The tab bar mode comes from `runtime/tabsClone.ts`, run once per module load by the first copy that is shown.
 Herdr's tab bar is a shipped mod, and shipped mods are not edited, so the mod keeps a copy of its own:
