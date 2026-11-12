@@ -39,6 +39,9 @@ and the project uses [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- A session started with `cd somewhere; claude` (or `codex`) on one line is recorded in the folder it runs in, and
+  Resume starts it there. Its folder came from the tab's shell, which had not taken the `cd` in yet (seen: the home
+  folder). It now comes from the agent's own files: Claude Code's session file, Codex's rollout.
 - Leaving Claude Code with `/exit` and starting it again in the same tab within a few seconds no longer puts the
   tab to sleep and kills the new Claude: the mod knew only the old process and took it for a killed agent. The
   tab now follows the new session, and Sleep right after such a restart sleeps the new session, not the old one.

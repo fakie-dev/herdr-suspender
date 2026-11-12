@@ -441,6 +441,7 @@ export const claudeAdapter: AgentAdapter = {
     /^claude(\.exe)?$/i.test(t.foreground?.name ?? "") ||
     /(^|[\\/])claude(\.exe)?$/i.test(t.foreground?.argv[0] ?? ""),
   discoverSession,
+  sessionCwd: async (sessionId, p) => (await liveSessions(p)).find((s) => s.sessionId === sessionId)?.cwd ?? null,
   snapshot,
   transcriptExists: async (sessionId, cwd, p) => (await findTranscript(sessionId, cwd, p)) !== null,
   openElsewhere,

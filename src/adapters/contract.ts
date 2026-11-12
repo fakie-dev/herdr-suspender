@@ -37,6 +37,12 @@ export interface AgentAdapter {
   /** The agent's own session id for the session running in `t`, found without hooks; null if not (yet) known. */
   discoverSession(t: TerminalView, p: Ports): Promise<string | null>;
   /**
+   * The folder the session runs in, from the agent's own files (Claude Code's
+   * pid file, Codex's session_meta); null if they do not say. Never the
+   * terminal's: a shell's folder is where it was told it is.
+   */
+  sessionCwd(sessionId: string, p: Ports): Promise<string | null>;
+  /**
    * What the strip, the list and the popup show. With `prev` (an earlier
    * snapshot of the same session) it reads nothing if the transcript did not
    * change, and only the new bytes if it grew.

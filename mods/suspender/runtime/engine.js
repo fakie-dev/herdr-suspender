@@ -439,12 +439,13 @@ export class Engine {
         }
         await this.label(term, adapter.id, sessionId);
         const working = isWorking(term.status);
+        const cwd = existing === null ? await this.sessionFolder(adapter, sessionId, term) : null;
         await this.mutate((file) => {
             const rec = file.sessions[key];
             if (rec !== undefined) {
                 return placeAt(rec, term);
             }
-            file.sessions[key] = newRecord(key, adapter.id, sessionId, term, working ? "working" : "running");
+            file.sessions[key] = newRecord(key, adapter.id, sessionId, term, working ? "working" : "running", cwd ?? term.cwd);
             return true;
         });
         this.bindTried.delete(term.address);
@@ -453,6 +454,14 @@ export class Engine {
         this.co.seen.set(term.address, signature(term));
         await this.noteAgent(term, adapter);
         return key;
+    }
+    /**
+     * The folder a session runs in, by the agent's own files; the terminal's only
+     * when they do not say (its shell may not be where the agent was started).
+     */
+    async sessionFolder(adapter, sessionId, term) {
+        const own = await adapter.sessionCwd(sessionId, this.ports).catch(() => null);
+        return own ?? term.cwd;
     }
     async label(term, agent, sessionId) {
         const labels = { ...sessionLabels(agent, sessionId, "running") };
@@ -542,8 +551,9 @@ export class Engine {
             return;
         }
         if (rec === null) {
+            const cwd = await this.sessionFolder(this.adapters[agent], sessionId, term);
             await this.mutate((file) => {
-                file.sessions[key] = newRecord(key, agent, sessionId, term, "running");
+                file.sessions[key] = newRecord(key, agent, sessionId, term, "running", cwd);
                 return true;
             });
         }
@@ -954,6 +964,7 @@ export class Engine {
      */
     async rekey(rec, term, sessionId) {
         const key = sessionKey(rec.agent, sessionId);
+        const cwd = (await this.sessionFolder(this.adapter(rec.agent), sessionId, term)) ?? rec.cwd;
         let moved = false;
         let sleptElsewhere = false;
         await this.mutate((file) => {
@@ -973,9 +984,10 @@ export class Engine {
                     ...old,
                     key,
                     sessionId,
+                    cwd,
                     terminal: term.address,
                     pane: null,
-                    info: emptyInfo(sessionId, old.cwd),
+                    info: emptyInfo(sessionId, cwd),
                     lastScreen: null,
                     memFreedMb: null,
                 };
@@ -2256,18 +2268,18 @@ function placeAt(rec, term) {
 function placeOf(term, rec) {
     return { spaceId: term.labels["herdr.space"] ?? rec.spaceId, tabId: term.labels["herdr.tab"] ?? rec.tabId };
 }
-function newRecord(key, agent, sessionId, term, state) {
+function newRecord(key, agent, sessionId, term, state, cwd = term.cwd) {
     return {
         key,
         agent,
         sessionId,
-        cwd: term.cwd,
+        cwd,
         state,
         spaceId: term.labels["herdr.space"] ?? "",
         tabId: term.labels["herdr.tab"] ?? "",
         terminal: term.address,
         pane: null,
-        info: emptyInfo(sessionId, term.cwd),
+        info: emptyInfo(sessionId, cwd),
         lastScreen: null,
         sleptAtMs: null,
         memFreedMb: null,

@@ -61,6 +61,35 @@ async function findRollout(sessionId, p) {
     const name = hit(await p.list(archived));
     return name ? join(p, archived, name) : null;
 }
+/** `cwd` from a rollout's first line, even if the read cut that line short (base instructions are long). */
+function metaCwd(head) {
+    if (head === null) {
+        return null;
+    }
+    const end = head.indexOf("\n");
+    const first = end === -1 ? head : head.slice(0, end);
+    try {
+        const value = JSON.parse(first);
+        if (isRecord(value) && isRecord(value["payload"])) {
+            return str(value["payload"]["cwd"]);
+        }
+    }
+    catch {
+        // Cut short: fall back to the field itself.
+    }
+    const match = /"cwd"\s*:\s*("(?:[^"\\]|\\.)*")/.exec(first);
+    try {
+        return match?.[1] ? str(JSON.parse(match[1])) : null;
+    }
+    catch {
+        return null;
+    }
+}
+/** The folder a session runs in: the `cwd` its rollout started with. */
+async function sessionCwd(sessionId, p) {
+    const path = await findRollout(sessionId, p);
+    return path === null ? null : metaCwd(await p.readHead(path, 64 * 1024));
+}
 // ---- finding the session
 /**
  * Per terminal (address and creation time): how it looked when the process
@@ -371,6 +400,7 @@ export const codexAdapter = {
         /^codex(\.exe)?$/i.test(t.foreground?.name ?? "") ||
         /(^|[\\/])codex(\.exe)?$/i.test(t.foreground?.argv[0] ?? ""),
     discoverSession,
+    sessionCwd,
     snapshot,
     transcriptExists: async (sessionId, _cwd, p) => (await findRollout(sessionId, p)) !== null,
     openElsewhere,

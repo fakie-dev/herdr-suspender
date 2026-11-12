@@ -1003,6 +1003,8 @@ export interface FakeAdapterState {
   discovers: string[];
   /** The views it was given, in order. */
   views: TerminalView[];
+  /** A session's own folder, as its own files say (`sessionCwd`); none: null. */
+  folders: Map<string, string>;
 }
 
 export function fakeAdapter(
@@ -1016,6 +1018,7 @@ export function fakeAdapter(
     openChecks: [],
     discovers: [],
     views: [],
+    folders: new Map(),
   },
 ): AgentAdapter & { state: FakeAdapterState } {
   const app = appOf(id);
@@ -1051,6 +1054,7 @@ export function fakeAdapter(
         ...(state.info.get(sessionId) ?? {}),
       };
     },
+    sessionCwd: async (sessionId: string) => state.folders.get(sessionId) ?? null,
     transcriptExists: async (sessionId: string) => !state.missing.has(sessionId),
     openElsewhere: async (sessionId: string) => {
       state.openChecks.push(sessionId);
