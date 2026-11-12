@@ -364,3 +364,55 @@ describe("the Sleep pill", () => {
     );
   });
 });
+
+describe("the agent's tile beside the title (user: «иконка агента должна быть напротив заголовка»)", () => {
+  // Centred on the title's line, not on a size picked for one font: the tile sits
+  // in a box as tall as the title's row, both centre their content, and both
+  // start at the top of the row. The UI font's own metrics (ascent, descent, line
+  // height) then move the title's glyphs, never where the line's middle is.
+  const parentOf = (root: unknown, kid: Drawn): Drawn | undefined =>
+    [...walk(root)].find((el) => el.kids.includes(kid));
+  const tileIn = (root: unknown): Drawn | undefined =>
+    [...walk(root)].find((el) => has(el, "rounded", 4) && el.kids.includes("C"));
+
+  it("in a Sessions row: a box as tall as the title's row, centred, both at the row's top", async () => {
+    const { ROW_TITLE_PX } = await import("../../src/ui/sessionsModel.ts");
+    const { engine, sim, ports, cx } = await world();
+    const root = new PanelView({ engine, host: sim, ports, mode: "window", overlay: null }).render(cx);
+    const row = byId(root, `row-${KEY}`);
+    assert.ok(row, "the row");
+    assert.ok(has(row, "items_start"), "the row's children start at its top");
+    const tile = tileIn(row);
+    assert.ok(tile, "the tile");
+    const box = parentOf(row, tile);
+    assert.ok(box !== undefined && box !== row, "the tile has a box of its own");
+    assert.ok(row.kids.includes(box), "the box is the row's first column");
+    assert.ok(has(box, "h", ROW_TITLE_PX), "as tall as the title's row");
+    assert.ok(has(box, "items_center"), "the tile centred in it");
+    const title = [...walk(row)].find((el) => has(el, "text_size", 12.5) && has(el, "truncate"));
+    assert.ok(title, "the title");
+    const titleRow = parentOf(row, title);
+    assert.ok(titleRow, "the title's row");
+    assert.ok(has(titleRow, "h", ROW_TITLE_PX), "the title's row has that height");
+    assert.ok(has(titleRow, "items_center"), "the title centred in it");
+    const column = parentOf(row, titleRow);
+    assert.ok(column !== undefined && row.kids.includes(column), "beside the tile's box");
+    assert.equal(column.kids[0], titleRow, "the title's row is the first line");
+    for (const el of [column, titleRow, box]) {
+      for (const side of ["p", "py", "pt", "m", "my", "mt"]) {
+        assert.equal(called(el, side).length, 0, `nothing above its top: ${side}`);
+      }
+    }
+  });
+
+  it("in the popup: the tile and the agent's name centred in one row", async () => {
+    const { engine, ports, cx } = await world();
+    const root = new PopupView(engine, ports, KEY, null, null).render(cx);
+    const tile = tileIn(root);
+    assert.ok(tile, "the tile");
+    const header = parentOf(root, tile);
+    assert.ok(header, "the header");
+    assert.ok(has(header, "items_center"), "centred across the header");
+    assert.ok(texts(header).includes("Claude Code"), "the name beside it");
+  });
+});

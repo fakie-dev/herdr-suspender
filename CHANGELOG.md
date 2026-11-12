@@ -25,6 +25,10 @@ and the project uses [Semantic Versioning](https://semver.org/).
   the message count is left out, as it would need the whole file.
 - A growing transcript is no longer read whole every 30 seconds while Sessions is open. Past 8 MiB only its new
   bytes are read, by one short process (Windows' own `curl` with a byte range, `tail` elsewhere).
+- The agent's square in a Sessions row (C for Claude Code, X for Codex) is level with the title again. It sat
+  at the top of the row, 1.5 px above the middle of the title's capitals in Geist and 2.5 px in Segoe UI
+  Variable. It is now centred in a box as tall as the title's line, so it follows that line in any UI font and
+  at any zoom; measured within 0.5 px of the middle of the capitals at zoom 1 in both fonts.
 
 ## [0.1.2] - 2026-11-12
 

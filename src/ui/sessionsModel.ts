@@ -175,6 +175,13 @@ export class MemoryPolicy {
  * (1 + 1), and 4 to spare (kerning, rounding).
  */
 export const ROW_CHROME_PX = 54;
+/**
+ * The height of a row's first line (the title, the state, the action), and of the
+ * box the agent's tile is centred in beside it: both centre their content, so the
+ * tile is level with the middle of the title's line in any UI font. The title's
+ * own line is about this tall at 12.5 px; the action's button is 18.
+ */
+export const ROW_TITLE_PX = 20;
 /** The second line's text, the badge's and the memory figure's (panel.ts draws them at these sizes). */
 export const ROW_TEXT = 11.5;
 export const ROW_SMALL_TEXT = 11;

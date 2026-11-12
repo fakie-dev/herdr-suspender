@@ -35,6 +35,7 @@ import {
   ROW_ITEM_GAP,
   ROW_SMALL_TEXT,
   ROW_TEXT,
+  ROW_TITLE_PX,
   rowMemory,
   stateWord,
   type UsedFigure,
@@ -321,6 +322,9 @@ export class PanelView {
               run: () => engine.resume(rec.key),
             }
           : null;
+    // The tile is centred on the title's line, not put at the row's top: a box as
+    // tall as that line, beside it (the second line stays indented under the title).
+    const tile = h_flex().h(ROW_TITLE_PX).flex_none().items_center().child(agentTile(rec.agent, color));
 
     return h_flex()
       .id(`row-${rec.key}`)
@@ -348,7 +352,7 @@ export class PanelView {
           hoverPopup.leave(cx);
         }
       })
-      .child(agentTile(rec.agent, color))
+      .child(tile)
       .child(
         v_flex()
           .flex_1()
@@ -356,6 +360,7 @@ export class PanelView {
           .gap(1)
           .child(
             h_flex()
+              .h(ROW_TITLE_PX)
               .gap(8)
               .items_center()
               .child(div().flex_1().min_w(0).truncate().text_size(12.5).text_color(color("foreground")).child(title))
