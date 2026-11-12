@@ -151,6 +151,9 @@ so a Herdr update that changes the tab bar is noticed on the next start and the 
 new file. Herdr picks up whatever lands in `mods/` at once, so the new text is first tried with
 `herdr-app check` in a folder of the mod's own, `<app home>/suspender/tabs-check`, and only a text that passed
 replaces the copy.
+The layout also floats the Sleep pill over the tab block, a drawer on the right edge whose moon peeks at rest.
+Herdr frames a floating mod with 5 px above and below and a 1 px border, so the pill peeks exactly as wide as
+its 28 px row is tall in that frame (38 px) and the moon is a square button; the sizes are in `core/scale.ts`.
 When that works the layout shows the copy in the `tabs` block and puts the Sessions list in the side panel
 stack `panel-body` as its third child. When it does not (the insertions no longer fit, or the check fails), the
 copy stays as it was, the layout goes back to Herdr's own tab bar with our toggle block left of it and our own

@@ -7,6 +7,7 @@
 import { h_flex } from "gpui-base";
 import { div } from "gpui-kit";
 import { detectAgent } from "../adapters/index.js";
+import { PILL_EDGE_PAD, PILL_HEIGHT, PILL_ICON } from "../core/scale.js";
 import { t } from "../i18n/index.js";
 import { toTerminalView } from "../runtime/host.js";
 import { icon, palette } from "./kit.js";
@@ -30,12 +31,13 @@ export class PillView {
         }
         this.offered = term.address;
         const color = palette();
-        // On the right edge the moon is on the edge side, so it is the part that peeks.
+        // On the right edge the moon is on the edge side, so it is the part that peeks: centred in
+        // the peek, which is as wide as the framed row is tall (a square button, core/scale.ts).
         return h_flex()
             .id("sleep-pill")
-            .h(28)
+            .h(PILL_HEIGHT)
             .pl(10)
-            .pr(8)
+            .pr(PILL_EDGE_PAD)
             .gap(8)
             .items_center()
             .text_size(11.5)
@@ -53,6 +55,6 @@ export class PillView {
             }
         })
             .child(t("pill.sleep", { agent: this.engine.adapter(agent).displayName }))
-            .child(icon("moon", 14, color("accent")));
+            .child(icon("moon", PILL_ICON, color("accent")));
     }
 }

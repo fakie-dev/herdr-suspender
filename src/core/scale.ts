@@ -75,3 +75,32 @@ export const reportedSize = (size: { width: number; height: number }): WindowSiz
   width: windowPx(size.width),
   height: windowPx(size.height),
 });
+
+// ---- the Sleep pill
+
+/**
+ * Herdr's frame around a floating mod: 5 px above and below the content and a
+ * 1 px border (AGENTS.md, "floating"); nothing on the sides. Measured at zoom 1.2:
+ * the pill at rest is 38 x 48 window px for a 30 px peek and a 28 px row.
+ */
+export const FLOAT_FRAME_Y = modPx(5);
+export const FLOAT_BORDER = modPx(1);
+/** The pill's row: its height, the moon, and the padding on the moon's side. */
+export const PILL_HEIGHT = modPx(28);
+export const PILL_ICON = modPx(14);
+/**
+ * What peeks at rest (the layout's `peek`): as wide as the framed row is tall,
+ * so the moon's button is square. Herdr draws all of it times the zoom, and
+ * the UI font size does not touch a mod's lengths, so it stays square.
+ */
+export const PILL_PEEK = modPx(PILL_HEIGHT + 2 * FLOAT_FRAME_Y);
+/** Padding on the moon's side of the row: the moon in the middle of the peek. */
+export const PILL_EDGE_PAD = modPx((PILL_PEEK - PILL_ICON) / 2);
+
+/** The moon's button at rest, framed, in window px: the peek wide, the row and Herdr's frame tall. */
+export function pillButton(s: Scale): WindowSize {
+  return {
+    width: toWindow(s, modPx(PILL_PEEK + 2 * FLOAT_BORDER)),
+    height: toWindow(s, modPx(PILL_HEIGHT + 2 * FLOAT_FRAME_Y + 2 * FLOAT_BORDER)),
+  };
+}

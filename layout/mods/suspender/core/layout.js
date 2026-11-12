@@ -18,10 +18,11 @@
 // Blocks are found by id or mod, never by position. A main.json the
 // insertions do not fit is reported, not thrown: the caller keeps the last
 // layout that worked.
+import { PILL_PEEK } from "./scale.js";
 import { sha256Hex } from "./sha256.js";
 export const LAYOUT_NAME = "suspender";
 /** Bumped when the insertions change, so existing living layouts are rebuilt. */
-export const GENERATOR_VERSION = 4;
+export const GENERATOR_VERSION = 5;
 export const TOGGLE_ID = "suspender-toggle";
 export const TOPBAR_ID = "suspender-topbar";
 export const PANEL_ID = "suspender-panel";
@@ -36,7 +37,6 @@ export const TOGGLE_WIDTH_PX = 126;
 const PANEL_SIZE = { px: 320 };
 const PANEL_MIN_PX = 200;
 const PANEL_MAX_PX = 700;
-const PILL_PEEK_PX = 30;
 const isObject = (value) => typeof value === "object" && value !== null && !Array.isArray(value);
 const contentOf = (node) => (isObject(node.content) ? node.content : null);
 /** The node and the chain of its ancestors (nearest last), for the first node that matches. */
@@ -154,7 +154,7 @@ function insertPill(root) {
             content: { mod: MOD, props: { role: "pill" } },
             edge: "right",
             align: "end",
-            peek: PILL_PEEK_PX,
+            peek: PILL_PEEK,
         },
     ];
     return null;

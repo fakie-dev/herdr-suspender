@@ -169,7 +169,7 @@
                   },
                   "edge": "right",
                   "align": "end",
-                  "peek": 30
+                  "peek": 38
                 }
               ]
             },
@@ -239,7 +239,7 @@
   ],
   "suspender_generated": {
     "from": "5ae0c5da8ee9ed7ebde11f1ee0ab2710fba0970b4159cc6c88b00e6bdcf757f9",
-    "generator": 4,
+    "generator": 5,
     "tabs": "builtin"
   }
 }

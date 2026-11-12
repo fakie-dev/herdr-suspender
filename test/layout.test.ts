@@ -10,6 +10,7 @@ import {
   sessionsToggle,
   type TabsMode,
 } from "../src/core/layout.ts";
+import { PILL_PEEK } from "../src/core/scale.ts";
 
 // A verbatim copy of Herdr 0.1.14's shipped layouts/main.json.
 const MAIN_TEXT = readFileSync(new URL("./fixtures/main-0.1.14.json", import.meta.url), "utf8");
@@ -98,7 +99,8 @@ describe("buildLivingLayout from the real main.json", () => {
         content: { mod: "suspender", props: { role: "pill" } },
         edge: "right",
         align: "end",
-        peek: 30,
+        // As wide as the framed pill is tall: the moon's button is square (scale.test.ts).
+        peek: PILL_PEEK,
       },
     ]);
   });
@@ -166,7 +168,8 @@ describe("buildLivingLayout with the live copy of the tab bar (clone)", () => {
   it("records the mode and the generator it was built by", () => {
     const generated = clone().suspender_generated as { tabs?: unknown; generator?: unknown };
     assert.equal(generated.tabs, "clone");
-    assert.equal(generated.generator, 4);
+    // 5: the Sleep pill peeks 38 px, a square button (was 30).
+    assert.equal(generated.generator, 5);
     assert.equal((build().suspender_generated as { tabs?: unknown }).tabs, "builtin");
   });
 

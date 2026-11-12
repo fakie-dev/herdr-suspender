@@ -5,7 +5,18 @@
 
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { modPx, scaleOf, toMod, windowPx } from "../../src/core/scale.ts";
+import {
+  modPx,
+  PILL_EDGE_PAD,
+  PILL_ICON,
+  PILL_PEEK,
+  pillButton,
+  scaleOf,
+  toMod,
+  windowPx,
+  ZOOM_MAX,
+  ZOOM_MIN,
+} from "../../src/core/scale.ts";
 import { fitStrip, screenGrid, screenLook } from "../../src/ui/format.ts";
 import {
   fitRow,
@@ -283,5 +294,22 @@ describe("a window too short for the popup", () => {
     const tall = popupSize(facts, { width: w(3200), height: w(2000) }, { zoom: 2 });
     assert.equal(tall.height, popupHeight(facts));
     assert.ok(popupHeight(facts) > 234);
+  });
+});
+
+describe("the moon of the Sleep pill (user: «кнопка-иконка месяца … квадратная, а не прямоугольная»)", () => {
+  // At zoom 1.2 it was 38 x 48 window px: a 30 px peek beside a 28 px row in Herdr's 5 px frame.
+  it("is a square button at every zoom (ui_font_size and the pane's size do not touch it)", () => {
+    for (let zoom = ZOOM_MIN; zoom <= ZOOM_MAX; zoom += 0.1) {
+      const button = pillButton(scaleOf({ zoom }));
+      assert.ok(
+        Math.abs(button.width - button.height) < 1e-9,
+        `zoom ${zoom.toFixed(1)}: ${button.width} x ${button.height}`,
+      );
+    }
+  });
+
+  it("has the moon in the middle of what peeks", () => {
+    assert.equal(PILL_EDGE_PAD * 2 + PILL_ICON, PILL_PEEK);
   });
 });

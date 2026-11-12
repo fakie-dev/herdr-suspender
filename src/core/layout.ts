@@ -19,11 +19,12 @@
 // insertions do not fit is reported, not thrown: the caller keeps the last
 // layout that worked.
 
+import { PILL_PEEK } from "./scale.ts";
 import { sha256Hex } from "./sha256.ts";
 
 export const LAYOUT_NAME = "suspender";
 /** Bumped when the insertions change, so existing living layouts are rebuilt. */
-export const GENERATOR_VERSION = 4;
+export const GENERATOR_VERSION = 5;
 
 export const TOGGLE_ID = "suspender-toggle";
 export const TOPBAR_ID = "suspender-topbar";
@@ -47,7 +48,6 @@ export const TOGGLE_WIDTH_PX = 126;
 const PANEL_SIZE = { px: 320 };
 const PANEL_MIN_PX = 200;
 const PANEL_MAX_PX = 700;
-const PILL_PEEK_PX = 30;
 
 interface LayoutNode {
   id?: unknown;
@@ -203,7 +203,7 @@ function insertPill(root: LayoutNode): string | null {
       content: { mod: MOD, props: { role: "pill" } },
       edge: "right",
       align: "end",
-      peek: PILL_PEEK_PX,
+      peek: PILL_PEEK,
     },
   ];
   return null;
