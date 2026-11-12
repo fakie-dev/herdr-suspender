@@ -101,4 +101,5 @@ itself.
 - Clicking Sessions opens the side panel on the Sessions list; Files and Changes switch away from it and back;
   clicking the open one closes the panel. `Ctrl+Shift+S` opens and closes it too.
 - Focusing a terminal with Claude Code or Codex makes the Sleep drawer peek out; a plain shell does not.
-- `layouts/main.json` and `mods/tabs/` are the same as before, and `Ctrl+Shift+L` switches back to `main`.
+- `layouts/main.json` and `mods/tabs/` are the same as before, and `layout.switch` (`Ctrl+Shift+L`,
+  `Cmd+Shift+L` on macOS) gets back to `main`.
