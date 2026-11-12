@@ -131,6 +131,36 @@ describe("finding 1: two sleeping panes in one tab", () => {
     assert.ok(sim.pane(list));
   });
 
+  // Recheck of F6, finding 1: while a late pane is waited for, a Suspender pane
+  // someone splits in by hand must not be taken for it. A new tab (no pane of
+  // the session's tab left to split beside) is a tab of its own: a pane in a tab
+  // that was there before the split is not the one it asked for.
+  it("a Sessions pane opened in another tab while a new tab's pane is late is not taken for it", async () => {
+    const { sim, ports, engine, claude, agent } = world();
+    sim.addTab("tb2");
+    const other = sim.addTerminal({ agent: "claude", tab: "tb2" });
+    claude.state.sessions.set(other.address, "s2");
+    await engine.tick();
+    // The agent's pane is gone (its terminal runs on): its tab has nothing to split beside.
+    sim.removePane(agent.pane);
+    sim.modPaneDelays = [20_000];
+    await engine.sleep(KEY);
+    assert.equal(stored(ports)[KEY]?.pane, null, "the flow gave up waiting");
+    const list = sim.addModPane("tb2", { role: "window" });
+    await ticks(sim, engine, GONE_GRACE_MS + 30_000);
+    const rec = stored(ports)[KEY];
+    const own = sim.paneList.find((p) => p.mod === "suspender" && p.props?.["role"] === "sleep")?.pane;
+    assert.equal(rec?.state, "asleep");
+    assert.notEqual(rec?.pane, list, "the Sessions pane is not the session's");
+    assert.equal(rec?.pane, own, "its own pane, from the new tab, is");
+    assert.ok(sim.pane(list), "and the Sessions pane is not swept");
+    await engine.resume(KEY);
+    assert.equal(engine.record(KEY)?.state, "running");
+    assert.equal(sim.pane(own ?? ""), undefined, "Resume replaced its own pane");
+    await ticks(sim, engine, GONE_GRACE_MS + 5_000);
+    assert.ok(sim.pane(list), "and the Sessions pane is not closed");
+  });
+
   it("leaves the session's own sleeping pane, and a stray alone in a tab (closing it would close the tab)", async () => {
     const { sim, ports, engine } = world();
     await engine.tick();

@@ -312,9 +312,19 @@ export class Sim implements Host {
       }
       case "tab.new": {
         const id = `tb${++this.seq}`;
-        this.addTab(id, String(args["space"] ?? SPACE));
         const mod = typeof args["mod"] === "string" ? args["mod"] : null;
-        this.paneList.push(this.newPane(id, null, mod, (args["props"] as Record<string, unknown>) ?? {}));
+        const pane = this.newPane(id, null, mod, (args["props"] as Record<string, unknown>) ?? {});
+        const show = (): void => {
+          this.addTab(id, String(args["space"] ?? SPACE));
+          this.paneList.push(pane);
+        };
+        // A busy window shows a new tab late, as it does a split.
+        const delay = mod !== null ? (this.modPaneDelays.shift() ?? 0) : 0;
+        if (delay > 0) {
+          this.later(delay, show);
+        } else {
+          show();
+        }
         return;
       }
       default:

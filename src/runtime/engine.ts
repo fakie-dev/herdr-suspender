@@ -236,6 +236,8 @@ export interface Split {
   /** The tab it was split in (null: a new tab). */
   tab: string | null;
   before: Set<string>;
+  /** The tabs there were before (a new tab's pane is in none of them). */
+  tabs: Set<string>;
   at: number;
 }
 
@@ -1538,8 +1540,9 @@ export class Engine {
         this.host.run("tab.new", { space: rec.spaceId, mod: MOD_NAME, props });
       }
       const tab = beside === null ? null : (this.host.panes().find((p) => p.pane === beside)?.tab ?? null);
+      const tabs = new Set([...this.host.tabs().map((t) => t.id), ...this.host.panes().map((p) => p.tab)]);
       // Until it shows: a pane that comes after this flow stopped waiting is still this session's (lateSplits).
-      this.co.splits.set(rec.key, { tab, before: flow.splitFrom, at: this.ports.now() });
+      this.co.splits.set(rec.key, { tab, before: flow.splitFrom, tabs, at: this.ports.now() });
     }
     const split = this.co.splits.get(rec.key);
     const pane = await this.waitFor(() => (split === undefined ? null : this.splitPane(split)), PANE_WAIT_MS);
@@ -1550,7 +1553,12 @@ export class Engine {
     return pane;
   }
 
-  /** The Suspender pane a split asked for, once Herdr shows it: new since, in its tab, and nobody's yet. */
+  /**
+   * The Suspender pane a split asked for, once Herdr shows it: new since, in
+   * its tab (a new tab: one that was not there before), and nobody's yet.
+   * panes() has no props, so in the split's own tab a Suspender pane someone
+   * splits in by hand before ours shows cannot be told from ours (ADR 7).
+   */
   private splitPane(split: Split): string | null {
     return (
       this.host
@@ -1560,7 +1568,7 @@ export class Engine {
             p.mod === MOD_NAME &&
             !split.before.has(p.pane) &&
             !this.co.sleepPanes.has(p.pane) &&
-            (split.tab === null || p.tab === split.tab),
+            (split.tab === null ? !split.tabs.has(p.tab) : p.tab === split.tab),
         )?.pane ?? null
     );
   }
@@ -1683,6 +1691,12 @@ export class Engine {
       // command typed into it. They are added once the agent runs.
       ...Object.entries(labels).flatMap(([k, v]) => ["--label", `${k}=${v}`]),
     ];
+    // No size either: `hc run` (and `hc attach`) take none, so the shell, and
+    // the agent typed into it, start at the core's 200×120 and get the pane's
+    // size only when Herdr adopts the terminal. `terminal.run.size` exists only
+    // as a request to `hc connect` on stdin, and `exec` has no stdin; a
+    // `pwsh -c "<json> | hc connect"` wrapper through `exec` was rejected: its
+    // environment may point at another core (HC_SESSION). ADR 8.
     this.setProgress(key, "starting");
     const out = await this.ports.hc(args).catch(() => null);
     const address = out === null || out.code !== 0 ? null : addressIn(out.stdout);
