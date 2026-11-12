@@ -18,7 +18,7 @@ jobs:
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v5
-      - uses: pnpm/action-setup@v4
+      - uses: pnpm/action-setup@v5
       - uses: actions/setup-node@v5
         with:
           node-version: lts/*
@@ -39,5 +39,7 @@ jobs:
       - uses: actions/setup-node@v5
         with:
           node-version: lts/*
+          # This job does not install pnpm; skip the automatic package-manager cache.
+          package-manager-cache: false
       # Every commit: diffs, authors, committers and messages. `pnpm check` scans only the tree.
       - run: node scripts/check-privacy.ts --history
