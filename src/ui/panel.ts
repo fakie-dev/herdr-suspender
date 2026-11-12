@@ -326,8 +326,8 @@ export class PanelView {
       .cursor_pointer()
       .hover((s) => s.bg(color("hover")))
       .on_click(() => {
-        host.run("space.select", { id: rec.spaceId });
-        host.run("tab.select", { id: rec.tabId });
+        host.runOnScreen("space.select", { id: rec.spaceId });
+        host.runOnScreen("tab.select", { id: rec.tabId });
       })
       .on_mouse_move((e, cx) =>
         hoverPopup.enter(

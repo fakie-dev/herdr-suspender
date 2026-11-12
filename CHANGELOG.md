@@ -13,6 +13,12 @@ and the project uses [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- Resume of a session in a tab you are not on no longer takes you there. Woken from the Sessions panel, a
+  session in another tab of the same space switched to that tab, and one in another space switched the space and
+  closed the side panel (Herdr's tab bar keeps the panel per space). The agent was focused when it came up, and
+  focusing a pane of another tab shows that tab. Now it is focused only when its tab is the one on screen; Resume
+  all in a space that is not shown leaves the screen alone too. A sleeping tab that needs a new tab of its own
+  (its old tab is gone) gives the screen back the same way.
 - "Memory freed" and "uses" on Windows were about twice what a session really gives back. They added up the
   working set of every process of the session (the shell, the agent and its MCP servers), which counts the
   memory those processes share once for each of them: a fresh Claude Code said 1.5 GB where 0.7 to 0.8 GB came

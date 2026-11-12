@@ -60,6 +60,10 @@ export class Sim implements Host {
   confirms: SessionKey[] = [];
   isReady = true;
   focus: { pane: string | null; terminal: string | null } | null = null;
+  /** The focus each tab not on screen keeps for when it is shown again. */
+  tabFocus = new Map<string, { pane: string | null; terminal: string | null } | null>();
+  /** Each tab the screen went to, in order (`select`). */
+  screenChanges: string[] = [];
   onShared: ((key: string) => void) | null = null;
   /** The person's answer to the question for a working agent, if the test gives one. */
   onConfirm: ((key: SessionKey) => void) | null = null;
@@ -101,13 +105,53 @@ export class Sim implements Host {
   execCalls: { cmd: string; args: string[] }[] = [];
 
   private seq = 0;
+  /** Counts the commands that change the screen, so they apply in order. */
+  private screenOrder = 0;
+  /** The last screen command that showed a tab of each space. */
+  private spaceOrder = new Map<string, number>();
   private pidSeq = 1000;
   private timers: { at: number; fn: () => void }[] = [];
 
   // ---- building the world
 
   addTab(id: string, space = SPACE): void {
-    this.tabList.push({ id, space, active: false, spaceActive: space === SPACE });
+    const shownSpace = this.tabList.find((t) => t.spaceActive)?.space ?? SPACE;
+    this.tabList.push({ id, space, active: false, spaceActive: space === shownSpace });
+  }
+
+  /** The tab on screen: the shown tab of the shown space. */
+  shownTab(): string | null {
+    return this.tabList.find((t) => t.active && t.spaceActive)?.id ?? null;
+  }
+
+  /**
+   * Shows a tab and its space, as Herdr does on `tab.select`, on `pane.focus`
+   * of a pane in it and for a new tab (measured on Herdr 0.1.15: `pane.split`,
+   * `pane.swap`, `pane.close`, `terminal.park`, `terminal.kill` and adoption by
+   * labels in a tab that is not shown leave the screen as it is). Each tab
+   * keeps its own focus. Every change of the tab on screen is logged.
+   */
+  select(tab: string): void {
+    const space = this.tabList.find((t) => t.id === tab)?.space;
+    const from = this.shownTab();
+    if (space === undefined) {
+      return;
+    }
+    this.spaceOrder.set(space, ++this.screenOrder);
+    if (from === tab) {
+      return;
+    }
+    if (from !== null) {
+      this.tabFocus.set(from, this.focus);
+    }
+    for (const t of this.tabList) {
+      if (t.space === space) {
+        t.active = t.id === tab;
+      }
+      t.spaceActive = t.space === space;
+    }
+    this.focus = this.tabFocus.get(tab) ?? null;
+    this.screenChanges.push(tab);
   }
 
   addTerminal(opts: {
@@ -334,9 +378,23 @@ export class Sim implements Host {
         const id = `tb${++this.seq}`;
         const mod = typeof args["mod"] === "string" ? args["mod"] : null;
         const pane = this.newPane(id, null, mod, (args["props"] as Record<string, unknown>) ?? {});
+        // Herdr shows the new tab (measured): it becomes its space's tab and the
+        // tab on screen. Commands apply in order, so a later `tab.select` wins
+        // even when the new tab is listed late.
+        const space = String(args["space"] ?? SPACE);
+        const order = ++this.screenOrder;
         const show = (): void => {
-          this.addTab(id, String(args["space"] ?? SPACE));
+          this.addTab(id, space);
           this.paneList.push(pane);
+          if (order === this.screenOrder) {
+            this.select(id);
+          } else if ((this.spaceOrder.get(space) ?? 0) < order) {
+            for (const t of this.tabList) {
+              if (t.space === space) {
+                t.active = t.id === id;
+              }
+            }
+          }
         };
         // A busy window shows a new tab late, as it does a split.
         const delay = mod !== null ? (this.modPaneDelays.shift() ?? 0) : 0;
@@ -347,9 +405,31 @@ export class Sim implements Host {
         }
         return;
       }
+      case "pane.focus": {
+        const pane = this.paneList.find((p) => p.pane === args["pane"]);
+        if (pane) {
+          this.select(pane.tab);
+          this.focus = { pane: pane.pane, terminal: pane.terminal };
+        }
+        return;
+      }
+      case "tab.select": {
+        this.select(String(args["id"]));
+        return;
+      }
+      case "space.select": {
+        const tab = this.tabList.find((t) => t.space === args["id"] && t.active);
+        if (tab) {
+          this.select(tab.id);
+        }
+        return;
+      }
       default:
         return;
     }
+  }
+  runOnScreen(command: string, args: Record<string, unknown>): void {
+    this.run(command, args);
   }
   shared(key: string): unknown {
     return this.sharedValues.get(key) ?? null;

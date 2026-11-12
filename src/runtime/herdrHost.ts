@@ -10,6 +10,14 @@ const CONFIRM_SIZE = { width: 440, height: 132 };
 
 const present = <T>(value: T | null): value is T => value !== null;
 
+function runCommand(command: string, args: Record<string, unknown>): void {
+  try {
+    run(command, args);
+  } catch {
+    // A command Herdr refuses shows its own toast; the engine checks the outcome itself.
+  }
+}
+
 /**
  * `clock` is the copy's own task context (init's): valid across awaits, and
  * its waits stop when the copy closes.
@@ -28,11 +36,10 @@ export function herdrHost(clock: { sleep(ms: number): Promise<void> }): Host {
       return f === null ? null : { pane: f.pane, terminal: f.terminal };
     },
     run: (command, args) => {
-      try {
-        run(command, args);
-      } catch {
-        // A command Herdr refuses shows its own toast; the engine checks the outcome itself.
-      }
+      runCommand(command, args);
+    },
+    runOnScreen: (command, args) => {
+      runCommand(command, args);
     },
     shared: (key) => shared(key),
     setShared: (key, value) => {

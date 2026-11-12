@@ -1571,7 +1571,7 @@ export class Engine {
       if (beside !== null) {
         this.host.run("pane.split", { pane: beside, direction: "right", mod: MOD_NAME, props });
       } else {
-        this.host.run("tab.new", { space: rec.spaceId, mod: MOD_NAME, props });
+        this.newTabOffScreen(rec.spaceId, props);
       }
       const tab = beside === null ? null : (this.host.panes().find((p) => p.pane === beside)?.tab ?? null);
       const tabs = new Set([...this.host.tabs().map((t) => t.id), ...this.host.panes().map((p) => p.tab)]);
@@ -1585,6 +1585,31 @@ export class Engine {
       this.co.sleepPanes.set(pane, rec.key);
     }
     return pane;
+  }
+
+  /**
+   * A new tab for our pane in `space`, and the screen given back at once: Herdr
+   * shows a new tab (measured), and nobody asked to go there. In the same step,
+   * so Herdr applies them in order: the tab that space showed, then the tab that
+   * was on screen (`tab.select` goes to another space too, with that tab's focus).
+   */
+  private newTabOffScreen(space: string, props: Record<string, unknown>): void {
+    const tabs = this.host.tabs();
+    const shown = tabs.find((t) => t.active && t.spaceActive)?.id ?? null;
+    const spaceShown = tabs.find((t) => t.space === space && t.active)?.id ?? null;
+    this.host.runOnScreen("tab.new", { space, mod: MOD_NAME, props });
+    if (spaceShown !== null && spaceShown !== shown) {
+      this.host.runOnScreen("tab.select", { id: spaceShown });
+    }
+    if (shown !== null) {
+      this.host.runOnScreen("tab.select", { id: shown });
+    }
+  }
+
+  /** The pane is in the tab on screen (the shown tab of the shown space). */
+  private onScreen(pane: string): boolean {
+    const tab = this.host.panes().find((p) => p.pane === pane)?.tab;
+    return tab !== undefined && this.host.tabs().some((t) => t.id === tab && t.active && t.spaceActive);
   }
 
   /**
@@ -1840,7 +1865,11 @@ export class Engine {
           });
         }
         this.setProgress(key, null);
-        this.host.run("pane.focus", { pane });
+        // Only on the tab the person is on: focusing a pane of another tab shows
+        // that tab and its space (measured), and the side panel goes with the space.
+        if (this.onScreen(pane)) {
+          this.host.runOnScreen("pane.focus", { pane });
+        }
         // Last: when this copy is that pane, closing it ends this copy.
         if (sleepPane !== null && this.paneExists(sleepPane)) {
           this.host.run("pane.close", { pane: sleepPane });

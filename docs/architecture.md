@@ -45,7 +45,9 @@ touches Herdr.
 2. The sleeping panel is placed first: `pane.split` with `mod` and `props` next to the terminal, `pane.swap`
    with it, and in the same step `terminal.park` takes the terminal's pane away. The agent keeps running out
    of sight and the panel alone holds the slot, so the tab never shows the panel beside the live agent for
-   longer than a few frames ([ADR 9](adr/0009-stop-out-of-sight.md)). The split, swap and park sequence is
+   longer than a few frames ([ADR 9](adr/0009-stop-out-of-sight.md)). When the session's tab has no pane left to split
+   beside (its tab is gone), the panel gets a new tab of the space; Herdr shows a new tab, so in the same step the
+   engine selects again the tab that space showed and the tab that was on screen. The split, swap and park sequence is
    always done in full: with the swap left out, the removed pane's share of the space goes to a neighbour
    unless the pane was first in its parent along the parent's axis. With it, the new panel has exactly the old
    slot and the same size, which was measured in several positions. Herdr lists the new panel only after its
@@ -78,6 +80,13 @@ inherited, and the agent would receive the tag.
    arguments through some shells changes them silently, so this is checked every time.
 4. Labels are set, the new terminal is swapped into the slot and the sleeping panel is closed. A new pane's id
    is found by comparing the pane list before and after, because `pane.split` from a mod returns nothing.
+   The agent gets the focus only when its tab is the one on screen. Herdr shows the tab of any pane that is
+   focused, and its space with it, and its tab bar keeps the side panel per space, so focusing an agent woken
+   from the Sessions panel in another space took the person there and closed the panel. Measured on Herdr
+   0.1.15: `pane.split`, `pane.swap`, `pane.close`, `terminal.park`, `terminal.kill` and adoption by labels in a
+   tab that is not shown leave the screen as it is; `pane.focus` there and `tab.new` do not. `Host` keeps the two
+   apart: `run` takes only the first kind, and the others go through `runOnScreen`, which the engine uses for
+   the focus above and for the one new tab a sleep may need.
 5. If the agent has not shown up after 30 seconds, the record becomes `error` with a reason key and the strip
    offers Retry. Nothing is retried automatically.
 

@@ -48,6 +48,22 @@ export interface HostTab {
 
 export type NoticeLevel = "info" | "warning" | "error";
 
+/**
+ * App commands that leave the screen as it is, even on a tab that is not shown
+ * (measured on Herdr 0.1.15 in an isolated core: the tab and space shown and
+ * the focus stayed).
+ */
+export type QuietCommand = "pane.split" | "pane.swap" | "pane.close" | "terminal.park" | "terminal.kill";
+
+/**
+ * App commands that change what the screen shows: `pane.focus` of a pane in
+ * another tab shows that tab and its space, and `tab.new` shows the new tab
+ * (measured); with another space, Herdr's tab bar also closes the side panel
+ * (it keeps the panel per space). Only for the tab the person is on, or a
+ * place they asked to go to.
+ */
+export type ScreenCommand = "pane.focus" | "tab.new" | "tab.select" | "space.select";
+
 export interface Host {
   terminals(): HostTerminal[];
   panes(): HostPane[];
@@ -55,8 +71,10 @@ export interface Host {
   /** This machine's layout document is loaded: panes() and tabs() are complete. */
   ready(): boolean;
   focused(): { pane: string | null; terminal: string | null } | null;
-  /** An app command (`pane.split`, …). Never throws. */
-  run(command: string, args: Record<string, unknown>): void;
+  /** An app command that leaves the screen as it is (`pane.split`, …). Never throws. */
+  run(command: QuietCommand, args: Record<string, unknown>): void;
+  /** An app command that changes what the screen shows (see `ScreenCommand`). Never throws. */
+  runOnScreen(command: ScreenCommand, args: Record<string, unknown>): void;
   shared(key: string): unknown;
   setShared(key: string, value: unknown): void;
   sleep(ms: number): Promise<void>;
