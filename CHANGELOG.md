@@ -5,6 +5,8 @@ and the project uses [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.1.2] - 2026-11-12
+
 ### Changed
 
 - The moon of the Sleep pill at the bottom right of a tab is a square button at every zoom (it was a little
@@ -131,5 +133,6 @@ First release.
   command, so the draft is dropped instead of being sent.
 - The interface is English only.
 
+[0.1.2]: https://github.com/fakie-dev/herdr-suspender/compare/v0.1.1...v0.1.2
 [0.1.1]: https://github.com/fakie-dev/herdr-suspender/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/fakie-dev/herdr-suspender/releases/tag/v0.1.0
