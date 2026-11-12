@@ -86,6 +86,18 @@ inside its `"global"` section, and the last one as a new section next to it. Her
 On a Mac, Alt is the Option key. To change them, edit `keys.json`; [RECIPE.md](RECIPE.md) lists every command.
 Sessions are saved in `suspender/sessions.json` in Herdr's folder, so updating the mod keeps them.
 
+## Updates and the network
+
+Once a day Suspender asks GitHub for its latest release (one request to `api.github.com`, nothing about you is
+sent). When a newer version is out you get one notice, and Sessions offers What's new and Update. Update
+downloads that release's files from `raw.githubusercontent.com`, checks each one against the release's checksum
+list, tries them with `herdr-app check`, and replaces `mods/suspender` and nothing else: your keys, settings,
+layouts, other mods and saved sessions stay as they are. The old version is kept, and Roll back restores it. If
+you changed the mod's files, the button leaves them alone and tells you how to update by hand.
+
+To turn the check off, untick "Check for updates" at the bottom of Sessions. Then the mod makes no network
+requests at all.
+
 ## Remove
 
 The mod can't clean up after itself. Do it in this order, or it puts its files back:
@@ -93,7 +105,8 @@ The mod can't clean up after itself. Do it in this order, or it puts its files b
 1. Switch to another layout with `Ctrl+Shift+L` (`Cmd+Shift+L` on a Mac).
 2. In `~/.config/herdr-app`, delete `layouts/suspender.json`, `mods/suspender` and `mods/suspender-tabs`.
 3. Remove the `suspender.*` keys and the `layout:suspender` section from your `keys.json`.
-4. If you want the saved sessions gone too, delete `~/.config/herdr-app/suspender/`.
+4. If you want the saved sessions gone too, delete `~/.config/herdr-app/suspender/` (it also holds the update
+   check's state and the backup of the previous version).
 
 ## More
 

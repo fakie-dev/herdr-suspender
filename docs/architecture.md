@@ -172,6 +172,27 @@ is shown somewhere in the window, and the restart check runs when the first copy
 happen at once, because the Sessions button is always visible; without it they wait for a sleeping tab or the
 Sessions window.
 
+## Updates
+
+`runtime/updater.ts`, one per module load, shared by the copies of a window
+([ADR 12](adr/0012-updates-by-button.md)). Every copy that stays on screen calls its `tick` from the 5-second
+round; it does nothing until 30 s after the load and then asks GitHub's latest release at most once a day, with
+the day claimed in `<app home>/suspender/update.json` by a conditional write so one copy in one window asks.
+With checks off (the switch at the bottom of Sessions) it fetches nothing. A newer version is announced once in
+a toast whose click runs `suspender.updates` (opens Sessions), and offered in a line at the top of the panel
+(`ui/updateLine.ts` holds what it says and how wide it is drawn).
+
+Update refuses unless `mods/suspender` is this version and matches its own `manifest.json` file for file.
+It fetches the release's manifest and files from the tag (`core/release.ts` builds every URL from constants),
+checks each file's sha256 with Herdr's native hash, stages the folder in `suspender/update/staging/suspender`,
+runs `herdr-app check` on it and swaps it in with one process (`runtime/swap.ts`: PowerShell with an encoded
+command on Windows, `sh` elsewhere) that renames the old folder to `suspender/update/backup/suspender` and the
+new one in, and puts the old one back if the second rename fails. The job is written to `update.json` first,
+because Herdr reloads the mod as soon as its folder changes and the task that started the swap may never hear
+back: the new build finishes the job when it loads. Roll back is the same swap the other way.
+`platform/updateFiles.ts` is the disk, `herdr-app check` and the swap on Herdr; the tests simulate the same
+interface (`test/update/world.ts`) and run the real swap command on real folders (`test/update/swap.test.ts`).
+
 ## Cost
 
 The mod is meant to cost almost nothing while nobody touches it.
@@ -203,6 +224,9 @@ The mod is meant to cost almost nothing while nobody touches it.
   terminal changes (foreground, title, status) or a new rollout appears in its folder, and on Windows at most
   once a minute. Idle at its prompt, it costs nothing.
 - The snapshot of a sleeping session is taken once, at sleep.
+- The update check is one GET a day, decided from memory between days (no file read per round). An update hashes
+  each file as it reads it with Herdr's native sha256: the script's own took 450 ms for `engine.js` there, and
+  Herdr ends a script that runs that long.
 - Drawing costs what is drawn. Herdr runs a mod in QuickJS and interrupts a script that runs too long ("This
   view could not be rendered"), so text is measured only as far as it shows: `wrapLines` makes lines one at a
   time, stops at the first line past the ones the popup draws, and never measures much more than a line. The

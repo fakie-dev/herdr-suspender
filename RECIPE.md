@@ -101,6 +101,12 @@ while the strip stays on screen, so work done elsewhere shows up the next time t
 **Resume all in project** wakes the sleeping and interrupted sessions of one space, one after another, and skips
 those open elsewhere with a notice.
 
+**Updates.** Once a day at most, 30 s or more after Herdr loads the mod, it asks GitHub for its latest release. A
+newer one gets one toast (`Suspender X.Y.Z is out`) and a line at the top of Sessions with What's new and
+Update; the line spins while updating and then says `Updated to X.Y.Z` with Roll back, or why nothing was
+changed (its tooltip says how to update by hand). The bottom of Sessions shows the version and the "Check for
+updates" switch. Labels fold to icons on a narrow panel.
+
 **Cost.** No redraw timers. Memory of running processes is read only while the panel is open and at most every
 30 s. A transcript is read only when a session goes to sleep, when its strip is shown, and right after the
 session is closed elsewhere, each time only if the file changed. A Codex whose session is not known yet is
@@ -145,14 +151,18 @@ Herdr calls it makes: `pane.split` (with `mod` and `props`), `pane.swap`, `pane.
 `tab` and `terminal` reads, `shared` values (`suspender.leader`, `suspender.rev`, `suspender.progress`,
 `suspender.tabLabel`), `watchFolder`, `writeTextFile` with an expected value, `openOverlay`, `mod.clone`,
 `layout.select`, `layout.show`, `layout.hide`, `layout.toggle`, and `hc` (`get`, `read`, `label`, `keys`, `run`).
-Commands: `suspender.panel`, `toggle-focused`, `resume-all`, `forget`, `start-new`, `sleep-when-done`,
+Commands: `suspender.panel`, `updates` (opens Sessions; the new-release toast's click), `toggle-focused`, `resume-all`, `forget`, `start-new`, `sleep-when-done`,
 `interrupt-and-sleep`, `cancel`. Programs it starts: `hc`, `herdr-app check` on the tab bar copy once per load;
 for process memory and liveness on Windows `tasklist`
 and `robocopy /L` (file size and time), on macOS and Linux `ps` and `stat`; PowerShell only in rare cases of
 ambiguity. It reads `~/.claude/projects`, `~/.claude/sessions`, `~/.codex/sessions` and Herdr's
 `layouts/main.json` and `mods/tabs/main.js`. It writes three files: `~/.config/herdr-app/suspender/sessions.json`,
 `~/.config/herdr-app/layouts/suspender.json`, which it creates when missing and rebuilds when `main.json` or
-Herdr's version changes, and `~/.config/herdr-app/mods/suspender-tabs/main.js`. No network.
+Herdr's version changes, and `~/.config/herdr-app/mods/suspender-tabs/main.js`. Network: once a day at most a GET
+of GitHub's latest release of `fakie-dev/herdr-suspender` (none with the check turned off), and on Update the
+release's files from `raw.githubusercontent.com`. Update and Roll back replace `mods/suspender` only, through
+`~/.config/herdr-app/suspender/update/` and `suspender/update.json`, after `herdr-app check` and with one
+PowerShell (`sh` elsewhere) that renames the folders; What's new opens the release page in the browser.
 
 One of the copies of the mod leads (a `suspender.leader` stamp, taken over after 15 s of silence): it binds
 sessions to terminals and recognizes restarts; the others only draw.

@@ -7,6 +7,15 @@ and the project uses [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+- Suspender tells you when a new version is out: once a day at most it asks GitHub for the latest release, and a
+  newer one gets one toast and a line at the top of Sessions with What's new and Update. The switch at the bottom
+  of Sessions turns the check off; off means no request at all.
+- Update by button replaces only `mods/suspender`, with the release's files from its tag, each checked against
+  the checksum manifest the release carries (`mods/suspender/manifest.json`, new), tried with `herdr-app check`,
+  and swapped in as one folder. The old version stays as a backup and Roll back puts it back. It refuses, and says
+  how to update by hand, when you changed the mod's files or it is not installed as `mods/suspender`. It never
+  writes `keys.json`: keys a new version adds are named in Sessions. The button works from this version on.
+
 - A session's row in Sessions shows how full its context is, after the model: `ctx 29%`, or `ctx 68k` when the
   window is not known. On a narrow panel it stays after the model, folder and id have gone to `+N`.
 - Claude Code models from the 5 generation on (Opus 5.5, Sonnet 5.5, …) get a percentage of their 1M window at

@@ -36,6 +36,21 @@ added: Herdr runs a single folder of JavaScript.
 - `test/`: tests, with in-memory ports (`fakePorts.ts`) and synthetic data only.
 - `scripts/`: build helpers and the privacy check. `docs/`: architecture and decision records.
 
+## Releasing
+
+The update button installs a release from its tag and checks every file against `mods/suspender/manifest.json`
+at that tag (ADR 12), so a release is:
+
+1. Set the version in `package.json` and `src/core/release.ts` (`MOD_VERSION`), move `[Unreleased]` in
+   `CHANGELOG.md` under the version, then `pnpm build` (it rewrites the manifest with the new version) and
+   `pnpm check` (it fails if the manifest, the version or the build is stale).
+2. Commit (`🔖 chore(release): X.Y.Z`), tag `vX.Y.Z` on that commit and push the commit and the tag.
+3. Publish a GitHub release for the tag, not a draft or a pre-release: the mod asks
+   `/releases/latest`, which shows only published ones. Its notes are what What's new opens.
+
+Nothing is uploaded besides the tag: the manifest and the files are read raw from it. A tag whose manifest does
+not match its files makes every update cancel with "checksum mismatch".
+
 ## Rules that are easy to break
 
 - Test through the public interface and watch a new test fail for the right reason before writing the code.
