@@ -76,6 +76,39 @@ describe("binding", () => {
     assert.equal(ports.execCalls.length, 0);
     assert.equal(ports.writes.length, writesBefore);
   });
+
+  it("a session opened again in a new tab after its tab was closed is found in the new tab", async () => {
+    const { sim, engine, claude, agent } = world();
+    await engine.tick();
+    // The agent hung, the person closed its tab and resumed the same conversation in a new one.
+    sim.terms.delete(agent.address);
+    sim.removePane(agent.pane);
+    sim.addTab("tb2");
+    const again = sim.addTerminal({ agent: "claude", tab: "tb2" });
+    claude.state.sessions.set(again.address, "s1");
+    await engine.tick();
+    assert.equal(engine.record(KEY)?.tabId, "tb2", "right from the look that finds it there");
+    await sim.advance(60_000);
+    await engine.tick();
+
+    const rec = engine.record(KEY);
+    assert.equal(rec?.terminal, again.address);
+    assert.equal(rec?.tabId, "tb2", "the Sessions row opens the tab the session is in now");
+  });
+
+  it("a terminal moved to another tab or space takes its session along", async () => {
+    const { sim, engine, agent } = world();
+    await engine.tick();
+    sim.addTab("tb3", "sp3");
+    const t = sim.term(agent.address);
+    t.labels["herdr.tab"] = "tb3";
+    t.labels["herdr.space"] = "sp3";
+    await engine.tick();
+
+    const rec = engine.record(KEY);
+    assert.equal(rec?.tabId, "tb3");
+    assert.equal(rec?.spaceId, "sp3");
+  });
 });
 
 describe("going to sleep", () => {

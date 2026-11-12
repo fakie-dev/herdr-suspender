@@ -356,11 +356,7 @@ export class Engine {
         await this.mutate((file) => {
             const rec = file.sessions[key];
             if (rec !== undefined) {
-                if (rec.terminal === term.address) {
-                    return false;
-                }
-                rec.terminal = term.address;
-                return true;
+                return placeAt(rec, term);
             }
             file.sessions[key] = newRecord(key, adapter.id, sessionId, term, working ? "working" : "running");
             return true;
@@ -395,9 +391,9 @@ export class Engine {
         if (this.busy(key) || !RUNNING.includes(rec.state)) {
             return;
         }
-        if (rec.terminal !== term.address) {
+        if (!samePlace(rec, term)) {
             await this.patch(key, (r) => {
-                r.terminal = term.address;
+                placeAt(r, term);
             });
         }
         const known = this.co.agents.get(term.address);
@@ -1902,6 +1898,30 @@ const isWorking = (status) => status === "working" || status === "blocked";
 /** `hc keys` names for typing `text`: each character is its own key, a space is "space". */
 export function typedKeys(text) {
     return [...text].map((ch) => (ch === " " ? "space" : ch));
+}
+/**
+ * A running session is where its terminal is: a terminal moved to another
+ * tab, or the conversation opened again in a new tab after its tab was closed,
+ * takes the record along, so its Sessions row opens the tab it is in now.
+ */
+function samePlace(rec, term) {
+    const { spaceId, tabId } = placeOf(term, rec);
+    return rec.terminal === term.address && rec.spaceId === spaceId && rec.tabId === tabId;
+}
+/** Moves the record to its terminal's place; false if it was there already. */
+function placeAt(rec, term) {
+    if (samePlace(rec, term)) {
+        return false;
+    }
+    const { spaceId, tabId } = placeOf(term, rec);
+    rec.terminal = term.address;
+    rec.spaceId = spaceId;
+    rec.tabId = tabId;
+    return true;
+}
+/** The terminal's space and tab as Herdr labels them; a missing label keeps what the record has. */
+function placeOf(term, rec) {
+    return { spaceId: term.labels["herdr.space"] ?? rec.spaceId, tabId: term.labels["herdr.tab"] ?? rec.tabId };
 }
 function newRecord(key, agent, sessionId, term, state) {
     return {

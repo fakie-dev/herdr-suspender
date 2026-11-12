@@ -35,6 +35,9 @@ and the project uses [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- A session you open again in a new tab, after its tab was closed (a hung agent, say), is found in that tab. Its
+  Sessions row kept the closed tab and clicking it said "tab.select failed: no such tab". The same goes for a
+  terminal moved to another tab or space. A record already pointing at a closed tab corrects itself on the next look.
 - A running Claude Code session whose transcript has passed 64 MiB shows its context, model and last reply in
   Sessions again. Herdr reads no file over 64 MiB whole, the read came back empty, and the empty read was kept as
   if the transcript had been read, so the session stayed blank for good. A read that gives nothing now counts as
