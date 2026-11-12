@@ -28,9 +28,9 @@ async function fastest(run: () => Promise<SessionInfo>, tries = 5): Promise<numb
 }
 
 describe("claude: snapshot speed of a 50 MB transcript", () => {
-  it(`counts it whole in under ${LIMIT_MS} ms (Herdr's reads are whole, D01)`, async () => {
+  it(`counts it whole in under ${LIMIT_MS} ms (Herdr reads it whole up to 64 MiB)`, async () => {
     const p = fakePorts();
-    p.wholeReads = true;
+    p.wholeMax = 64 * 1024 * 1024;
     p.files.set(TRANSCRIPT, bigClaudeTranscript().text);
     const ms = await fastest(() => claudeAdapter.snapshot(SID, CWD, p));
     assert.ok(ms < LIMIT_MS, `took ${ms.toFixed(0)} ms at best`);

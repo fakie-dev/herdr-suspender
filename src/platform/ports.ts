@@ -16,7 +16,7 @@ import {
 } from "herdr";
 import * as os from "os";
 import { utf8Head, utf8Tail } from "../runtime/utf8.ts";
-import { statFile } from "./proc.ts";
+import { readPart, statFile } from "./proc.ts";
 
 export type Platform = "windows" | "macos" | "linux";
 
@@ -32,17 +32,24 @@ export interface Ports {
   platform: Platform;
   now(): number;
   /**
-   * True when `readHead`/`readTail` read the whole file anyway (Herdr, D01):
-   * then a whole read costs no more than a partial one, and callers may take
-   * everything in one `readTail(path, size)`. Absent: partial reads are cheap.
+   * Up to this many bytes, a transcript's first read takes the whole file
+   * (`readText`) for exact counts; past it, only its two ends. Herdr: 64 MiB,
+   * the most its `fs.readFile` reads (a bigger file is refused). Absent: 1 MiB.
    */
-  wholeReads?: boolean;
-  /** UTF-8 text of the whole file (no size cap), or null if absent or unreadable. */
+  wholeMax?: number;
+  /** UTF-8 text of the whole file, or null if absent or unreadable (in Herdr: over 64 MiB). */
   readText(path: string): Promise<string | null>;
-  /** The first `bytes` bytes as text, or null if absent. In Herdr this still reads the whole file (D01). */
+  /**
+   * The first `bytes` bytes as text, or null if absent or unreadable. In Herdr: cut from a
+   * whole read (D01), and past 64 MiB read by a short process (`readPart`).
+   */
   readHead(path: string, bytes: number): Promise<string | null>;
-  /** The last `bytes` bytes as text, or null if absent. In Herdr this still reads the whole file (D01). */
-  readTail(path: string, bytes: number): Promise<string | null>;
+  /**
+   * The last `bytes` bytes as text, or null if absent or unreadable. `size`, when the caller
+   * knows it: in Herdr a file up to PART_FROM is cut from a whole read (no process), a bigger
+   * one is read by one short process that reads only those bytes (`readPart`).
+   */
+  readTail(path: string, bytes: number, size?: number): Promise<string | null>;
   /**
    * Size and modification time, or null if absent. Starts a process in Herdr
    * (D01: no stat in its "fs/promises"); never reads the file. The time is
@@ -82,9 +89,21 @@ function parentDir(path: string): string {
 }
 
 /**
+ * The most Herdr's `fs.readFile` reads: a bigger file is refused ("over the
+ * 67108864-byte limit for fs.readFile; read it in pieces"), measured on 0.1.15.
+ */
+const FS_READ_MAX = 64 * 1024 * 1024;
+/**
+ * From this size on, a tail is read by a process (`readPart`, about 30 ms on Windows)
+ * instead of cut from a whole read: fs.readFile took 14 ms for 8 MiB and 120 ms for
+ * 60 MiB on Herdr 0.1.15, and holds the whole text in memory meanwhile.
+ */
+const PART_FROM = 8 * 1024 * 1024;
+
+/**
  * The whole file as UTF-8 text. Herdr's runtime has no TextDecoder and its
  * Buffer does not decode (toString gives ""), so files are read as text and
- * cut by bytes with `utf8Head` / `utf8Tail`.
+ * cut by bytes with `utf8Head` / `utf8Tail`. Null past FS_READ_MAX.
  */
 async function readUtf8(path: string): Promise<string | null> {
   try {
@@ -105,15 +124,24 @@ export function herdrPorts(): Ports {
     home: () => herdrHome(),
     sep: platform === "windows" ? "\\" : "/",
     platform,
-    wholeReads: true,
+    wholeMax: FS_READ_MAX,
     now: () => Date.now(),
     // Not `readTextFile`: it stops at 1 MiB, and transcripts run to 50+ MB.
     readText: (path) => readUtf8(path),
+    // A head is read once per file (a rollout's first line, a transcript's first prompt):
+    // from a whole read, which starts no process, unless the file is past fs's limit.
     readHead: async (path, bytes) => {
       const all = await readUtf8(path);
-      return all === null ? null : utf8Head(all, bytes);
+      return all !== null ? utf8Head(all, bytes) : await readPart(path, "head", bytes, platform, herdrExec);
     },
-    readTail: async (path, bytes) => {
+    // A tail is what a growing transcript is read by, every 30 s while Sessions is open:
+    // a big one by only its bytes, one short process, not the whole file each time.
+    readTail: async (path, bytes, size) => {
+      const part =
+        size !== undefined && size <= PART_FROM ? null : await readPart(path, "tail", bytes, platform, herdrExec);
+      if (part !== null) {
+        return part;
+      }
       const all = await readUtf8(path);
       return all === null ? null : utf8Tail(all, bytes);
     },

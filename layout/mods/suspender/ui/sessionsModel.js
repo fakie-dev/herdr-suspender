@@ -140,7 +140,19 @@ export const ROW_MEM_GAP_PX = 8;
 const ICON_PX = 16;
 const BRANCH_MAX = 22;
 const FOLDER_MAX = 24;
-/** branch → model → folder → id (8 characters), as in the approved mockup; no data, no item. */
+/** The context item: its fill when the window is known, else the tokens in it; nothing known, none. */
+function contextItem(info) {
+    if (info.contextPct !== null) {
+        return t("row.context", { pct: Math.max(0, Math.min(100, Math.round(info.contextPct))) });
+    }
+    const amount = present(info.contextText);
+    return amount === null ? null : t("row.contextInUse", { amount });
+}
+/**
+ * branch → model → context → folder → id (8 characters), as in the approved mockup with
+ * the context added after the model; no data, no item. The context goes after the branch
+ * and before the model when the row is narrow: it changes while the agent works.
+ */
 function rowSegments(info, sep) {
     const segs = [];
     if (info.branch) {
@@ -148,6 +160,10 @@ function rowSegments(info, sep) {
     }
     if (info.model) {
         segs.push({ key: "model", text: info.model, priority: 2 });
+    }
+    const context = contextItem(info);
+    if (context !== null) {
+        segs.push({ key: "context", text: context, priority: 1.5 });
     }
     if (info.cwd) {
         segs.push({

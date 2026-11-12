@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import type { ExecResult } from "../../src/platform/ports.ts";
-import { descendsFrom, memoryKb, processDetails, statFile, treesMemoryMb } from "../../src/platform/proc.ts";
+import { descendsFrom, memoryKb, processDetails, readPart, statFile, treesMemoryMb } from "../../src/platform/proc.ts";
 import { type FakePorts, fakePorts } from "../fakePorts.ts";
 
 type Script = (cmd: string, args: string[]) => ExecResult;
@@ -132,6 +132,41 @@ describe("statFile", () => {
     assert.deepEqual(mac.execCalls[0], { cmd: "stat", args: ["-f", "%z %m", "/Users/t/a.jsonl"] });
     const gone = scripted(fakePorts({ sep: "/" }), () => ({ code: 1, stdout: "", stderr: "No such file" }));
     assert.equal(await statFile("/home/t/b.jsonl", "linux", gone.exec), null);
+  });
+});
+
+describe("readPart: a file's first or last bytes without reading the rest (Herdr reads whole files only, up to 64 MiB)", () => {
+  it("asks Windows' own curl for a byte range of the file's URL", async () => {
+    const p = scripted(fakePorts({ sep: "\\" }), () => ok("tail text\n"));
+    const path = "C:\\Users\\t\\.claude\\projects\\a b#1%\\x.jsonl";
+    assert.equal(await readPart(path, "tail", 1024, "windows", p.exec), "tail text\n");
+    assert.deepEqual(p.execCalls[0], {
+      cmd: "curl",
+      args: ["-s", "-g", "-r", "-1024", "file:///C:/Users/t/.claude/projects/a%20b%231%25/x.jsonl"],
+    });
+    await readPart("C:\\x.jsonl", "head", 512, "windows", p.exec);
+    assert.deepEqual(p.execCalls[1]?.args.slice(2, 4), ["-r", "0-511"]);
+    assert.ok(!p.execCalls.some((c) => /powershell|pwsh/i.test(c.cmd)));
+  });
+
+  it("uses tail and head on Linux and macOS", async () => {
+    const p = scripted(fakePorts({ sep: "/" }), () => ok("bytes"));
+    assert.equal(await readPart("/home/t/a.jsonl", "tail", 100, "linux", p.exec), "bytes");
+    assert.equal(await readPart("/Users/t/a.jsonl", "head", 64, "macos", p.exec), "bytes");
+    assert.deepEqual(p.execCalls, [
+      { cmd: "tail", args: ["-c", "100", "--", "/home/t/a.jsonl"] },
+      { cmd: "head", args: ["-c", "64", "--", "/Users/t/a.jsonl"] },
+    ]);
+  });
+
+  it("is null when the process fails or cannot start: the caller falls back, never takes it for an empty file", async () => {
+    const failed = scripted(fakePorts({ sep: "\\" }), () => ({ code: 37, stdout: "", stderr: "Couldn't read file" }));
+    assert.equal(await readPart("C:\\gone.jsonl", "tail", 10, "windows", failed.exec), null);
+    const p = fakePorts({ sep: "/" });
+    p.exec = async () => {
+      throw new Error("not found");
+    };
+    assert.equal(await readPart("/home/t/a.jsonl", "tail", 10, "linux", p.exec), null);
   });
 });
 

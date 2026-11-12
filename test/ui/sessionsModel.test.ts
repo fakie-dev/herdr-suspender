@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { buildLivingLayout } from "../../src/core/layout.ts";
-import type { SessionKey } from "../../src/core/model.ts";
+import type { SessionInfo, SessionKey } from "../../src/core/model.ts";
 import { modPx, windowPx } from "../../src/core/scale.ts";
 import { t } from "../../src/i18n/index.ts";
 import {
@@ -234,6 +234,35 @@ describe("fitRow: whole items go, +N counts them", () => {
       ["feature/PORTAL-412…", "Opus 5.5", "northwind-portal\\…\\auth", "#c41b07e2"],
     );
     assert.equal(r.hidden, 0);
+  });
+
+  it("shows the context after the model: the fill when the window is known, else the tokens in use", () => {
+    const items = (over: Partial<SessionInfo>) =>
+      fitRow(
+        rec("s", "running", { info: { model: "Opus 5.5", ...over } }),
+        windowPx(2000),
+        null,
+        "\\",
+        six,
+        ONE,
+      ).segs.map((s) => [s.key, s.text]);
+    assert.deepEqual(items({ contextPct: 29, contextText: "285k / 1M" }).slice(0, 2), [
+      ["model", "Opus 5.5"],
+      ["context", "ctx 29%"],
+    ]);
+    assert.deepEqual(items({ contextPct: null, contextText: "68k" }).slice(0, 2), [
+      ["model", "Opus 5.5"],
+      ["context", "ctx 68k"],
+    ]);
+    assert.ok(!items({}).some(([key]) => key === "context"), "no context known, no item");
+  });
+
+  it("keeps the context longer than the model on a narrow row (room 187: branch and ctx with +3 need 180)", () => {
+    // "ctx 29%" is 7 ch = 42 px. Id, folder and model go first; the branch stays longest.
+    const withContext = rec("8d65845f-73cb-4be6-aa62-4ab2279d0de0", "running", {
+      info: { ...short.info, contextPct: 29, contextText: "285k / 1M" },
+    });
+    assert.deepEqual(keys(withContext, 300), { shown: ["branch", "context"], hidden: 3 });
   });
 
   it("leaves out an item the agent does not store", () => {

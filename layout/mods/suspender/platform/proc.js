@@ -336,3 +336,23 @@ export async function statFile(path, platform, exec) {
     }
     return { size: Number(match[1]), mtimeMs: Number(match[2]) * 1000 };
 }
+/** A file:// URL curl takes on Windows: forward slashes, each path segment percent-encoded. */
+function fileUrl(path) {
+    const parts = path.split(/[\\/]+/).filter((part) => part !== "");
+    const drive = /^[A-Za-z]:$/.test(parts[0] ?? "") ? `${parts.shift()}/` : "";
+    return `file:///${drive}${parts.map((part) => encodeURIComponent(part)).join("/")}`;
+}
+/**
+ * The first or the last `bytes` bytes of a file, without reading the rest. Herdr's
+ * "fs/promises" reads only whole files, and none over 64 MiB (measured on 0.1.15), so a
+ * long transcript came back as nothing. One short process: on Windows the curl that ships
+ * with it (Windows 10 and later) with a byte range of the file's URL, about 30 ms;
+ * `head -c` / `tail -c` elsewhere. Null when the process fails or cannot start: the
+ * caller falls back, and never takes it for an empty file.
+ */
+export async function readPart(path, end, bytes, platform, exec) {
+    const out = platform === "windows"
+        ? await run(exec, "curl", ["-s", "-g", "-r", end === "head" ? `0-${bytes - 1}` : `-${bytes}`, fileUrl(path)])
+        : await run(exec, end, ["-c", String(bytes), "--", path]);
+    return out?.code === 0 ? out.stdout : null;
+}

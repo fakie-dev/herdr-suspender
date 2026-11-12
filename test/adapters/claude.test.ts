@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { claudeAdapter } from "../../src/adapters/claude.ts";
+import { emptyInfo } from "../../src/adapters/common.ts";
 import { fakePorts } from "../fakePorts.ts";
 import { bigClaudeTranscript, claude, claudePidFile, jsonl, metered, ok, scriptExec, terminal } from "./synthetic.ts";
 
@@ -10,6 +11,8 @@ const PROJECT = `${HOME}/.claude/projects/-home-tester-dev-app`;
 const SID = "11111111-2222-4333-8444-555555555555";
 const TRANSCRIPT = `${PROJECT}/${SID}.jsonl`;
 const SESSIONS = `${HOME}/.claude/sessions`;
+/** The most Herdr's `fs.readFile` reads (measured on 0.1.15: a bigger file is refused). */
+const HERDR_WHOLE_MAX = 64 * 1024 * 1024;
 const A_ID = "aaaaaaaa-0000-4000-8000-000000000001";
 const OLD_ID = "aaaaaaaa-0000-4000-8000-000000000002";
 const OTHER_ID = "aaaaaaaa-0000-4000-8000-000000000003";
@@ -187,10 +190,10 @@ describe("claude: snapshot", () => {
 
   // How fast these run is measured by `pnpm bench` (claude.bench.ts), not here:
   // a wall-clock limit in the full run fails whenever the machine is busy.
-  it("counts a 50 MB transcript exactly, with one whole read, when reads are whole anyway (Herdr, D01)", async () => {
+  it("counts a 50 MB transcript exactly, with one whole read, when whole reads go that far (Herdr: 64 MiB)", async () => {
     const p = fakePorts();
     const meter = metered(p);
-    p.wholeReads = true;
+    p.wholeMax = HERDR_WHOLE_MAX;
     const { text, fillers } = bigClaudeTranscript();
     p.files.set(TRANSCRIPT, text);
     const info = await claudeAdapter.snapshot(SID, CWD, p);
@@ -257,6 +260,109 @@ describe("claude: snapshot", () => {
     const whole = await claudeAdapter.snapshot(SID, CWD, p, partial);
     assert.equal(whole.messages, 5);
     assert.equal(whole.lastReply, "Late reply");
+  });
+
+  it("takes a read that came back empty for no read, not for an empty transcript", async () => {
+    // What Herdr gave for a transcript over 64 MiB: the file is there, its bytes are not.
+    const p = fakePorts();
+    p.wholeMax = HERDR_WHOLE_MAX;
+    p.files.set(TRANSCRIPT, smallTranscript());
+    p.readText = async () => null;
+    p.readHead = async () => null;
+    p.readTail = async () => null;
+    const info = await claudeAdapter.snapshot(SID, CWD, p);
+    assert.equal(info.transcriptSize, null, "nothing was read, so the next look reads it again");
+    assert.equal(info.messages, null, "not a count of zero");
+  });
+
+  it("takes a failed read of new bytes for no read: it keeps what it knew and reads them next time", async () => {
+    const p = fakePorts();
+    const meter = metered(p);
+    const first = smallTranscript();
+    p.files.set(TRANSCRIPT, first);
+    const before = await claudeAdapter.snapshot(SID, CWD, p);
+    p.files.set(TRANSCRIPT, first + jsonl(claude.prompt("And a third thing", { origin: "human" })));
+    meter.mtimes.set(TRANSCRIPT, 1_800_000_100_000);
+    p.readTail = async () => null;
+    const after = await claudeAdapter.snapshot(SID, CWD, p, before);
+    assert.equal(after.messages, 4, "what it knew");
+    assert.equal(after.transcriptSize, null, "not the size of bytes it did not see");
+  });
+
+  it("takes a failed read of a long transcript's tail for no read", async () => {
+    const p = fakePorts();
+    metered(p);
+    p.wholeMax = 8 * 1024 * 1024;
+    p.files.set(TRANSCRIPT, bigClaudeTranscript().text);
+    p.readTail = async () => null;
+    const info = await claudeAdapter.snapshot(SID, CWD, p);
+    assert.equal(info.transcriptSize, null);
+    assert.equal(info.contextText, null);
+  });
+
+  it("reads a transcript past the whole-read limit from its ends (Herdr refuses a whole read past 64 MiB)", async () => {
+    const p = fakePorts();
+    const meter = metered(p);
+    p.wholeMax = 8 * 1024 * 1024;
+    p.files.set(TRANSCRIPT, bigClaudeTranscript().text);
+    const info = await claudeAdapter.snapshot(SID, CWD, p);
+    assert.equal(meter.whole, 0, "never whole");
+    assert.equal(info.contextPct, 30);
+    assert.equal(info.lastReply, "Synthetic last answer");
+  });
+
+  it("reads afresh a running session whose earlier read came back empty (0.1.2 kept such a read)", async () => {
+    const p = fakePorts();
+    const first = smallTranscript();
+    const added = jsonl(claude.prompt("And a third thing", { origin: "human" }), claude.reply("Done third."));
+    p.files.set(TRANSCRIPT, first + added);
+    // As 0.1.2 stored it: the size of the file, and nothing from it.
+    const empty = { ...emptyInfo(SID, CWD), messages: 0, transcriptSize: first.length, transcriptMtimeMs: 1 };
+    const info = await claudeAdapter.snapshot(SID, CWD, p, empty);
+    assert.equal(info.messages, 6);
+    assert.equal(info.firstPrompt, "Add a health check endpoint");
+    assert.equal(info.contextText, "53k");
+  });
+});
+
+describe("claude: the context window", () => {
+  const at = async (model: string, tokens: number) => {
+    const p = fakePorts();
+    p.files.set(TRANSCRIPT, jsonl(claude.reply("ok", { model, usage: { input: 0, cacheRead: tokens, output: 1 } })));
+    const info = await claudeAdapter.snapshot(SID, CWD, p);
+    return { pct: info.contextPct, text: info.contextText };
+  };
+
+  it("gives Opus 5.5 a percentage of its 1M window below 200k too (its id has no [1m])", async () => {
+    assert.deepEqual(await at("claude-opus-5-5", 68_000), { pct: 7, text: "68k / 1M" });
+  });
+
+  it("knows the window from the generation: 1M from the 5 models on, 200k for Haiku 4.5", async () => {
+    assert.deepEqual(await at("claude-sonnet-5-5", 100_000), { pct: 10, text: "100k / 1M" });
+    assert.deepEqual(await at("claude-opus-5", 100_000), { pct: 10, text: "100k / 1M" });
+    assert.deepEqual(await at("claude-haiku-5-5", 100_000), { pct: 10, text: "100k / 1M" });
+    assert.deepEqual(await at("claude-fable-5-2", 100_000), { pct: 10, text: "100k / 1M" });
+    assert.deepEqual(await at("claude-haiku-4-5-20251001", 70_000), { pct: 35, text: "70k / 200k" });
+  });
+
+  it("keeps 'in use' where the window depends on a setting the transcript does not keep (4.x: 200k or 1M)", async () => {
+    for (const model of ["claude-sonnet-4-5-20250929", "claude-opus-4-6", "claude-synthetic-1", "claude-3-5-haiku"]) {
+      assert.deepEqual(await at(model, 70_000), { pct: null, text: "70k" }, model);
+    }
+  });
+
+  it("keeps the model's window on a grown read that brings no model", async () => {
+    const p = fakePorts();
+    const meter = metered(p);
+    const first = jsonl(
+      claude.reply("ok", { model: "claude-opus-5-5", usage: { input: 0, cacheRead: 50_000, output: 1 } }),
+    );
+    p.files.set(TRANSCRIPT, first);
+    const before = await claudeAdapter.snapshot(SID, CWD, p);
+    p.files.set(TRANSCRIPT, first + jsonl(claude.prompt("more", { origin: "human" })));
+    meter.mtimes.set(TRANSCRIPT, 1_800_000_100_000);
+    const after = await claudeAdapter.snapshot(SID, CWD, p, before);
+    assert.deepEqual([after.contextPct, after.contextText], [5, "50k / 1M"]);
   });
 });
 

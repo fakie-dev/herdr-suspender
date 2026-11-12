@@ -133,12 +133,16 @@ export function emptyInfo(sessionId, cwd) {
 /** Budgets for one snapshot: < 2 MB in all (ticket 03). */
 export const TAIL_BYTES = 1024 * 1024;
 export const HEAD_BYTES = 512 * 1024;
-/** UTF-8 length of `text` in bytes (no TextEncoder in Herdr's runtime types). */
+/**
+ * UTF-8 length of `text` in bytes (no TextEncoder in Herdr's runtime types).
+ * By code unit, not by iterator: it runs over a whole transcript of up to 64 MiB.
+ * A surrogate pair is 2 + 2 = 4 bytes.
+ */
 function utf8Length(text) {
     let bytes = 0;
-    for (const char of text) {
-        const code = char.codePointAt(0) ?? 0;
-        bytes += code < 0x80 ? 1 : code < 0x800 ? 2 : code < 0x10000 ? 3 : 4;
+    for (let i = 0; i < text.length; i++) {
+        const code = text.charCodeAt(i);
+        bytes += code < 0x80 ? 1 : code < 0x800 || (code >= 0xd800 && code <= 0xdfff) ? 2 : 3;
     }
     return bytes;
 }
@@ -162,21 +166,40 @@ export async function readTranscript(path, p, prev) {
         const rest = text.slice(cut + 1);
         return rest === "" ? { text, size: st.size } : { text: text.slice(0, cut + 1), size: st.size - utf8Length(rest) };
     };
-    // Where every read is whole anyway (Herdr, D01), take the whole file in one read
-    // instead of its two ends: exact counts cost nothing extra.
-    const whole = p.wholeReads === true;
-    if (known !== null && st.size >= known && st.size - known <= TAIL_BYTES) {
+    // A read that gave nothing is no read: as if the file were not there, so the
+    // next look reads it again instead of growing from bytes nobody saw.
+    const unread = { kind: "missing" };
+    if (known !== null && !readNothing(prev) && st.size >= known && st.size - known <= TAIL_BYTES) {
         const grown = st.size - known;
-        const text = grown === 0 ? "" : ((await p.readTail(path, grown)) ?? "");
-        return { kind: "grown", mtimeMs: st.mtimeMs, ...settled(text) };
+        const text = grown === 0 ? "" : await p.readTail(path, grown, st.size);
+        return text === null ? unread : { kind: "grown", mtimeMs: st.mtimeMs, ...settled(text) };
     }
-    if (whole || st.size <= TAIL_BYTES) {
-        const text = (await p.readTail(path, st.size)) ?? "";
-        return { kind: "whole", mtimeMs: st.mtimeMs, ...settled(text) };
+    // Where a whole read is cheap enough (Herdr: up to fs.readFile's limit), the first
+    // read takes the whole file once, for exact counts. Past that, its two ends.
+    if (st.size <= Math.max(TAIL_BYTES, p.wholeMax ?? 0)) {
+        const all = await p.readText(path);
+        if (all === null) {
+            return unread;
+        }
+        // Counted from what was read: the file may have grown since `stat`.
+        const text = all.slice(0, all.lastIndexOf("\n") + 1);
+        return { kind: "whole", text, size: utf8Length(text), mtimeMs: st.mtimeMs };
+    }
+    const text = await p.readTail(path, TAIL_BYTES, st.size);
+    if (text === null) {
+        return unread;
     }
     const head = (await p.readHead(path, HEAD_BYTES)) ?? "";
-    const text = (await p.readTail(path, TAIL_BYTES)) ?? "";
     return { kind: "ends", head, mtimeMs: st.mtimeMs, ...settled(text) };
+}
+/**
+ * A snapshot of a transcript (it has a size: asked only then) with no message in
+ * it: what 0.1.2 kept when Herdr refused to read a transcript over 64 MiB (a whole
+ * read of nothing). Growing from it would add to nothing ("0 + new"), so a changed
+ * file is read again. A conversation with no message yet is small: that is cheap.
+ */
+function readNothing(prev) {
+    return prev?.messages === 0;
 }
 /** Claude Code and Codex name sessions by UUID; anything else is not a session id. */
 export const isSessionId = (id) => /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id);

@@ -37,6 +37,9 @@ export const en = {
   "panel.memoryFreed": "{amount} memory freed",
   "panel.resumeAll": "Resume all in project",
   "panel.skippedElsewhere": "Skipped: open elsewhere",
+  // A row's second line: how full the context is, or the tokens in it when the window is unknown.
+  "row.context": "ctx {pct}%",
+  "row.contextInUse": "ctx {amount}",
   "panel.unknownSpace": "Closed space",
   "panel.sleep": "Sleep",
   "panel.memoryRunning": "uses {amount}",

@@ -29,6 +29,27 @@ import type { AgentAdapter, StopStep, TerminalView } from "./contract.ts";
 /** Claude's context windows are 200k or 1M tokens; more than 200k in use means 1M. */
 const SMALL_WINDOW = 200_000;
 const LARGE_WINDOW = 1_000_000;
+/**
+ * The window a model id gives, where the id alone settles it. The transcript keeps the
+ * API's id (`claude-opus-5-5`), never Claude Code's `[1m]` setting, and no record names
+ * the window. Anthropic's model table (2026-11): from the 5 generation on, Opus, Sonnet,
+ * Haiku, Fable and Mythos have 1M as their only window; Haiku 4.5 and older Haiku have
+ * 200k. The other 4.x models run at 200k or at 1M by a setting the transcript does not
+ * keep, so they get none here (only a use above 200k tells).
+ */
+function modelWindow(model: string | null): number | null {
+  const match = /^claude-(opus|sonnet|haiku|fable|mythos)-(\d+)(?:-(\d{1,2}))?(?!\d)/.exec(model ?? "");
+  if (match === null) {
+    return null;
+  }
+  const family = match[1];
+  const version = Number(match[2]) + Number(match[3] ?? 0) / 10;
+  if (family === "fable" || family === "mythos" || version >= 5) {
+    return LARGE_WINDOW;
+  }
+  return family === "haiku" ? SMALL_WINDOW : null;
+}
+
 /** A session file written up to this long before the terminal existed still counts (clock skew). */
 const START_SLACK_MS = 2_000;
 /** Records any field comes from; the rest (attachments, api-request, …) is not parsed. */
@@ -254,13 +275,16 @@ async function snapshot(sessionId: string, cwd: string, p: Ports, prev?: Session
   }
   facts = scan(jsonLines(read.text, WANTED), facts);
 
-  const windowKnown =
-    facts.maxContext > SMALL_WINDOW ||
-    /\[1m\]/i.test(facts.model ?? "") ||
-    (read.kind === "grown" && prev?.contextPct !== null && prev?.contextPct !== undefined);
+  // A use above 200k or `[1m]` says 1M; else the model's generation may; else a percentage
+  // from before, which (the model having said nothing) came from a use above 200k.
+  const window =
+    facts.maxContext > SMALL_WINDOW || /\[1m\]/i.test(facts.model ?? "")
+      ? LARGE_WINDOW
+      : (modelWindow(facts.model) ??
+        (read.kind === "grown" && prev?.contextPct !== null && prev?.contextPct !== undefined ? LARGE_WINDOW : null));
   const context =
     facts.context !== null
-      ? contextFields(facts.context, windowKnown ? LARGE_WINDOW : null)
+      ? contextFields(facts.context, window)
       : read.kind === "grown"
         ? { contextPct: base.contextPct, contextText: base.contextText }
         : { contextPct: null, contextText: null };
