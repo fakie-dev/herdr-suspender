@@ -1,6 +1,6 @@
 {
   "mod": "suspender",
-  "version": "0.1.3",
+  "version": "0.1.4",
   "keys": {
     "global": {
       "ctrl-shift-s": "mod.open:suspender",
@@ -24,7 +24,7 @@
     "core/manifest.js": "f7cc0e3128c3a2d538d14e96896073be19d872b5b2c5a670972c14d5c7c9f831",
     "core/model.js": "59eb03b078075954a0fcf1eeafab3407d5011a947f473f8ce39113163d758c92",
     "core/paths.js": "79fa8499c03c0d36303b52f4f10a45eb69006b8e79872ebc561324e9f5375060",
-    "core/release.js": "072ea1e494965b79f1258cc1c1184e0369f04544ab0958f721f8d0f7963c7647",
+    "core/release.js": "6656e058b09e43e5adbfd987edb269a2806c70913d59d127c2a8d19457c43d3b",
     "core/scale.js": "75d328812752a2c08c482da01c588d573aba3c0992547a3511383580f95a3794",
     "core/semver.js": "256d53066fd52f1ef5366f4b6f72d5972cbd7dd08bcf078e3a54ae2fdf2502b7",
     "core/sha256.js": "3653d1c875379f93a6f8c7fc4aaaafc166e96e38c9aca38e15bd2e12924865ed",
