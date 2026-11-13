@@ -5,6 +5,8 @@ and the project uses [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.1.3] - 2026-11-13
+
 ### Added
 
 - Suspender tells you when a new version is out: once a day at most it asks GitHub for the latest release, and a
@@ -228,6 +230,8 @@ First release.
   command, so the draft is dropped instead of being sent.
 - The interface is English only.
 
+[Unreleased]: https://github.com/fakie-dev/herdr-suspender/compare/v0.1.3...HEAD
+[0.1.3]: https://github.com/fakie-dev/herdr-suspender/compare/v0.1.2...v0.1.3
 [0.1.2]: https://github.com/fakie-dev/herdr-suspender/compare/v0.1.1...v0.1.2
 [0.1.1]: https://github.com/fakie-dev/herdr-suspender/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/fakie-dev/herdr-suspender/releases/tag/v0.1.0
