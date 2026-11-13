@@ -12,6 +12,7 @@ import { allProcesses, descendsFrom, type ProcessDetail, processDetails, subtree
 import {
   baseName,
   contextFields,
+  eachRecords,
   emptyInfo,
   gitInfo,
   isRecord,
@@ -375,7 +376,9 @@ async function snapshot(sessionId: string, cwd: string, p: Ports, prev?: Session
   if (read.kind === "ends") {
     facts = { ...noFacts(), firstPrompt: scan(jsonLines(read.head, WANTED), noFacts()).firstPrompt };
   }
-  facts = scan(jsonLines(read.text, WANTED), facts);
+  await eachRecords(read.text, p, WANTED, (records) => {
+    facts = scan(records, facts);
+  });
   const grown = read.kind === "grown";
   const context =
     facts.context !== null

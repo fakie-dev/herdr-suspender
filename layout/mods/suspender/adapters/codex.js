@@ -6,7 +6,7 @@
 // `~/.codex/session_index.jsonl`. `state_5.sqlite` is not read: Herdr's
 // runtime has no SQLite and the mod has no native packages.
 import { allProcesses, descendsFrom, processDetails, subtree } from "../platform/proc.js";
-import { baseName, contextFields, emptyInfo, gitInfo, isRecord, join, jsonLines, num, oneLine, readTranscript, str, terminalPids, tokensText, uuidIn, } from "./common.js";
+import { baseName, contextFields, eachRecords, emptyInfo, gitInfo, isRecord, join, jsonLines, num, oneLine, readTranscript, str, terminalPids, tokensText, uuidIn, } from "./common.js";
 const DAY_MS = 86_400_000;
 const START_SLACK_MS = 2_000;
 /** A rollout written this recently is taken as open somewhere. */
@@ -317,7 +317,9 @@ async function snapshot(sessionId, cwd, p, prev) {
     if (read.kind === "ends") {
         facts = { ...noFacts(), firstPrompt: scan(jsonLines(read.head, WANTED), noFacts()).firstPrompt };
     }
-    facts = scan(jsonLines(read.text, WANTED), facts);
+    await eachRecords(read.text, p, WANTED, (records) => {
+        facts = scan(records, facts);
+    });
     const grown = read.kind === "grown";
     const context = facts.context !== null
         ? contextFields(facts.context, facts.window)

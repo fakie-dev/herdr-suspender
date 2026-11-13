@@ -15,8 +15,8 @@ import {
   writeTextFile,
 } from "herdr";
 import * as os from "os";
-import { utf8Head, utf8Tail } from "../runtime/utf8.ts";
 import { readPart, statFile } from "./proc.ts";
+import { partReaders } from "./reads.ts";
 
 export type Platform = "windows" | "macos" | "linux";
 
@@ -37,6 +37,12 @@ export interface Ports {
    * the most its `fs.readFile` reads (a bigger file is refused). Absent: 1 MiB.
    */
   wholeMax?: number;
+  /**
+   * Lets Herdr's runtime run other work, so a long job is not stopped: it ends
+   * a script that runs between 0.5 and 0.7 s without a pause (measured on
+   * 0.1.15), and a microtask is no pause. Absent: no pause is needed (tests).
+   */
+  breathe?(): Promise<void>;
   /** UTF-8 text of the whole file, or null if absent or unreadable (in Herdr: over 64 MiB). */
   readText(path: string): Promise<string | null>;
   /**
@@ -94,13 +100,6 @@ function parentDir(path: string): string {
  */
 const FS_READ_MAX = 64 * 1024 * 1024;
 /**
- * From this size on, a tail is read by a process (`readPart`, about 30 ms on Windows)
- * instead of cut from a whole read: fs.readFile took 14 ms for 8 MiB and 120 ms for
- * 60 MiB on Herdr 0.1.15, and holds the whole text in memory meanwhile.
- */
-const PART_FROM = 8 * 1024 * 1024;
-
-/**
  * The whole file as UTF-8 text. Herdr's runtime has no TextDecoder and its
  * Buffer does not decode (toString gives ""), so files are read as text and
  * cut by bytes with `utf8Head` / `utf8Tail`. Null past FS_READ_MAX.
@@ -118,9 +117,18 @@ async function readUtf8(path: string): Promise<string | null> {
   }
 }
 
-export function herdrPorts(): Ports {
+/**
+ * `clock`: the copy's own task context (init's), whose `sleep` is a real pause
+ * for `breathe` (a timer; a microtask is none). Without one, no pauses.
+ */
+export function herdrPorts(clock?: { sleep(ms: number): Promise<void> }): Ports {
   const platform = detectPlatform();
+  const parts = partReaders({
+    whole: (path) => readUtf8(path),
+    part: (path, end, bytes) => readPart(path, end, bytes, platform, herdrExec),
+  });
   return {
+    ...(clock !== undefined ? { breathe: () => clock.sleep(1) } : {}),
     home: () => herdrHome(),
     sep: platform === "windows" ? "\\" : "/",
     platform,
@@ -128,23 +136,8 @@ export function herdrPorts(): Ports {
     now: () => Date.now(),
     // Not `readTextFile`: it stops at 1 MiB, and transcripts run to 50+ MB.
     readText: (path) => readUtf8(path),
-    // A head is read once per file (a rollout's first line, a transcript's first prompt):
-    // from a whole read, which starts no process, unless the file is past fs's limit.
-    readHead: async (path, bytes) => {
-      const all = await readUtf8(path);
-      return all !== null ? utf8Head(all, bytes) : await readPart(path, "head", bytes, platform, herdrExec);
-    },
-    // A tail is what a growing transcript is read by, every 30 s while Sessions is open:
-    // a big one by only its bytes, one short process, not the whole file each time.
-    readTail: async (path, bytes, size) => {
-      const part =
-        size !== undefined && size <= PART_FROM ? null : await readPart(path, "tail", bytes, platform, herdrExec);
-      if (part !== null) {
-        return part;
-      }
-      const all = await readUtf8(path);
-      return all === null ? null : utf8Tail(all, bytes);
-    },
+    readHead: (path, bytes) => parts.head(path, bytes),
+    readTail: (path, bytes, size) => parts.tail(path, bytes, size),
     stat: (path) => statFile(path, platform, herdrExec),
     list: async (dir) => {
       try {

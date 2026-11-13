@@ -275,6 +275,15 @@ The mod is meant to cost almost nothing while nobody touches it.
 - The update check is one GET a day, decided from memory between days (no file read per round). An update hashes
   each file as it reads it with Herdr's native sha256: the script's own took 450 ms for `engine.js` there, and
   Herdr ends a script that runs that long.
+- No long run without a pause. Herdr's runtime ends a script that runs between 0.5 and 0.7 s without one, and
+  says nothing: the task just stops (measured on 0.1.15: a 500 ms busy loop ran, a 700 ms one never came back; a
+  microtask is no pause, a 1 ms sleep is). A transcript read whole (up to 64 MiB) is counted and parsed a piece at a
+  time (`PIECE_CHARS`, 1 MiB: about 30 ms of parsing there), with a 1 ms sleep of the copy between pieces
+  (`Ports.breathe`); a 27 MB transcript took about 3 s that way, its longest stretch about 0.2 s. UTF-8 is counted
+  by the runtime's own regular expressions, never by a loop over each character (316 ms per MiB there). Before, a
+  transcript of 1 to 64 MiB was parsed in one go, the task stopped, and the session kept no info at all. A whole
+  read that is refused, or comes back shorter than the file, falls back to the two ends; a head or tail that the
+  whole read cannot give is read by the short process (`platform/reads.ts`).
 - Drawing costs what is drawn. Herdr runs a mod in QuickJS and interrupts a script that runs too long ("This
   view could not be rendered"), so text is measured only as far as it shows: `wrapLines` makes lines one at a
   time, stops at the first line past the ones the popup draws, and never measures much more than a line. The

@@ -5,6 +5,13 @@ and the project uses [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+
+- Sessions whose transcript is 1 to 64 MiB (a few days of work) have their name, prompt, reply, model and
+  context in Sessions again; they had none. Such a transcript was read and parsed in one go, and Herdr stops a
+  mod's script that runs longer than about half a second without a word. It is now read a piece at a time, with a
+  pause between pieces, and a read Herdr refuses falls back to the file's two ends.
+
 ## [0.1.3] - 2026-11-13
 
 ### Added

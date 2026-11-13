@@ -4,7 +4,7 @@
 // conversation is `~/.claude/projects/<cwd, non-alphanumerics as ->/<id>.jsonl`,
 // one JSON record per line (user, assistant, ai-title, custom-title, …).
 import { depthUnder, descendsFrom, liveProcessesOrNull, processDetails } from "../platform/proc.js";
-import { contextFields, emptyInfo, gitInfo, isRecord, isSessionId, join, jsonLines, num, oneLine, readTranscript, str, terminalPids, tokensText, uuidIn, } from "./common.js";
+import { contextFields, eachRecords, emptyInfo, gitInfo, isRecord, isSessionId, join, jsonLines, num, oneLine, readTranscript, str, terminalPids, tokensText, uuidIn, } from "./common.js";
 /** Claude's context windows are 200k or 1M tokens; more than 200k in use means 1M. */
 const SMALL_WINDOW = 200_000;
 const LARGE_WINDOW = 1_000_000;
@@ -91,6 +91,8 @@ const noFacts = () => ({
     tokensIn: 0,
     tokensOut: 0,
     usageSeen: false,
+    counted: new Set(),
+    billed: new Set(),
 });
 /** The text a person typed: not a tool result, not a meta or command record, not another agent's message. */
 function humanPrompt(r) {
@@ -123,8 +125,8 @@ function assistantText(content) {
     return parts.length === 0 ? null : oneLine(parts.join("\n"));
 }
 function scan(records, facts) {
-    const counted = new Set();
-    const billed = new Set();
+    // Kept in the facts: a reply's records (one per content block) may fall in two pieces (`eachRecords`).
+    const { counted, billed } = facts;
     for (const r of records) {
         const branch = str(r["gitBranch"]);
         if (branch !== null) {
@@ -221,7 +223,9 @@ async function snapshot(sessionId, cwd, p, prev) {
         // The head is only for what comes first; the tail says what is current.
         facts = { ...noFacts(), firstPrompt: facts.firstPrompt, title: facts.title, titleRank: facts.titleRank };
     }
-    facts = scan(jsonLines(read.text, WANTED), facts);
+    await eachRecords(read.text, p, WANTED, (records) => {
+        facts = scan(records, facts);
+    });
     // A use above 200k or `[1m]` says 1M; else the model's generation may; else a percentage
     // from before, which (the model having said nothing) came from a use above 200k.
     const window = facts.maxContext > SMALL_WINDOW || /\[1m\]/i.test(facts.model ?? "")

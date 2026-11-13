@@ -229,7 +229,8 @@ export default class Suspender extends View {
     const raw: unknown = herdrProps();
     const props = (typeof raw === "object" && raw !== null ? raw : {}) as Props;
     const host = herdrHost(cx);
-    const ports = herdrPorts();
+    // With this copy's clock: a long read pauses between its pieces (Ports.breathe).
+    const ports = herdrPorts(cx);
     // Beside the layouts it belongs with: another HERDR_APP_HOME is another window with its own sessions.
     const storePath = [appHome(), "suspender", "sessions.json"].join(ports.sep);
     const id = copyId();

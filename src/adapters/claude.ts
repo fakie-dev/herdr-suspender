@@ -9,6 +9,7 @@ import type { Ports } from "../platform/ports.ts";
 import { depthUnder, descendsFrom, liveProcessesOrNull, type ProcessDetail, processDetails } from "../platform/proc.ts";
 import {
   contextFields,
+  eachRecords,
   emptyInfo,
   gitInfo,
   isRecord,
@@ -128,6 +129,9 @@ interface Facts {
   tokensIn: number;
   tokensOut: number;
   usageSeen: boolean;
+  /** Message ids already counted and already billed: one reply is several records. */
+  counted: Set<string>;
+  billed: Set<string>;
 }
 
 const noFacts = (): Facts => ({
@@ -143,6 +147,8 @@ const noFacts = (): Facts => ({
   tokensIn: 0,
   tokensOut: 0,
   usageSeen: false,
+  counted: new Set(),
+  billed: new Set(),
 });
 
 /** The text a person typed: not a tool result, not a meta or command record, not another agent's message. */
@@ -177,8 +183,8 @@ function assistantText(content: unknown): string | null {
 }
 
 function scan(records: Record<string, unknown>[], facts: Facts): Facts {
-  const counted = new Set<string>();
-  const billed = new Set<string>();
+  // Kept in the facts: a reply's records (one per content block) may fall in two pieces (`eachRecords`).
+  const { counted, billed } = facts;
   for (const r of records) {
     const branch = str(r["gitBranch"]);
     if (branch !== null) {
@@ -282,7 +288,9 @@ async function snapshot(sessionId: string, cwd: string, p: Ports, prev?: Session
     // The head is only for what comes first; the tail says what is current.
     facts = { ...noFacts(), firstPrompt: facts.firstPrompt, title: facts.title, titleRank: facts.titleRank };
   }
-  facts = scan(jsonLines(read.text, WANTED), facts);
+  await eachRecords(read.text, p, WANTED, (records) => {
+    facts = scan(records, facts);
+  });
 
   // A use above 200k or `[1m]` says 1M; else the model's generation may; else a percentage
   // from before, which (the model having said nothing) came from a use above 200k.

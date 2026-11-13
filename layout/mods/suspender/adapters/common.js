@@ -1,5 +1,6 @@
 // Helpers the adapters share: paths, JSON Lines, git, number formatting, and
 // the incremental transcript read that keeps the mod cheap (spec story 39, D01).
+import { utf8Bytes } from "../core/utf8.js";
 export function join(p, ...parts) {
     return parts
         .filter((part) => part !== "")
@@ -134,15 +135,43 @@ export function emptyInfo(sessionId, cwd) {
 export const TAIL_BYTES = 1024 * 1024;
 export const HEAD_BYTES = 512 * 1024;
 /**
- * UTF-8 length of `text` in bytes (no TextEncoder in Herdr's runtime types).
- * By code unit, not by iterator: it runs over a whole transcript of up to 64 MiB.
- * A surrogate pair is 2 + 2 = 4 bytes.
+ * How much of a transcript is worked on in one go. Herdr's runtime ends a
+ * script that runs between 0.5 and 0.7 s without a pause, without a word: the
+ * task just stops (measured on 0.1.15). Parsing took 30 ms for 1 MiB and
+ * 265 ms for 8 MiB there; a 27 MB transcript in one go never came back.
  */
-function utf8Length(text) {
+export const PIECE_CHARS = 1024 * 1024;
+/** Where the piece of `text` that starts at `start` ends: after the first line break past PIECE_CHARS. */
+function pieceEnd(text, start) {
+    if (text.length - start <= PIECE_CHARS) {
+        return text.length;
+    }
+    const cut = text.indexOf("\n", start + PIECE_CHARS);
+    return cut === -1 ? text.length : cut + 1;
+}
+/**
+ * The records of a JSON Lines text, given to `use` a piece at a time, with a
+ * pause (`Ports.breathe`) between pieces. Whole lines only: a piece ends at a
+ * line break.
+ */
+export async function eachRecords(text, p, wanted, use) {
+    for (let start = 0; start < text.length;) {
+        const end = pieceEnd(text, start);
+        use(jsonLines(text.slice(start, end), wanted));
+        start = end;
+        if (start < text.length) {
+            await p.breathe?.();
+        }
+    }
+}
+/** `utf8Bytes` of a whole transcript, a piece at a time (see PIECE_CHARS). */
+async function utf8BytesPaced(text, p) {
     let bytes = 0;
-    for (let i = 0; i < text.length; i++) {
-        const code = text.charCodeAt(i);
-        bytes += code < 0x80 ? 1 : code < 0x800 || (code >= 0xd800 && code <= 0xdfff) ? 2 : 3;
+    for (let start = 0; start < text.length; start += PIECE_CHARS) {
+        bytes += utf8Bytes(text.slice(start, start + PIECE_CHARS));
+        if (start + PIECE_CHARS < text.length) {
+            await p.breathe?.();
+        }
     }
     return bytes;
 }
@@ -164,7 +193,7 @@ export async function readTranscript(path, p, prev) {
     const settled = (text) => {
         const cut = text.lastIndexOf("\n");
         const rest = text.slice(cut + 1);
-        return rest === "" ? { text, size: st.size } : { text: text.slice(0, cut + 1), size: st.size - utf8Length(rest) };
+        return rest === "" ? { text, size: st.size } : { text: text.slice(0, cut + 1), size: st.size - utf8Bytes(rest) };
     };
     // A read that gave nothing is no read: as if the file were not there, so the
     // next look reads it again instead of growing from bytes nobody saw.
@@ -178,12 +207,16 @@ export async function readTranscript(path, p, prev) {
     // read takes the whole file once, for exact counts. Past that, its two ends.
     if (st.size <= Math.max(TAIL_BYTES, p.wholeMax ?? 0)) {
         const all = await p.readText(path);
-        if (all === null) {
-            return unread;
+        // A read that was refused, or came back shorter than the file (Herdr's own text read
+        // stops at 1 MiB), is no whole read: the two ends below, so the session keeps its info.
+        if (all !== null) {
+            // Counted from what was read: the file may have grown since `stat`.
+            const text = all.slice(0, all.lastIndexOf("\n") + 1);
+            const read = await utf8BytesPaced(all, p);
+            if (read >= st.size) {
+                return { kind: "whole", text, size: read - utf8Bytes(all.slice(text.length)), mtimeMs: st.mtimeMs };
+            }
         }
-        // Counted from what was read: the file may have grown since `stat`.
-        const text = all.slice(0, all.lastIndexOf("\n") + 1);
-        return { kind: "whole", text, size: utf8Length(text), mtimeMs: st.mtimeMs };
     }
     const text = await p.readTail(path, TAIL_BYTES, st.size);
     if (text === null) {
