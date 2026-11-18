@@ -5,6 +5,8 @@ and the project uses [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.1.8] - 2026-11-18
+
 ### Fixed
 
 - The last screen on a sleeping tab shows its bottom rows above the strip: the agent's input box and the status
@@ -290,7 +292,8 @@ First release.
   command, so the draft is dropped instead of being sent.
 - The interface is English only.
 
-[Unreleased]: https://github.com/fakie-dev/herdr-suspender/compare/v0.1.7...HEAD
+[Unreleased]: https://github.com/fakie-dev/herdr-suspender/compare/v0.1.8...HEAD
+[0.1.8]: https://github.com/fakie-dev/herdr-suspender/compare/v0.1.7...v0.1.8
 [0.1.7]: https://github.com/fakie-dev/herdr-suspender/compare/v0.1.6...v0.1.7
 [0.1.6]: https://github.com/fakie-dev/herdr-suspender/compare/v0.1.5...v0.1.6
 [0.1.5]: https://github.com/fakie-dev/herdr-suspender/compare/v0.1.4...v0.1.5

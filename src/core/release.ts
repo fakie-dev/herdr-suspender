@@ -7,7 +7,7 @@
 import { formatVersion, parseVersion } from "./semver.ts";
 
 /** This build's version; `pnpm check` holds it equal to package.json's. */
-export const MOD_VERSION = "0.1.7";
+export const MOD_VERSION = "0.1.8";
 
 export const REPO = "fakie-dev/herdr-suspender";
 const API = "https://api.github.com";
