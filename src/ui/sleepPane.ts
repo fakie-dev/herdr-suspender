@@ -132,7 +132,10 @@ export class SleepPane {
   }
 
   private rec(): SessionRecord | null {
-    return this.drawn !== null ? this.drawn() : this.engine.record(this.key);
+    const rec = this.drawn !== null ? this.drawn() : this.engine.record(this.key);
+    // The record says running a moment before the agent takes this pane's slot (Engine.showWoken):
+    // until then this pane still shows the wake, or its last frames would lose the wake's line.
+    return rec !== null && (rec.state === "running" || rec.state === "working") ? { ...rec, state: "waking" } : rec;
   }
 
   /** The size to lay out for before its root reports one (the cover knows its body's). */

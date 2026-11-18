@@ -193,6 +193,28 @@ describe("the last screen of a sleeping tab and its strip", () => {
   });
 });
 
+describe("a sleeping pane whose session is up a moment before the agent takes its slot", () => {
+  it("still shows the wake, not a strip without its line", async () => {
+    const { engine, sim, ports, cx } = await world("first row");
+    const pane = new SleepPane(engine, sim, ports, KEY);
+    const before = sized(pane, cx, 900, 600);
+    const rows = texts(before).filter((x) => x.startsWith("first"));
+    // The record goes to running when the agent is up, before showWoken swaps it in.
+    const rec = engine.record(KEY);
+    assert.ok(rec);
+    (rec as { state: string }).state = "running";
+    const after = sized(pane, cx, 900, 600);
+    assert.ok(
+      texts(byId(after, "strip") as Drawn).some((x) => x === "Ready" || x === "Starting"),
+      texts(after).join(" | "),
+    );
+    assert.deepEqual(
+      texts(after).filter((x) => x.startsWith("first")),
+      rows,
+    );
+  });
+});
+
 describe("the cover over the work area (Sleep and Resume behind it)", () => {
   it("draws the session's sleeping pane in the tab's frame: border, header and the strip", async () => {
     const { engine, sim, ports, cx } = await world("first row");
