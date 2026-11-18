@@ -220,6 +220,19 @@ describe("a cover left up", () => {
     assert.equal(sim.workShows(), "main");
   });
 
+  it("is waited for when just raised: the hold comes before Herdr shows the cover", async () => {
+    const { sim } = world();
+    sim.setShared(COVER_KEY, { key: KEY, rec: null, at: sim.now, tab: TAB, alone: null });
+    // The tabs still show: the select has not landed yet.
+    assert.equal(settleCover(sim, sim.now), false);
+    assert.notEqual(sim.shared(COVER_KEY), null);
+    // A hold that never got its cover is dropped in time.
+    assert.equal(settleCover(sim, sim.now + 5_000), true);
+    assert.equal(sim.shared(COVER_KEY), null);
+    // Nothing held, nothing up: nothing to do.
+    assert.equal(settleCover(sim, sim.now), true);
+  });
+
   it("is put away when held too long: a flow that never got through does not hide the tabs", async () => {
     const { sim } = world();
     sim.selectWork(COVER_ID);

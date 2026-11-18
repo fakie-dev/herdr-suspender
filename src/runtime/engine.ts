@@ -2779,13 +2779,18 @@ function lowerCover(host: Host): void {
  */
 export function settleCover(host: Host, now: number): boolean {
   const place = coverPlace(host.windowLayout());
-  if (place === null || place.active === place.tab) {
-    // Not up, or not yet: a select Herdr has not applied leaves the hold as it is.
-    return true;
-  }
   const held = host.shared(COVER_KEY) as { at?: unknown; tab?: unknown; alone?: unknown } | null;
   const at = typeof held?.at === "number" ? held.at : null;
-  if (at !== null && now - at < COVER_STALE_MS && typeof held?.tab === "string") {
+  const fresh = at !== null && now - at < COVER_STALE_MS;
+  if (place === null || place.active === place.tab) {
+    // Not up. Held and fresh: raised a moment ago, the select not applied yet (measured: the cover's copy
+    // redraws for the hold before Herdr shows the cover), so it is waited for.
+    if (held !== null && !fresh) {
+      host.setShared(COVER_KEY, null);
+    }
+    return held === null || !fresh;
+  }
+  if (fresh && typeof held?.tab === "string") {
     const inTab = host.panes().filter((p) => p.tab === held.tab);
     const want = typeof held.alone === "string" ? held.alone : null;
     const through = inTab.length === 1 && (want === null ? inTab[0]?.terminal === null : inTab[0]?.terminal === want);
