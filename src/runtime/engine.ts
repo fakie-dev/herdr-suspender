@@ -575,6 +575,15 @@ export class Engine {
     return left === 0 ? null : { total: Math.max(left, this.co.restoreTotal), left };
   }
 
+  /** A session's place in the restore line, counted from the first the line had ("2 of 3"); null when not in it. */
+  restorePlace(key: SessionKey): { place: number; count: number } | null {
+    const at = this.restoreLine().indexOf(key);
+    const progress = this.restoreProgress();
+    return at < 0 || progress === null
+      ? null
+      : { place: progress.total - progress.left + at + 1, count: progress.total };
+  }
+
   /**
    * The leader wakes the next session of the restore line, unless one is
    * waking: each starts only once the one before is up (Resume returns when

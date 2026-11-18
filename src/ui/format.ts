@@ -34,6 +34,8 @@ export interface StatusOptions {
   agentName: string;
   progress: WakeStep | null;
   fresh: Freshness | null;
+  /** Its place in the restore line (`Engine.restoreLine`), when it waits there. */
+  line?: { place: number; count: number } | null;
 }
 
 /** The strip's second line: what state the session is in and anything worth knowing about it. */
@@ -45,6 +47,13 @@ export function stripStatus(rec: SessionRecord, o: StatusOptions): string {
       parts.push(t("strip.asleep", { time }));
       break;
     case "interrupted":
+      if (rec.restore === true) {
+        // Waiting its turn after the restart: nothing else is worth saying, and nothing to press.
+        const line = o.line ?? null;
+        return line === null
+          ? t("strip.restoreWaiting")
+          : t("strip.restoreWaitingAt", { place: line.place, count: line.count });
+      }
       parts.push(t("strip.interrupted", { time }));
       break;
     case "stopping":
@@ -96,6 +105,10 @@ export function stripActions(
   rec: SessionRecord,
   busy: boolean,
 ): { action: StripAction; label: string; enabled: boolean }[] {
+  if (rec.restore === true) {
+    // In the restore line: it wakes by itself, and nothing a person presses acts on it.
+    return [];
+  }
   switch (rec.state) {
     case "asleep":
     case "interrupted":

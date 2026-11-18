@@ -331,6 +331,7 @@ export class SleepPane {
                       agentName,
                       progress: this.engine.progress(this.key),
                       fresh: this.engine.freshness(this.key),
+                      line: this.engine.restorePlace(this.key),
                     }),
                 rec.state === "stopping" ? Math.max(0, room - SPINNER_PX - STEP_GAP) : room,
                 measure,

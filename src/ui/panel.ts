@@ -200,6 +200,7 @@ export class PanelView {
         .map((s) => ({ id: s.id, name: s.name })),
     );
     const freed = memoryFreedText(records);
+    const restoring = this.restoreBar(color);
     const updateBar = this.updateBar(color, scale);
     const footer = this.footer(color, scale);
     const header = h_flex()
@@ -267,9 +268,41 @@ export class PanelView {
         cx.notify();
       })
       .child(header)
+      .when(restoring !== null, (el) => el.child(restoring ?? div()))
       .when(updateBar !== null, (el) => el.child(updateBar ?? div()))
       .child(body)
       .when(footer !== null, (el) => el.child(footer ?? div()));
+  }
+
+  /**
+   * After a restart, while the sessions that were running wake one by one: which
+   * one of how many is waking now. Gone when the line is through.
+   */
+  private restoreBar(color: Palette): Element | null {
+    const progress = this.o.engine.restoreProgress();
+    if (progress === null) {
+      return null;
+    }
+    const at = progress.total - progress.left + 1;
+    return h_flex()
+      .id("restore-line")
+      .flex_none()
+      .min_h(32)
+      .px(LINE_PAD_X)
+      .gap(LINE_GAP)
+      .items_center()
+      .border_b(1)
+      .border_color(color("border"))
+      .text_size(LINE_TEXT)
+      .text_color(color("muted"))
+      .child(svg(`${ICONS}/spinner.svg`).size(LINE_LEAD).flex_none().text_color(color("accent")).spin(900))
+      .child(
+        div()
+          .flex_1()
+          .min_w(0)
+          .truncate()
+          .child(t("panel.restoring", { at, total: progress.total })),
+      );
   }
 
   /** The line on top: a release to update to, an update under way, or how the last one ended. */
@@ -511,7 +544,8 @@ export class PanelView {
       ? null
       : rec.state === "running" || rec.state === "working"
         ? { name: "moon", label: t("panel.sleep"), run: () => engine.sleep(rec.key) }
-        : rec.state === "asleep" || rec.state === "interrupted" || rec.state === "error"
+        : // In the restore line it wakes by itself: nothing to press (restore.test.ts).
+          (rec.state === "asleep" || rec.state === "interrupted" || rec.state === "error") && rec.restore !== true
           ? {
               name: "play",
               label: t(rec.state === "error" ? "strip.retry" : "strip.resume"),

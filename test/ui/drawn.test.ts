@@ -60,12 +60,13 @@ const ID = "0f0e0d0c-0b0a-4908-8706-050403020100";
 const KEY: SessionKey = `claude:${ID}`;
 const CWD = `${HOME}\\dev\\mobile-app`;
 
-async function world(lastScreen: string | null = null) {
+async function world(lastScreen: string | null = null, restore = false) {
   const sim = new Sim();
   const ports = sim.ports();
   const pane = sim.addModPane(TAB, { role: "sleep", key: KEY });
   const file = emptyStore();
-  file.sessions[KEY] = rec(ID, "asleep", {
+  file.sessions[KEY] = rec(ID, restore ? "interrupted" : "asleep", {
+    ...(restore ? { restore: true } : {}),
     key: KEY,
     cwd: CWD,
     pane,
@@ -145,6 +146,37 @@ describe("the last screen on a sleeping tab (Herdr 0.1.16 settings)", () => {
     } finally {
       delete g["suspenderSettings"];
     }
+  });
+});
+
+describe("a session waiting in the restore line after a restart", () => {
+  it("its sleeping tab says so, with no button to press", async () => {
+    const { engine, sim, ports, cx } = await world(null, true);
+    const root = sized(new SleepPane(engine, sim, ports, KEY), cx, 900, 600);
+    const strip = byId(root, "strip");
+    assert.ok(strip !== undefined);
+    assert.ok(
+      texts(strip).some((x) => x.startsWith("Resumes after the restart by itself · 1 of 1")),
+      texts(strip).join(" | "),
+    );
+    assert.equal([...walk(strip)].filter((el) => called(el, "on_click").length > 0).length, 0, "nothing to press");
+  });
+
+  it("Sessions says how far the line is, and its row has no Resume", async () => {
+    const { engine, sim, ports, cx } = await world(null, true);
+    const root = sized(new PanelView({ engine, host: sim, ports, mode: "panel", overlay: null }), cx, 368, 900);
+    const line = byId(root, "restore-line");
+    assert.ok(line !== undefined, "the line's banner");
+    assert.ok(texts(line).includes("Resuming after the restart · 1 of 1"), texts(line).join(" | "));
+    assert.equal(byId(root, `row-action-${KEY}`), undefined);
+    assert.ok(texts(root).includes("in line"));
+  });
+
+  it("Sessions has no banner when no line is running", async () => {
+    const { engine, sim, ports, cx } = await world();
+    const root = sized(new PanelView({ engine, host: sim, ports, mode: "panel", overlay: null }), cx, 368, 900);
+    assert.equal(byId(root, "restore-line"), undefined);
+    assert.ok(byId(root, `row-action-${KEY}`) !== undefined, "an asleep row keeps its Resume");
   });
 });
 

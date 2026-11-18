@@ -284,4 +284,57 @@ describe("after a restart", () => {
     await w.engine.tick();
     assert.deepEqual(w.engine.restoreLine(), [ON_SCREEN, BEHIND]);
   });
+
+  it("counts the line from its first session, so a place stays put while the line moves on", async () => {
+    const w = await world();
+    restart(w);
+    // The first start is held until the test lets it go.
+    const hc = w.sim.hc.bind(w.sim);
+    let release: () => void = () => undefined;
+    let held = false;
+    w.sim.hc = async (args: string[]) => {
+      if (args[0] === "send" && !held) {
+        held = true;
+        await new Promise<void>((resolve) => {
+          release = resolve;
+        });
+      }
+      return hc(args);
+    };
+    await rounds(w, 6);
+    assert.equal(held, true);
+    assert.deepEqual(w.engine.restoreProgress(), { total: 2, left: 2 });
+    assert.deepEqual(w.engine.restorePlace(ON_SCREEN), { place: 1, count: 2 });
+    assert.deepEqual(w.engine.restorePlace(BEHIND), { place: 2, count: 2 });
+    release();
+    // The first is up; the second is now the one waking, still the 2nd of 2.
+    for (let i = 0; i < 20 && w.engine.record(ON_SCREEN)?.state !== "running"; i++) {
+      await drain();
+      await w.sim.advance(500);
+    }
+    assert.equal(w.engine.record(ON_SCREEN)?.state, "running");
+    assert.equal(w.engine.restorePlace(ON_SCREEN), null);
+    assert.deepEqual(w.engine.restoreProgress(), { total: 2, left: 1 });
+    assert.deepEqual(w.engine.restorePlace(BEHIND), { place: 2, count: 2 });
+    await rounds(w, 20);
+    assert.equal(w.engine.restoreProgress(), null, "the line is through");
+  });
+
+  it("a later restart is a line of its own: told again, counted from its own first", async () => {
+    const w = await world();
+    restart(w);
+    await rounds(w, 20);
+    // Both run again in new terminals; the core restarts once more.
+    const terms = [w.engine.record(ON_SCREEN)?.terminal ?? "", w.engine.record(BEHIND)?.terminal ?? ""];
+    for (const address of terms) {
+      w.sim.loseTerminal(address);
+    }
+    await w.engine.tick();
+    await w.sim.advance(ABSENT_GRACE_MS);
+    await w.engine.tick();
+    await rounds(w, 20);
+    const told = w.sim.notices.filter((x) => x.text.includes("before the restart"));
+    assert.equal(told.length, 2, "told for each restart");
+    assert.equal(w.engine.record(BEHIND)?.state, "running");
+  });
 });
