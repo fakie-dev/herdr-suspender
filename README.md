@@ -11,7 +11,8 @@ the mod itself starts no processes.
 
 - **Sleep** from a pill on the tab, from the Sessions list or with `Alt+Shift+S`.
 - **Resume** continues the same conversation in the same tab. A session open elsewhere is never opened twice.
-- **Restarts are covered.** After Herdr or the PC restarts, tabs that had an agent wait for you to resume them.
+- **Restarts are covered.** After Herdr or the PC restarts, each session is as it was: the ones that were running
+  start again by themselves, one at a time and the tab on screen first; the ones asleep stay asleep.
 - **Sessions** lists every session of every project with the memory it freed, and wakes a project in one click.
 
 ## Install

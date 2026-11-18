@@ -65,7 +65,9 @@ export function groupSessions(records, spaces) {
             return null;
         }
         rows.sort(byRow);
-        const resumable = rows.filter((r) => r.state === "asleep" || r.state === "interrupted").map((r) => r.key);
+        const resumable = rows
+            .filter((r) => (r.state === "asleep" || r.state === "interrupted") && r.restore !== true)
+            .map((r) => r.key);
         return { spaceId, name, rows, resumable };
     };
     const known = new Set(spaces.map((s) => s.id));
@@ -226,6 +228,9 @@ const MOVING = new Set(["stopping", "waking"]);
 export function shownState(rec, checking) {
     if (checking) {
         return { word: t("state.checking"), tone: "pending", moving: true };
+    }
+    if (rec.restore === true && rec.state === "interrupted") {
+        return { word: t("state.restoreWaiting"), tone: "pending", moving: false };
     }
     return { word: stateWord(rec.state), tone: TONE[rec.state], moving: MOVING.has(rec.state) };
 }

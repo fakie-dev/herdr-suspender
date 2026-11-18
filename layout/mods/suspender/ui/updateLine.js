@@ -23,9 +23,11 @@ export const BUTTON_ICON = 12;
 export const ICON_BUTTON = BUTTON_ICON + 8;
 /** The footer's check box, and its gap to the label. */
 export const FOOTER_BOX = 12;
+/** Between Check now and the switch: wider than LINE_GAP, so the two read as two things. */
+export const FOOTER_LINK_GAP = 16;
 export const FOOTER_TEXT = 11.5;
 /** Room kept for "Suspender 0.1.2" before the switch shortens its label. */
-const FOOTER_VERSION_LEAST = 40;
+export const FOOTER_VERSION_LEAST = 40;
 export const ACTION_LABEL = {
     update: "update.action.update",
     whatsNew: "update.action.whatsNew",
@@ -131,7 +133,7 @@ export function fitFooter(width, scale, measure) {
         { toggle: "icon", link: "label" },
     ];
     for (const fit of tries) {
-        const used = footerToggleWidth(fit.toggle, measure) + LINE_GAP + footerLinkWidth(fit.link, measure);
+        const used = footerToggleWidth(fit.toggle, measure) + FOOTER_LINK_GAP + footerLinkWidth(fit.link, measure);
         if (used + LINE_GAP + FOOTER_VERSION_LEAST <= room) {
             return fit;
         }

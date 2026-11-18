@@ -139,6 +139,12 @@ differs, there is no agent status) is `interrupted`. The check errs on the side 
 doubt the strip is drawn and no agent starts. When the engine sees an agent exit by itself the state label
 becomes `exited`, so leaving an agent with `/exit` does not make a sleeping tab.
 
+A session interrupted that way is also marked `restore` in the store, and the leader wakes the marked ones in a
+line (`restoreNext`): one at a time, the tab on screen first, each after the one before is at its prompt, and
+only once no running session of the run is left unrecognised. While marked, a session takes no presses: Resume,
+Forget and the keys do nothing, and its tab and row draw no buttons. Sessions asleep at the restart are not
+marked. See [ADR 17](adr/0017-running-sessions-wake-after-a-restart.md).
+
 An agent killed hard (`taskkill /F`, a crash) leaves Herdr showing its last status. The engine looks at the
 processes when a bound terminal's title or processes change: if the agent is gone and its status is still on
 display `ABSENT_GRACE_MS` (3 seconds) later, the session is `interrupted`. After `/exit` the title comes back

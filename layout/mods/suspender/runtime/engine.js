@@ -109,6 +109,8 @@ export function newCoordinator() {
         confirmedNews: false,
         twins: new Map(),
         told: new Set(),
+        restoring: null,
+        restoreTotal: 0,
     };
 }
 const RUNNING = ["running", "working", "confirming"];
@@ -323,9 +325,106 @@ export class Engine {
         await this.guarded("panes", async () => {
             this.sweepStrays();
         });
+        await this.guarded("record", () => this.restoreNext());
         if (this.co.confirmedNews) {
             // Once per round that confirmed something: setting a shared value redraws every copy.
             this.co.confirmedNews = false;
+            this.host.setShared(CHECKED_KEY, this.ports.now());
+        }
+    }
+    // ---- after a restart: the sessions that were running wake, one at a time
+    /** It was running at a restart and has not been woken yet: nothing a person presses acts on it. */
+    restoreWaiting(key) {
+        return this.record(key)?.restore === true;
+    }
+    /**
+     * The restore line in its order: the session being woken, then the ones
+     * waiting, the one on screen first and then as the tabs go.
+     */
+    restoreLine() {
+        const tabs = this.host.tabs();
+        const shown = tabs.find((x) => x.active && x.spaceActive)?.id ?? null;
+        const order = (key) => {
+            const tab = this.placeNow(key)?.tabId ?? null;
+            if (tab !== null && tab === shown) {
+                return -1;
+            }
+            const i = tabs.findIndex((x) => x.id === tab);
+            return i < 0 ? tabs.length : i;
+        };
+        const waiting = this.records()
+            .filter((r) => r.restore === true && r.state === "interrupted" && r.key !== this.co.restoring)
+            .map((r) => r.key)
+            .sort((a, b) => order(a) - order(b) || a.localeCompare(b));
+        const now = this.co.restoring;
+        return now !== null && this.restoreWaiting(now) ? [now, ...waiting] : waiting;
+    }
+    /** How far the restore line is: the sessions it has had since it last ran empty, and how many are left. */
+    restoreProgress() {
+        const left = this.restoreLine().length;
+        return left === 0 ? null : { total: Math.max(left, this.co.restoreTotal), left };
+    }
+    /** A session's place in the restore line, counted from the first the line had ("2 of 3"); null when not in it. */
+    restorePlace(key) {
+        const at = this.restoreLine().indexOf(key);
+        const progress = this.restoreProgress();
+        return at < 0 || progress === null
+            ? null
+            : { place: progress.total - progress.left + at + 1, count: progress.total };
+    }
+    /**
+     * The leader wakes the next session of the restore line, unless one is
+     * waking: each starts only once the one before is up (Resume returns when
+     * the agent is at its prompt), so a restart does not start every agent at
+     * once. A mark whose session is no longer interrupted (forgotten, or found
+     * running in a terminal) is dropped.
+     */
+    async restoreNext() {
+        for (const rec of this.records()) {
+            if (rec.restore === true && rec.state !== "interrupted" && rec.state !== "waking" && !this.busy(rec.key)) {
+                await this.patch(rec.key, (r) => {
+                    delete r.restore;
+                });
+            }
+        }
+        if (this.co.restoring !== null || this.restartSettling()) {
+            return;
+        }
+        const line = this.restoreLine().filter((key) => !this.busy(key));
+        const next = line[0];
+        if (next === undefined) {
+            if (this.restoreLine().length === 0) {
+                this.co.restoreTotal = 0;
+            }
+            return;
+        }
+        if (this.co.restoreTotal === 0) {
+            this.host.notify(line.length === 1 ? t("notice.restoringOne") : t("notice.restoring", { count: line.length }), "info");
+        }
+        this.co.restoreTotal = Math.max(this.co.restoreTotal, line.length);
+        this.co.restoring = next;
+        // Not awaited: a wake takes up to half a minute, and the rounds go on meanwhile.
+        void this.restoreOne(next);
+    }
+    /**
+     * A restart is still being recognised: a running session not seen in its
+     * terminal yet in this run, or one whose terminal is in its grace (agentGone).
+     * The line waits for them, so the tab on screen is in it before the first wakes.
+     */
+    restartSettling() {
+        return this.records().some((r) => RUNNING.includes(r.state) &&
+            (!this.co.confirmed.has(r.key) || (r.terminal !== null && this.absentSince.has(r.terminal))));
+    }
+    /** Wakes one session of the line; its mark goes in the next round, whatever state it ends in (restoreNext). */
+    async restoreOne(key) {
+        try {
+            await this.resume(key, "resume", true);
+        }
+        catch {
+            // Its error is on its record (startFailed); the line goes on.
+        }
+        finally {
+            this.co.restoring = null;
             this.host.setShared(CHECKED_KEY, this.ports.now());
         }
     }
@@ -557,7 +656,13 @@ export class Engine {
                 return true;
             });
         }
-        await this.act(key, () => this.dispatch(key, { t: "lostOnRestart" }));
+        await this.act(key, async () => {
+            await this.dispatch(key, { t: "lostOnRestart" });
+            // Running when it was lost: it runs again after the restart, in its turn (restoreNext).
+            await this.patch(key, (r) => {
+                r.restore = true;
+            });
+        });
     }
     /**
      * A step of the round, bounded: a throw or a step still waiting after
@@ -1116,10 +1221,16 @@ export class Engine {
             await this.act(key, () => this.dispatch(key, { t: "interruptAndSleep" }));
         }
     }
-    /** Resume (also Retry). Returns the state it ended in. */
-    async resume(key, how = "resume") {
+    /**
+     * Resume (also Retry). Returns the state it ended in. A session in the
+     * restore line is woken by the line only (`byRestore`): a press does nothing.
+     */
+    async resume(key, how = "resume", byRestore = false) {
         await this.load();
         let end = this.record(key)?.state ?? null;
+        if (!byRestore && this.restoreWaiting(key)) {
+            return end;
+        }
         await this.act(key, async () => {
             const rec = this.record(key);
             if (rec !== null) {
@@ -1142,6 +1253,9 @@ export class Engine {
     /** Forget: the record goes; the tab keeps an ordinary terminal where our pane was. */
     async forget(key) {
         await this.load();
+        if (this.restoreWaiting(key)) {
+            return;
+        }
         await this.act(key, async () => {
             const pane = this.record(key)?.pane ?? null;
             const pin = this.record(key)?.spaceName;
@@ -1744,22 +1858,13 @@ export class Engine {
         return pane;
     }
     /**
-     * A new tab for our pane in `space`, and the screen given back at once: Herdr
-     * shows a new tab (measured), and nobody asked to go there. In the same step,
-     * so Herdr applies them in order: the tab that space showed, then the tab that
-     * was on screen (`tab.select` goes to another space too, with that tab's focus).
+     * A new tab for our pane in `space`, opened without the focus (Herdr 0.1.16):
+     * the tab and space on screen, the tab that space shows and the focus stay
+     * (measured). Before, Herdr showed the new tab and the mod selected the old
+     * ones back in the same step.
      */
     newTabOffScreen(space, props) {
-        const tabs = this.host.tabs();
-        const shown = tabs.find((t) => t.active && t.spaceActive)?.id ?? null;
-        const spaceShown = tabs.find((t) => t.space === space && t.active)?.id ?? null;
-        this.host.runOnScreen("tab.new", { space, mod: MOD_NAME, props });
-        if (spaceShown !== null && spaceShown !== shown) {
-            this.host.runOnScreen("tab.select", { id: spaceShown });
-        }
-        if (shown !== null) {
-            this.host.runOnScreen("tab.select", { id: shown });
-        }
+        this.host.run("tab.new", { space, mod: MOD_NAME, props, focus: false });
     }
     /** The pane is in the tab on screen (the shown tab of the shown space). */
     onScreen(pane) {

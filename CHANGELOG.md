@@ -5,6 +5,23 @@ and the project uses [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Changed
+
+- After a restart of the PC or of Herdr, the sessions that were running start again by themselves, one at a time
+  and the tab on screen first; the ones that were asleep stay asleep. Until a session's turn comes, its tab says
+  where it is in the line and has no buttons, its row says "in line", and Sessions shows which one of how many is
+  starting. Before, every tab waited for its Resume button.
+- Check now is grey, like the version beside it, and stands further from the check box.
+- A sleeping tab in a space you are not on now opens without the focus (Herdr 0.1.16), instead of being shown and
+  the screen being switched back.
+
+### Fixed
+
+- The last screen on a sleeping tab follows Herdr 0.1.16's `terminal_cell_width` and `font_weight`: with wider
+  cells its columns no longer drift from the terminal's, and its text has the terminal's weight (500 unless set).
+- `herdr-app check` no longer starts the mod's rounds, update check or tab bar copy in your home: under a check it
+  only creates a missing layout.
+
 ## [0.1.6] - 2026-11-18
 
 ### Added
