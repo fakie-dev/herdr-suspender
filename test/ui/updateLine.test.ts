@@ -11,7 +11,9 @@ import {
   ACTION_LABEL,
   BUTTON_PAD_X,
   BUTTON_TEXT,
+  FOOTER_LINK_GAP,
   FOOTER_PAD_X,
+  FOOTER_VERSION_LEAST,
   fitFooter,
   fitUpdateLine,
   footerLinkWidth,
@@ -133,8 +135,16 @@ describe("the switch at the bottom at any width", () => {
         const width = windowPx(px * zoom);
         const fit = fitFooter(width, { zoom }, uiMeasure);
         const drawn =
-          2 * FOOTER_PAD_X + footerToggleWidth(fit.toggle, uiMeasure) + LINE_GAP + footerLinkWidth(fit.link, uiMeasure);
+          2 * FOOTER_PAD_X +
+          footerToggleWidth(fit.toggle, uiMeasure) +
+          FOOTER_LINK_GAP +
+          footerLinkWidth(fit.link, uiMeasure);
         assert.ok(drawn <= toMod({ zoom }, width), `${px} px, zoom ${zoom}: ${drawn} drawn (${JSON.stringify(fit)})`);
+        if (fit.link === "label") {
+          // A label is kept only while the version still has its room beside it.
+          const left = toMod({ zoom }, width) - drawn - LINE_GAP;
+          assert.ok(left >= FOOTER_VERSION_LEAST, `${px} px, zoom ${zoom}: ${left} px left for the version`);
+        }
       }
     }
   });

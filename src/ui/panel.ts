@@ -50,6 +50,7 @@ import {
   BUTTON_TEXT,
   FOOTER_BOX,
   FOOTER_LABEL,
+  FOOTER_LINK_GAP,
   FOOTER_PAD_X,
   FOOTER_TEXT,
   fitFooter,
@@ -361,7 +362,8 @@ export class PanelView {
     const mode = fit.toggle;
     const said = u.manualCheck();
     const words = t(LINK_LABEL[said ?? "idle"]);
-    const tint = color(said === "upToDate" ? "done" : said === "failed" ? "working" : said === null ? "accent" : "dim");
+    // Grey as the version beside it; only what a check found has a colour of its own.
+    const tint = color(said === "upToDate" ? "done" : said === "failed" ? "working" : "dim");
     const lead =
       said === "checking"
         ? svg(`${ICONS}/spinner.svg`).size(FOOTER_BOX).flex_none().text_color(tint).spin(900)
@@ -369,6 +371,7 @@ export class PanelView {
     const link = h_flex()
       .id("update-check-now")
       .flex_none()
+      .mr(FOOTER_LINK_GAP - LINE_GAP)
       .gap(LINE_GAP)
       .items_center()
       .text_color(tint)

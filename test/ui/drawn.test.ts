@@ -32,6 +32,7 @@ const { STRIP_TEXT, STRIP_STATUS_INDENT, STRIP_STATUS_TEXT, statusWidth } = awai
 const { uiMeasure } = await import("../../src/ui/textWidth.ts");
 const { windowPx } = await import("../../src/core/scale.ts");
 const { FACT_ROW_PX } = await import("../../src/ui/sessionsModel.ts");
+const { FOOTER_LINK_GAP, LINE_GAP } = await import("../../src/ui/updateLine.ts");
 
 interface Drawn {
   kind: string;
@@ -515,5 +516,32 @@ describe("the update line and the switch in Sessions", () => {
     const narrow = byId(draw(110), "update-check-now");
     assert.ok(narrow !== undefined && !texts(narrow).includes("Up to date"));
     assert.ok(has(narrow, "tooltip", "Up to date"));
+  });
+
+  it("draws Check now grey like the version beside it, set apart from the switch", async () => {
+    const { engine, sim, ports, cx } = await world();
+    const w = new World();
+    w.install(LIVE, "0.1.2");
+    w.publish("0.1.2");
+    const updates = new Updater(w.deps("0.1.2"));
+    await updates.load();
+    const g = globalThis as Record<string, unknown>;
+    const before = g["suspenderTheme"];
+    g["suspenderTheme"] = { dim: "#6c7086", accent: "#89b4fa", border: "#45475a" };
+    try {
+      const root = sized(
+        new PanelView({ engine, host: sim, ports, mode: "panel", overlay: null, updates }),
+        cx,
+        368,
+        900,
+      );
+      const link = byId(root, "update-check-now");
+      assert.ok(link !== undefined);
+      assert.ok(has(link, "text_color", "#6c7086"), "the words are the footer's grey");
+      assert.ok(!has(link, "text_color", "#89b4fa"), "not the accent");
+      assert.ok(has(link, "mr", FOOTER_LINK_GAP - LINE_GAP), "a wider gap before the switch");
+    } finally {
+      g["suspenderTheme"] = before;
+    }
   });
 });
