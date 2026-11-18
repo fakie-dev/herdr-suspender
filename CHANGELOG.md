@@ -5,6 +5,13 @@ and the project uses [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+
+- An agent you start again by hand in the same terminal (`claude --resume <id>` after the old one has left) is no
+  longer put to sleep and closed. When the old agent left without clearing its status in Herdr, Suspender took it
+  for a killed one, and three seconds later ended the terminal, with the new agent already starting in it. It now
+  looks once more whether an agent runs in that terminal before it ends anything.
+
 ## [0.1.4] - 2026-11-13
 
 ### Fixed

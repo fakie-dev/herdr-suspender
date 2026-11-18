@@ -1028,6 +1028,19 @@ export class Engine {
         return true;
       }
       this.goneUnderReport.delete(term.address);
+      // The status on display may be a new agent's: the person started it again in this shell during the
+      // grace (`claude --resume <id>` typed after the old one left). One more look before the shell is ended.
+      const again = await this.agentAlive(term, adapter);
+      if (again === null) {
+        // A list that failed proves nothing: look again next round.
+        this.goneUnderReport.set(term.address, goneAt);
+        return true;
+      }
+      if (again) {
+        this.co.seen.set(term.address, signature(term));
+        await this.verifySession(key);
+        return false;
+      }
       await this.act(key, () => this.dispatch(key, { t: "agentExited", byUser: false }));
       return true;
     }
@@ -1073,8 +1086,9 @@ export class Engine {
       return null;
     }
     const found = agentIn(tree, term, adapter, null);
-    if (found !== null && known !== undefined) {
-      this.co.agents.set(term.address, { ...found, reported: known.reported });
+    if (found !== null) {
+      // Remembered even when no process was known (it was seen gone): the next looks follow this one.
+      this.co.agents.set(term.address, { ...found, reported: known?.reported ?? false });
     }
     return found !== null;
   }

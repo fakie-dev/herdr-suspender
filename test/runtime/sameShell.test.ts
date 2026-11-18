@@ -105,6 +105,52 @@ describe("an agent started again in the same shell", () => {
     assert.deepEqual(w.sim.killed, []);
   });
 
+  // Measured on a live session, 2026-11-18: the old Claude left without clearing Herdr's status, the round saw it
+  // gone, and the person typed `claude --resume <id>` in the same shell. The next round, past the grace, took the
+  // status of the new Claude for the old one's, and ended the terminal with the new Claude in it.
+  async function startedAgainInTheGrace(
+    w: ReturnType<typeof world>,
+    bound: () => void = () => undefined,
+  ): Promise<void> {
+    await w.engine.tick();
+    bound();
+    w.sim.killAgent(w.agent.address);
+    await w.engine.tick(); // seen gone: the grace starts
+    const t = w.sim.term(w.agent.address);
+    t.agent = "claude";
+    t.agentPid = 7779;
+    t.agentStartMs = w.sim.now;
+    t.title = "Resumed conversation";
+    await w.sim.advance(ABSENT_GRACE_MS);
+    for (let i = 0; i < 4; i++) {
+      await w.engine.tick();
+      await w.sim.advance(ABSENT_GRACE_MS);
+    }
+  }
+
+  it("started again after the mod saw the old one gone: not killed when the grace ends", async () => {
+    const w = world();
+    await startedAgainInTheGrace(w);
+    assert.deepEqual(w.sim.killed, [], "the terminal with the new Claude is not killed");
+    assert.equal(w.engine.record(KEY)?.state, "running");
+    assert.equal(w.engine.record(KEY)?.terminal, w.agent.address);
+  });
+
+  it("started again with another session after the mod saw the old one gone: the record follows it", async () => {
+    const w = world();
+    await startedAgainInTheGrace(w, () => {
+      w.claude.discoverSession = async (view) => {
+        w.claude.state.views.push(view);
+        // As the real adapter: the session of the process it is pointed at, none for a process that is gone.
+        return view.foreground?.pid === 7779 ? "s9" : null;
+      };
+    });
+    assert.deepEqual(w.sim.killed, []);
+    assert.equal(w.engine.record(KEY), null);
+    assert.equal(w.engine.record("claude:s9")?.state, "running");
+    assert.equal(w.engine.record("claude:s9")?.terminal, w.agent.address);
+  });
+
   it("an agent that is really gone (killed hard) is still found gone", async () => {
     const w = world();
     await w.engine.tick();
