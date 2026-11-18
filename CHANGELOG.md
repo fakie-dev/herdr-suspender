@@ -5,6 +5,18 @@ and the project uses [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+
+- The last screen on a sleeping tab shows its bottom rows above the strip: the agent's input box and the status
+  line your statusline plugin draws under it. Before, the strip covered them; the rows that no longer fit now go
+  from the top.
+
+### Changed
+
+- Resume is about 3 seconds faster. Measured on Herdr 0.1.16, a woken Claude Code told the core it was up 3 seconds
+  before Herdr's list showed it, and the mod then took a PowerShell process snapshot to find a process the core
+  already names. The mod now reads the core while it waits and takes the agent from the terminal's foreground.
+
 ## [0.1.7] - 2026-11-18
 
 ### Changed

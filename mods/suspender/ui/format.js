@@ -346,17 +346,22 @@ export function screenLook(look, platform = "windows") {
         scale,
     };
 }
+/** The strip's height in the mod's px until it reports its own: padding, the title row, one status line. */
+export const STRIP_HEIGHT_ESTIMATE = 63;
 /**
  * Rows that fit a pane `reported` px tall (window px, as Herdr reports it), and
  * where the first starts, in the mod's px: what is left under the last row is
- * shared above and below, as the terminal does.
+ * shared above and below, as the terminal does. `below`: what covers the
+ * pane's bottom (the strip, mod px); the rows end above it, so the screen's
+ * last rows, where an agent keeps its status line, stay in sight, and the
+ * rows that no longer fit go from the top.
  */
-export function screenGrid(reported, l) {
+export function screenGrid(reported, l, below = 0) {
     if (reported <= 0) {
         return { rows: DEFAULT_ROWS, top: l.padY };
     }
     const height = toMod(l.scale, reported);
-    const inside = Math.max(0, height - 2 * l.padY);
+    const inside = Math.max(0, height - l.padY - Math.max(l.padY, below));
     const rows = Math.floor(inside / l.cellH + 1e-9);
     return { rows, top: l.padY + Math.floor((inside - rows * l.cellH) / 2) };
 }

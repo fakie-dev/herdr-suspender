@@ -11,9 +11,9 @@ import { h_flex, v_flex } from "gpui-base";
 import { div, svg } from "gpui-kit";
 import { closeOverlay, settings, theme } from "herdr";
 import { badgeText, SEPARATOR } from "../core/fit.js";
-import { reportedSize, scaleOf, windowPx } from "../core/scale.js";
+import { reportedSize, scaleOf, toMod, windowPx } from "../core/scale.js";
 import { t } from "../i18n/index.js";
-import { fitStrip, mixColor, SCREEN_DIM, STRIP_ACTION_ICON, STRIP_BADGE_TEXT, STRIP_BUTTON_PAD, STRIP_GAP, STRIP_ICON_BUTTON_PAD, STRIP_ITEM_GAP, STRIP_MOON_PX, STRIP_PAD_LEFT, STRIP_PAD_RIGHT, STRIP_PLAY_GAP, STRIP_PLAY_PX, STRIP_STATUS_INDENT, STRIP_STATUS_TEXT, STRIP_TEXT, screenGrid, screenLines, screenLook, screenMarks, statusWidth, statusWords, stripActions, stripStatus, wakeSteps, } from "./format.js";
+import { fitStrip, mixColor, SCREEN_DIM, STRIP_ACTION_ICON, STRIP_BADGE_TEXT, STRIP_BUTTON_PAD, STRIP_GAP, STRIP_HEIGHT_ESTIMATE, STRIP_ICON_BUTTON_PAD, STRIP_ITEM_GAP, STRIP_MOON_PX, STRIP_PAD_LEFT, STRIP_PAD_RIGHT, STRIP_PLAY_GAP, STRIP_PLAY_PX, STRIP_STATUS_INDENT, STRIP_STATUS_TEXT, STRIP_TEXT, screenGrid, screenLines, screenLook, screenMarks, statusWidth, statusWords, stripActions, stripStatus, wakeSteps, } from "./format.js";
 import { anchorRect, factsFor, hoverPopup } from "./popup.js";
 import { uiMeasure } from "./textWidth.js";
 const ICONS = "mods/suspender/icons";
@@ -61,6 +61,8 @@ function markElement(m, l, shade) {
 export class SleepPane {
     /** As Herdr reports it: window px. */
     size = { width: windowPx(0), height: windowPx(0) };
+    /** The strip's height as Herdr reports it, once it has (the screen's rows end above it). */
+    stripHeight = null;
     shown = false;
     watching = false;
     engine;
@@ -167,16 +169,18 @@ export class SleepPane {
         return root.child(this.screen(rec)).child(this.strip(rec));
     }
     /**
-     * The last screen, dimmed, where the terminal had it: the same cells, the
-     * same padding, its first row where the terminal's was. Rows that no longer
-     * fit go from the top, as in a terminal made shorter. `hc read` gives text
-     * only, so the screen keeps no colours.
+     * The last screen, dimmed, on the terminal's cells with its padding. Its
+     * rows end above the strip, so the last ones (an agent's input box and the
+     * status line under it) stay in sight; rows that no longer fit go from the
+     * top, as in a terminal made shorter. `hc read` gives text only, so the
+     * screen keeps no colours.
      */
     screen(rec) {
         const color = palette();
         const shade = (share) => mixColor(color("background"), color("foreground"), SCREEN_DIM * share);
         const look = screenLook(settings(), this.ports.platform);
-        const grid = screenGrid(this.size.height, look);
+        const below = this.stripHeight === null ? STRIP_HEIGHT_ESTIMATE : toMod(look.scale, this.stripHeight);
+        const grid = screenGrid(this.size.height, look, below);
         const marks = screenMarks(screenLines(rec.lastScreen, grid.rows), look);
         return div()
             .absolute()
@@ -307,6 +311,13 @@ export class SleepPane {
             .on_hover((over, cx) => {
             if (!over) {
                 hoverPopup.leave(cx);
+            }
+        })
+            .on_size_change((size, cx) => {
+            const height = reportedSize(size).height;
+            if (height !== this.stripHeight) {
+                this.stripHeight = height;
+                cx.notify();
             }
         })
             .flex_none()

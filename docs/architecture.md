@@ -60,13 +60,17 @@ is what its pane shows and is never "checking".
    with it, and in the same step `terminal.park` takes the terminal's pane away. The agent keeps running out
    of sight and the panel alone holds the slot, so the tab never shows the panel beside the live agent for
    longer than a few frames ([ADR 9](adr/0009-stop-out-of-sight.md)). When the session's tab has no pane left to split
-   beside (its tab is gone), the panel gets a new tab of the space; Herdr shows a new tab, so in the same step the
-   engine selects again the tab that space showed and the tab that was on screen. The split, swap and park sequence is
+   beside (its tab is gone), the panel gets a new tab of the space, opened without the focus (`tab.new {focus:
+   false}`, Herdr 0.1.16), so the screen stays where it is. The split, swap and park sequence is
    always done in full: with the swap left out, the removed pane's share of the space goes to a neighbour
    unless the pane was first in its parent along the parent's axis. With it, the new panel has exactly the old
    slot and the same size, which was measured in several positions. Herdr lists the new panel only after its
    next update, so it is looked for every 16 ms. If it has not shown after the waits, the terminal is not
-   parked and the agent is stopped in view.
+   parked and the agent is stopped in view. Measured on Herdr 0.1.16 in an isolated window: the split is listed
+   about 66 ms after it is asked for, so the panel beside the agent shows for about four frames. The mod API
+   cannot avoid it: `run` returns nothing (not the new pane's id), mods get no pane bounds to cover the slot,
+   `pane.zoom` does not apply to a pane alone in its tab, and parking the agent first closes a tab it was alone
+   in.
    In the same step, before the park, a space nobody named is renamed to the name it shows: Herdr names such a
    space after its first terminal, and one whose only terminal was the agent would be called after its own
    folder (`~` at home) while it sleeps. The record keeps the pin; when the last session sleeping in that space
