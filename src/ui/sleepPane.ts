@@ -73,7 +73,13 @@ function markElement(m: ScreenMark, l: ScreenLook, shade: (share: number) => Col
   const at = div().absolute().left(m.x).top(m.y);
   switch (m.kind) {
     case "text":
-      return at.h(l.cellH).line_height(`${l.cellH}px`).text_size(m.size).whitespace_nowrap().child(m.text);
+      return at
+        .h(l.cellH)
+        .line_height(`${l.cellH}px`)
+        .text_size(m.size)
+        .font_weight(l.weight)
+        .whitespace_nowrap()
+        .child(m.text);
     case "fill":
       return at.w(m.w).h(m.h).bg(shade(m.shade));
     case "arc": {
@@ -214,7 +220,7 @@ export class SleepPane {
     const color = palette();
     const shade = (share: number): Color =>
       mixColor(color("background"), color("foreground"), SCREEN_DIM * share) as Color;
-    const look = screenLook(settings());
+    const look = screenLook(settings(), this.ports.platform);
     const grid = screenGrid(this.size.height, look);
     const marks = screenMarks(screenLines(rec.lastScreen, grid.rows), look);
     return div()

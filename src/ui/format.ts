@@ -7,6 +7,7 @@ import type { SessionInfo, SessionRecord } from "../core/model.ts";
 import { repoPath, type Sep, shortBranch } from "../core/paths.ts";
 import { type Scale, scaleOf, toMod, type WindowPx } from "../core/scale.ts";
 import { hasMessage, type MessageKey, t } from "../i18n/index.ts";
+import type { Platform } from "../platform/ports.ts";
 import type { Freshness, WakeStep } from "../runtime/engine.ts";
 import { type Measure, uiMeasure } from "./textWidth.ts";
 
@@ -346,10 +347,19 @@ export interface ScreenLook {
   font: string;
   /** The terminal's font size: characters drawn one by one. */
   glyph: number;
-  /** The size at which the font's advance is exactly one cell: runs of plain text. */
+  /** The size at which the font's advance is exactly one cell: runs of plain text (not when `spread`). */
   run: number;
   cellW: number;
   cellH: number;
+  /**
+   * terminal_cell_width made the cell other than the font's own advance: text
+   * cannot go in runs (no letter spacing), each character is put in its cell.
+   */
+  spread: boolean;
+  /** How far a glyph sits into its cell (Herdr's `glyph_x`). */
+  glyphX: number;
+  /** The terminal's text weight (font_weight). */
+  weight: number;
   /** terminal_padding: [horizontal, vertical]. */
   padX: number;
   padY: number;
@@ -372,19 +382,53 @@ const positive = (value: unknown, fallback: number): number =>
 const nonNegative = (value: unknown, fallback: number): number =>
   typeof value === "number" && Number.isFinite(value) && value >= 0 ? value : fallback;
 
-/** Herdr's `terminal_line_height` range and default; the value is stored as float32. */
+/** Herdr's range for `terminal_line_height` and `terminal_cell_width`; the values are stored as float32. */
 const LINE_HEIGHT_MIN = 0.8;
 const LINE_HEIGHT_MAX = 2;
 
-/** `adjusted_cell_height`: round(round(device px x font height) x line height), one px at least. */
-function cellHeight(device: number, fontHeight: number, lineHeight: unknown): number {
-  const raw = typeof lineHeight === "number" && Number.isFinite(lineHeight) ? lineHeight : 1;
-  const lh = Math.fround(Math.min(LINE_HEIGHT_MAX, Math.max(LINE_HEIGHT_MIN, raw)));
-  return Math.max(1, Math.round(Math.round(device * fontHeight) * lh));
+/** Herdr's `font_weight` range and default (its terminals draw 500 unless it is set). */
+const WEIGHT_MIN = 100;
+const WEIGHT_MAX = 900;
+const WEIGHT_DEFAULT = 500;
+
+/** A multiplier from settings(): 1 when absent or not a number, clamped, held as float32 as Herdr holds it. */
+function multiplier(value: unknown): number {
+  const raw = typeof value === "number" && Number.isFinite(value) ? value : 1;
+  return Math.fround(Math.min(LINE_HEIGHT_MAX, Math.max(LINE_HEIGHT_MIN, raw)));
 }
 
-/** From `settings()`: the shown layout's terminal font, size, line height, padding and the zoom. */
-export function screenLook(look: Record<string, unknown>): ScreenLook {
+/**
+ * `adjusted_cell_width` (Herdr 0.1.16, after Ghostty): the rounded cell times
+ * (1 + percent / 100), the percent rounded to 1e-4 first, then rounded; one px at least.
+ */
+function cellWidthPx(cell: number, value: unknown): number {
+  const percent = Math.round((multiplier(value) - 1) * 100 * 1e4) / 1e4;
+  return Math.max(1, Math.round(cell * (1 + percent / 100)));
+}
+
+/**
+ * `glyph_x`: half the cell's difference from the face's unrounded advance, in
+ * device px. CoreText keeps only the part under a whole pixel when the cell is
+ * the narrower; FreeType and DirectWrite move only into a wider cell, by whole pixels.
+ */
+function glyphShift(cell: number, face: number, platform: Platform): number {
+  const dx = (cell - face) / 2;
+  if (platform === "macos") {
+    return dx < 0 ? dx - Math.trunc(dx) : dx;
+  }
+  return dx > 0 ? Math.round(dx) : 0;
+}
+
+/** `adjusted_cell_height`: round(round(device px x font height) x line height), one px at least. */
+function cellHeight(device: number, fontHeight: number, lineHeight: unknown): number {
+  return Math.max(1, Math.round(Math.round(device * fontHeight) * multiplier(lineHeight)));
+}
+
+/**
+ * From `settings()`: the shown layout's terminal font, size, weight, cell
+ * height and width, padding and the zoom; `platform` for where a glyph sits in its cell.
+ */
+export function screenLook(look: Record<string, unknown>, platform: Platform = "windows"): ScreenLook {
   const named = look["font_family"];
   const font = typeof named === "string" && named !== "" ? named : FALLBACK_FONT;
   const size = positive(look["font_size"], 14);
@@ -392,8 +436,13 @@ export function screenLook(look: Record<string, unknown>): ScreenLook {
   const zoom = scale.zoom;
   const metrics = FONTS[font.toLowerCase()] ?? FALLBACK_METRICS;
   const device = size * zoom;
-  const cellW = Math.max(1, Math.round(device * metrics.advance)) / zoom;
+  const face = device * metrics.advance;
+  const plainCell = Math.max(1, Math.round(face));
+  const cellPx = cellWidthPx(plainCell, look["terminal_cell_width"]);
+  const cellW = cellPx / zoom;
   const cellH = cellHeight(device, metrics.height, look["terminal_line_height"]) / zoom;
+  const spread = cellPx !== plainCell;
+  const weight = look["font_weight"];
   const pad = look["terminal_padding"];
   const padX = nonNegative(Array.isArray(pad) ? pad[0] : pad, 0);
   const padY = nonNegative(Array.isArray(pad) ? (pad[1] ?? pad[0]) : pad, 0);
@@ -403,6 +452,12 @@ export function screenLook(look: Record<string, unknown>): ScreenLook {
     run: cellW / metrics.advance,
     cellW,
     cellH,
+    spread,
+    glyphX: glyphShift(cellPx, face, platform) / zoom,
+    weight:
+      typeof weight === "number" && Number.isFinite(weight)
+        ? Math.min(WEIGHT_MAX, Math.max(WEIGHT_MIN, Math.round(weight)))
+        : WEIGHT_DEFAULT,
     padX,
     padY,
     stroke: Math.max(1, Math.round(device * LINE_WEIGHT)) / zoom,
@@ -746,7 +801,7 @@ function lineMarks(text: string, row: number, l: ScreenLook): ScreenMark[] {
   const endRun = (): void => {
     const done = run?.text.trimEnd() ?? "";
     if (run !== null && done !== "") {
-      last = { kind: "text", x: run.col * l.cellW, y, text: done, size: l.run };
+      last = { kind: "text", x: run.col * l.cellW + l.glyphX, y, text: done, size: l.run };
       marks.push(last);
     }
     run = null;
@@ -764,6 +819,17 @@ function lineMarks(text: string, row: number, l: ScreenLook): ScreenMark[] {
       } else if (last !== null) {
         last.text += ch;
       }
+      continue;
+    }
+    if (width === 1 && plain(cp) && l.spread) {
+      // Cells wider or narrower than the font: each character in its own.
+      endRun();
+      last = null;
+      if (cp !== 0x20) {
+        last = { kind: "text", x: col * l.cellW + l.glyphX, y, text: ch, size: l.glyph };
+        marks.push(last);
+      }
+      col += 1;
       continue;
     }
     if (width === 1 && plain(cp)) {
@@ -797,7 +863,7 @@ function lineMarks(text: string, row: number, l: ScreenLook): ScreenMark[] {
     if (drawn !== null) {
       marks.push(...drawn);
     } else {
-      last = { kind: "text", x, y, text: ch, size: l.glyph };
+      last = { kind: "text", x: x + l.glyphX, y, text: ch, size: l.glyph };
       marks.push(last);
     }
     col += width;

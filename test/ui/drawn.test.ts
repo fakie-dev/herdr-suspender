@@ -60,7 +60,7 @@ const ID = "0f0e0d0c-0b0a-4908-8706-050403020100";
 const KEY: SessionKey = `claude:${ID}`;
 const CWD = `${HOME}\\dev\\mobile-app`;
 
-async function world() {
+async function world(lastScreen: string | null = null) {
   const sim = new Sim();
   const ports = sim.ports();
   const pane = sim.addModPane(TAB, { role: "sleep", key: KEY });
@@ -72,6 +72,7 @@ async function world() {
     spaceId: "sp1",
     sleptAtMs: sim.now,
     memFreedMb: 611,
+    lastScreen,
     info: {
       title: "Fix cold-start crash on Android 15 when edge-to-edge insets load early",
       firstPrompt: "Why does the app crash on cold start?",
@@ -109,6 +110,43 @@ function sized(view: { render(cx: AsyncContext): unknown }, cx: AsyncContext, wi
   assert.ok(isDrawn(again));
   return again;
 }
+
+describe("the last screen on a sleeping tab (Herdr 0.1.16 settings)", () => {
+  it("draws the text in the terminal's weight and each character in its cell when the cells are wider", async () => {
+    const { engine, sim, ports, cx } = await world("ab");
+    const g = globalThis as Record<string, unknown>;
+    g["suspenderSettings"] = {
+      zoom: 1,
+      font_family: "JetBrains Mono",
+      font_size: 14,
+      font_weight: 300,
+      terminal_cell_width: 1.5,
+    };
+    try {
+      const root = sized(new SleepPane(engine, sim, ports, KEY), cx, 900, 600);
+      const glyphs = [...walk(root)].filter((el) => el.kids.length === 1 && (el.kids[0] === "a" || el.kids[0] === "b"));
+      assert.equal(glyphs.length, 2, "one element per character, not a run");
+      for (const el of glyphs) {
+        assert.ok(has(el, "font_weight", 300), "the terminal's weight");
+      }
+      // 12 px cells, the glyph 2 px into each (Herdr's glyph_x).
+      assert.deepEqual(
+        glyphs.map((el) => called(el, "left")[0]?.[1]),
+        [2, 14],
+      );
+      // On macOS, CoreText's placement: the unrounded 1.8 px.
+      const mac = { ...ports, platform: "macos" as const };
+      const onMac = sized(new SleepPane(engine, sim, mac, KEY), cx, 900, 600);
+      const at = [...walk(onMac)]
+        .filter((el) => el.kids.length === 1 && el.kids[0] === "a")
+        .map((el) => called(el, "left")[0]?.[1] as number);
+      assert.equal(at.length, 1);
+      assert.ok(Math.abs((at[0] ?? 0) - 1.8) < 1e-9, `${at[0]}`);
+    } finally {
+      delete g["suspenderSettings"];
+    }
+  });
+});
 
 describe("the roots name their text size", () => {
   it("the popup's root", async () => {

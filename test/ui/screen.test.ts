@@ -13,10 +13,11 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { windowPx } from "../../src/core/scale.ts";
+import type { Platform } from "../../src/platform/ports.ts";
 import { cellWidth, mixColor, screenGrid, screenLook, screenMarks } from "../../src/ui/format.ts";
 
-const look = (over: Record<string, unknown> = {}) =>
-  screenLook({ font_family: "JetBrains Mono", font_size: 14, zoom: 1, terminal_padding: [14, 12], ...over });
+const look = (over: Record<string, unknown> = {}, platform: Platform = "windows") =>
+  screenLook({ font_family: "JetBrains Mono", font_size: 14, zoom: 1, terminal_padding: [14, 12], ...over }, platform);
 
 describe("terminal cell", () => {
   it("is the cell Herdr's terminal draws, for the fonts measured", () => {
@@ -73,6 +74,47 @@ describe("terminal cell", () => {
     );
   });
 
+  it("applies terminal_cell_width the way Herdr does (Herdr 0.1.16, adjusted_cell_width)", () => {
+    // JetBrains Mono 14: an 8.4 px face in an 8 px cell. Herdr's own cases, cell x multiplier:
+    for (const [size, m, want] of [
+      [14, 1, 8],
+      [14, 1.25, 10],
+      [14, 0.95, 8], // 7.6 -> 8
+      [50, 1.05, 32], // a 30 px cell: 31.5 -> 32 (taken in f64 from the percent, as Ghostty)
+      [70, 1.3, 55], // 42 x 1.3 = 54.6
+    ] as const) {
+      assert.equal(look({ font_size: size, terminal_cell_width: m }).cellW, want, `${size} x ${m}`);
+    }
+    // Clamped to 0.8 - 2; not a number: 1. The row does not change.
+    assert.equal(look({ terminal_cell_width: 5 }).cellW, 16);
+    assert.equal(look({ terminal_cell_width: 0.1 }).cellW, 6); // 8 x 0.8 = 6.4
+    assert.equal(look({ terminal_cell_width: "wide" }).cellW, 8);
+    assert.equal(look({ terminal_cell_width: 1.5 }).cellH, 18);
+  });
+
+  it("centres a glyph in a wider cell by whole pixels, and never moves it at the usual width", () => {
+    assert.equal(look().glyphX, 0);
+    // 14 px: an 8.4 px face; at 1.5 the cell is 12: (12 - 8.4) / 2 = 1.8 -> 2.
+    assert.equal(look({ terminal_cell_width: 1.5 }).glyphX, 2);
+    // A narrower cell keeps the glyph where it is (FreeType and DirectWrite).
+    assert.equal(look({ terminal_cell_width: 0.8 }).glyphX, 0);
+    // CoreText keeps the part under a whole pixel instead.
+    assert.ok(Math.abs(look({ terminal_cell_width: 1.5 }, "macos").glyphX - 1.8) < 1e-9);
+    assert.ok(Math.abs(look({}, "macos").glyphX - -0.2) < 1e-9);
+    // Every glyph sits there: runs and single characters alike.
+    const mac = texts(screenMarks(["  ab 水"], look({}, "macos")));
+    assert.ok(Math.abs((mac[0]?.[0] as number) - 15.8) < 1e-9, `${mac[0]?.[0]}`);
+    assert.ok(Math.abs((mac[1]?.[0] as number) - 39.8) < 1e-9, `${mac[1]?.[0]}`);
+  });
+
+  it("draws the terminal's text weight (font_weight, 500 when not set, as Herdr)", () => {
+    assert.equal(look().weight, 500);
+    assert.equal(look({ font_weight: 300 }).weight, 300);
+    assert.equal(look({ font_weight: 50 }).weight, 100);
+    assert.equal(look({ font_weight: 1000 }).weight, 900);
+    assert.equal(look({ font_weight: "light" }).weight, 500);
+  });
+
   it("takes the padding from terminal_padding: [horizontal, vertical]", () => {
     const l = look();
     assert.deepEqual([l.padX, l.padY], [14, 12]);
@@ -118,6 +160,16 @@ describe("screen marks", () => {
 
   it("puts a run of plain text in one piece at its cell", () => {
     assert.deepEqual(texts(screenMarks(["  Claude Code v2"], l)), [[16, 0, "Claude Code v2", run]]);
+  });
+
+  it("puts each character in its own cell when the cell is wider than the font (terminal_cell_width)", () => {
+    // 14 px at 1.5: 12 px cells, each glyph 2 px in; no runs, as the font's advance is not the cell.
+    const wide = look({ terminal_cell_width: 1.5 });
+    assert.deepEqual(texts(screenMarks([" ab c"], wide)), [
+      [14, 0, "a", 14],
+      [26, 0, "b", 14],
+      [50, 0, "c", 14],
+    ]);
   });
 
   it("places what follows a wide character two cells on", () => {
