@@ -28,7 +28,9 @@ const { SleepPane } = await import("../../src/ui/sleepPane.ts");
 const { PopupView } = await import("../../src/ui/popup.ts");
 const { PanelView } = await import("../../src/ui/panel.ts");
 const { openPopup } = await import("../../src/ui/popup.ts");
-const { STRIP_TEXT, STRIP_STATUS_INDENT, STRIP_STATUS_TEXT, statusWidth } = await import("../../src/ui/format.ts");
+const { STRIP_TEXT, STRIP_STATUS_INDENT, STRIP_STATUS_TEXT, STRIP_HEIGHT_ESTIMATE, statusWidth } = await import(
+  "../../src/ui/format.ts"
+);
 const { uiMeasure } = await import("../../src/ui/textWidth.ts");
 const { windowPx } = await import("../../src/core/scale.ts");
 const { FACT_ROW_PX } = await import("../../src/ui/sessionsModel.ts");
@@ -146,6 +148,46 @@ describe("the last screen on a sleeping tab (Herdr 0.1.16 settings)", () => {
     } finally {
       delete g["suspenderSettings"];
     }
+  });
+});
+
+describe("the last screen of a sleeping tab and its strip", () => {
+  it("draws the screen's last rows above the strip, where an agent's status line is", async () => {
+    // A screen as tall as the pane: 40 rows, the last one a status line.
+    const lines = Array.from({ length: 39 }, (_, i) => `row ${i + 1}`);
+    lines.push("STATUS LINE");
+    const { engine, sim, ports, cx } = await world(lines.join(String.fromCharCode(10)));
+    const root = sized(new SleepPane(engine, sim, ports, KEY), cx, 900, 702);
+    const status = [...walk(root)].find((el) => el.kids.includes("STATUS LINE"));
+    assert.ok(status !== undefined, "the status line is drawn");
+    const top = called(status, "top")[0]?.[1] as number;
+    const strip = byId(root, "strip");
+    assert.ok(strip !== undefined);
+    // Rows are placed from the screen's top (12 px padding plus what is left over): the status line ends
+    // above the strip's top, which is the pane's height less the strip's.
+    const screenTop = [...walk(root)]
+      .map((el) => called(el, "top")[0]?.[1])
+      .find((v) => typeof v === "number" && v > 0) as number;
+    assert.ok(screenTop + top + 18 <= 702 - STRIP_HEIGHT_ESTIMATE, `${screenTop} + ${top} + 18`);
+  });
+
+  it("follows the strip's own height once it reports it (a status that wraps to two lines)", async () => {
+    const lines = Array.from({ length: 39 }, (_, i) => `row ${i + 1}`);
+    lines.push("STATUS LINE");
+    const { engine, sim, ports, cx } = await world(lines.join(String.fromCharCode(10)));
+    const pane = new SleepPane(engine, sim, ports, KEY);
+    const first = sized(pane, cx, 900, 702);
+    const report = called(byId(first, "strip") as Drawn, "on_size_change")[0]?.[1];
+    assert.equal(typeof report, "function", "the strip reports its size");
+    (report as (size: { width: number; height: number }, cx: AsyncContext) => void)({ width: 900, height: 120 }, cx);
+    const root = sized(pane, cx, 900, 702);
+    const status = [...walk(root)].find((el) => el.kids.includes("STATUS LINE"));
+    assert.ok(status !== undefined);
+    const top = called(status, "top")[0]?.[1] as number;
+    const screenTop = [...walk(root)]
+      .map((el) => called(el, "top")[0]?.[1])
+      .find((v) => typeof v === "number" && v > 0) as number;
+    assert.ok(screenTop + top + 18 <= 702 - 120, `${screenTop} + ${top} + 18`);
   });
 });
 

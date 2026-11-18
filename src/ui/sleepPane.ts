@@ -13,7 +13,7 @@ import { type AsyncContext, type Color, type Context, div, type Element, svg } f
 import { closeOverlay, settings, theme } from "herdr";
 import { badgeText, SEPARATOR } from "../core/fit.ts";
 import type { SessionKey, SessionRecord } from "../core/model.ts";
-import { reportedSize, scaleOf, type WindowSize, windowPx } from "../core/scale.ts";
+import { reportedSize, scaleOf, toMod, type WindowPx, type WindowSize, windowPx } from "../core/scale.ts";
 import { t } from "../i18n/index.ts";
 import type { Ports } from "../platform/ports.ts";
 import type { Choice, Engine } from "../runtime/engine.ts";
@@ -28,6 +28,7 @@ import {
   STRIP_BADGE_TEXT,
   STRIP_BUTTON_PAD,
   STRIP_GAP,
+  STRIP_HEIGHT_ESTIMATE,
   STRIP_ICON_BUTTON_PAD,
   STRIP_ITEM_GAP,
   STRIP_MOON_PX,
@@ -101,6 +102,8 @@ function markElement(m: ScreenMark, l: ScreenLook, shade: (share: number) => Col
 export class SleepPane {
   /** As Herdr reports it: window px. */
   private size: WindowSize = { width: windowPx(0), height: windowPx(0) };
+  /** The strip's height as Herdr reports it, once it has (the screen's rows end above it). */
+  private stripHeight: WindowPx | null = null;
   private shown = false;
   private watching = false;
   private readonly engine: Engine;
@@ -211,17 +214,19 @@ export class SleepPane {
   }
 
   /**
-   * The last screen, dimmed, where the terminal had it: the same cells, the
-   * same padding, its first row where the terminal's was. Rows that no longer
-   * fit go from the top, as in a terminal made shorter. `hc read` gives text
-   * only, so the screen keeps no colours.
+   * The last screen, dimmed, on the terminal's cells with its padding. Its
+   * rows end above the strip, so the last ones (an agent's input box and the
+   * status line under it) stay in sight; rows that no longer fit go from the
+   * top, as in a terminal made shorter. `hc read` gives text only, so the
+   * screen keeps no colours.
    */
   private screen(rec: SessionRecord): Element {
     const color = palette();
     const shade = (share: number): Color =>
       mixColor(color("background"), color("foreground"), SCREEN_DIM * share) as Color;
     const look = screenLook(settings(), this.ports.platform);
-    const grid = screenGrid(this.size.height, look);
+    const below = this.stripHeight === null ? STRIP_HEIGHT_ESTIMATE : toMod(look.scale, this.stripHeight);
+    const grid = screenGrid(this.size.height, look, below);
     const marks = screenMarks(screenLines(rec.lastScreen, grid.rows), look);
     return div()
       .absolute()
@@ -402,6 +407,13 @@ export class SleepPane {
         .on_hover((over, cx) => {
           if (!over) {
             hoverPopup.leave(cx);
+          }
+        })
+        .on_size_change((size, cx) => {
+          const height = reportedSize(size).height;
+          if (height !== this.stripHeight) {
+            this.stripHeight = height;
+            cx.notify();
           }
         })
         .flex_none()

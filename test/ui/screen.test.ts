@@ -129,6 +129,13 @@ describe("screen grid in a pane", () => {
     assert.deepEqual(screenGrid(windowPx(702), look({ font_size: 11 })), { rows: 45, top: 13 });
   });
 
+  it("keeps the rows under the strip clear: the screen's last rows (an agent's status line) stay in sight", () => {
+    // 702 px with a 63 px strip at the bottom: 627 px from the top padding to the strip = 34 rows, 15 px left.
+    assert.deepEqual(screenGrid(windowPx(702), look(), 63), { rows: 34, top: 19 });
+    // A strip no taller than the padding changes nothing.
+    assert.deepEqual(screenGrid(windowPx(702), look(), 12), screenGrid(windowPx(702), look()));
+  });
+
   it("before the pane has a size, assumes a screenful from the top padding", () => {
     assert.deepEqual(screenGrid(windowPx(0), look()), { rows: 30, top: 12 });
   });
