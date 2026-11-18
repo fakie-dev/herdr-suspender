@@ -96,6 +96,8 @@ export const en = {
   "notice.roundFailed.panes": "Suspender skipped tidying its panes: {reason}",
   "notice.tabGone": "This session's tab is gone; it leaves the list in a few seconds",
   "notice.skippedElsewhere": "Some sessions are open elsewhere and were skipped",
+  "notice.restoring": "Resuming the {count} sessions that were running before the restart, one at a time",
+  "notice.restoringOne": "Resuming the session that was running before the restart",
   "notice.layoutOutdated": "Suspender couldn't update its layout for Herdr {version}",
   "notice.blockLost": 'Herdr\'s layout has no block "{id}" now, so your {mod} there is gone',
   "notice.tabsFallback": "Sessions moved left of the tabs",

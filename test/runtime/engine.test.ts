@@ -616,20 +616,23 @@ describe("a session is a terminal's only through its processes", () => {
 });
 
 describe("restart", () => {
-  it("a terminal that came back as a shell becomes interrupted, gets a snapshot and starts nothing", async () => {
+  it("a terminal that came back as a shell becomes interrupted in its slot, gets a snapshot, and joins the restore line", async () => {
     const { sim, engine, claude, agent } = world();
     sim.addTerminal({ agent: null, first: true });
     await engine.tick();
     const slot = sim.row().indexOf(agent.pane);
     const sizes = sim.layout().map((p) => p.size);
     sim.loseTerminal(agent.address);
+    // Hold the wake the restore line starts at its first step, to look at what the restart left.
+    const hc = sim.hc.bind(sim);
+    sim.hc = (args: string[]) => (args[0] === "run" ? new Promise(() => undefined) : hc(args));
 
     await engine.tick();
     await sim.advance(3_000);
     await engine.tick();
 
     const rec = engine.record(KEY);
-    assert.equal(rec?.state, "interrupted");
+    assert.equal(rec?.state, "waking", "the restore line took it at once: nothing else was being recognised");
     assert.equal(sim.row().indexOf(rec?.pane ?? ""), slot);
     assert.deepEqual(
       sim.layout().map((p) => p.size),
@@ -638,7 +641,7 @@ describe("restart", () => {
     assert.deepEqual(claude.state.snapshots, ["s1"]);
     // The shell that came back is not the agent's last screen.
     assert.equal(rec?.lastScreen, null);
-    assert.equal(hcOf(sim, "run").length, 0);
+    assert.equal(rec?.restore, true);
   });
 
   it("an agent the person exited (/exit, same shell) is not turned into a sleeping tab", async () => {

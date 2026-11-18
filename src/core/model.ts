@@ -84,6 +84,12 @@ export interface SessionRecord {
    * its folder's ("~") while no terminal is left there (ADR 14). Absent in older stores.
    */
   spaceName?: SpacePin | null;
+  /**
+   * It was running when Herdr or the machine restarted: it wakes by itself, in
+   * its turn (Engine.restoreNext), and nothing a person presses acts on it
+   * until then. Absent in older stores and on every other session.
+   */
+  restore?: boolean;
 }
 
 /** A space name the mod pinned with `space.rename`; it gives the name back to Herdr when the space wakes. */

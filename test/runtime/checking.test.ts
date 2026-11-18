@@ -55,7 +55,9 @@ describe("a session's state is checking until the engine has confirmed it in thi
 
     await sim.advance(ABSENT_GRACE_MS);
     await engine.tick();
-    assert.equal(engine.record(KEY)?.state, "interrupted");
+    // Interrupted, and the restore line takes it at once (restore.test.ts): known either way.
+    const state = engine.record(KEY)?.state ?? "";
+    assert.ok(["interrupted", "waking"].includes(state), state);
     assert.equal(engine.checking(KEY), false);
   });
 

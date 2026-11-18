@@ -74,6 +74,7 @@ export const TICK_MS = 5_000;
 export const START_TIMEOUT_MS = 30_000;
 /** An agent missing from its labelled terminal this long has left (or was lost). */
 export const ABSENT_GRACE_MS = 3_000;
+
 /** A sleeping pane asked for may still show this long after (a busy window); then it is not waited for. */
 export const LATE_PANE_MS = 60_000;
 /** A record's terminal or pane missing this long is gone for good (not still loading). */
@@ -190,6 +191,10 @@ export interface Coordinator {
   twins: Map<string, SessionKey>;
   /** Kinds of round failures already told (`tellOnce`). */
   told: Set<string>;
+  /** The session the restore line is waking now (restoreNext). */
+  restoring: SessionKey | null;
+  /** How many sessions the restore line has had since it last ran empty (the panel's "N of M"). */
+  restoreTotal: number;
 }
 
 export function newCoordinator(): Coordinator {
@@ -212,6 +217,8 @@ export function newCoordinator(): Coordinator {
     confirmedNews: false,
     twins: new Map(),
     told: new Set(),
+    restoring: null,
+    restoreTotal: 0,
   };
 }
 
@@ -524,9 +531,109 @@ export class Engine {
     await this.guarded("panes", async () => {
       this.sweepStrays();
     });
+    await this.guarded("record", () => this.restoreNext());
     if (this.co.confirmedNews) {
       // Once per round that confirmed something: setting a shared value redraws every copy.
       this.co.confirmedNews = false;
+      this.host.setShared(CHECKED_KEY, this.ports.now());
+    }
+  }
+
+  // ---- after a restart: the sessions that were running wake, one at a time
+
+  /** It was running at a restart and has not been woken yet: nothing a person presses acts on it. */
+  restoreWaiting(key: SessionKey): boolean {
+    return this.record(key)?.restore === true;
+  }
+
+  /**
+   * The restore line in its order: the session being woken, then the ones
+   * waiting, the one on screen first and then as the tabs go.
+   */
+  restoreLine(): SessionKey[] {
+    const tabs = this.host.tabs();
+    const shown = tabs.find((x) => x.active && x.spaceActive)?.id ?? null;
+    const order = (key: SessionKey): number => {
+      const tab = this.placeNow(key)?.tabId ?? null;
+      if (tab !== null && tab === shown) {
+        return -1;
+      }
+      const i = tabs.findIndex((x) => x.id === tab);
+      return i < 0 ? tabs.length : i;
+    };
+    const waiting = this.records()
+      .filter((r) => r.restore === true && r.state === "interrupted" && r.key !== this.co.restoring)
+      .map((r) => r.key)
+      .sort((a, b) => order(a) - order(b) || a.localeCompare(b));
+    const now = this.co.restoring;
+    return now !== null && this.restoreWaiting(now) ? [now, ...waiting] : waiting;
+  }
+
+  /** How far the restore line is: the sessions it has had since it last ran empty, and how many are left. */
+  restoreProgress(): { total: number; left: number } | null {
+    const left = this.restoreLine().length;
+    return left === 0 ? null : { total: Math.max(left, this.co.restoreTotal), left };
+  }
+
+  /**
+   * The leader wakes the next session of the restore line, unless one is
+   * waking: each starts only once the one before is up (Resume returns when
+   * the agent is at its prompt), so a restart does not start every agent at
+   * once. A mark whose session is no longer interrupted (forgotten, or found
+   * running in a terminal) is dropped.
+   */
+  private async restoreNext(): Promise<void> {
+    for (const rec of this.records()) {
+      if (rec.restore === true && rec.state !== "interrupted" && rec.state !== "waking" && !this.busy(rec.key)) {
+        await this.patch(rec.key, (r) => {
+          delete r.restore;
+        });
+      }
+    }
+    if (this.co.restoring !== null || this.restartSettling()) {
+      return;
+    }
+    const line = this.restoreLine().filter((key) => !this.busy(key));
+    const next = line[0];
+    if (next === undefined) {
+      if (this.restoreLine().length === 0) {
+        this.co.restoreTotal = 0;
+      }
+      return;
+    }
+    if (this.co.restoreTotal === 0) {
+      this.host.notify(
+        line.length === 1 ? t("notice.restoringOne") : t("notice.restoring", { count: line.length }),
+        "info",
+      );
+    }
+    this.co.restoreTotal = Math.max(this.co.restoreTotal, line.length);
+    this.co.restoring = next;
+    // Not awaited: a wake takes up to half a minute, and the rounds go on meanwhile.
+    void this.restoreOne(next);
+  }
+
+  /**
+   * A restart is still being recognised: a running session not seen in its
+   * terminal yet in this run, or one whose terminal is in its grace (agentGone).
+   * The line waits for them, so the tab on screen is in it before the first wakes.
+   */
+  private restartSettling(): boolean {
+    return this.records().some(
+      (r) =>
+        RUNNING.includes(r.state) &&
+        (!this.co.confirmed.has(r.key) || (r.terminal !== null && this.absentSince.has(r.terminal))),
+    );
+  }
+
+  /** Wakes one session of the line; its mark goes in the next round, whatever state it ends in (restoreNext). */
+  private async restoreOne(key: SessionKey): Promise<void> {
+    try {
+      await this.resume(key, "resume", true);
+    } catch {
+      // Its error is on its record (startFailed); the line goes on.
+    } finally {
+      this.co.restoring = null;
       this.host.setShared(CHECKED_KEY, this.ports.now());
     }
   }
@@ -770,7 +877,13 @@ export class Engine {
         return true;
       });
     }
-    await this.act(key, () => this.dispatch(key, { t: "lostOnRestart" }));
+    await this.act(key, async () => {
+      await this.dispatch(key, { t: "lostOnRestart" });
+      // Running when it was lost: it runs again after the restart, in its turn (restoreNext).
+      await this.patch(key, (r) => {
+        r.restore = true;
+      });
+    });
   }
 
   /**
@@ -1360,10 +1473,20 @@ export class Engine {
     }
   }
 
-  /** Resume (also Retry). Returns the state it ended in. */
-  async resume(key: SessionKey, how: "resume" | "resumeAll" = "resume"): Promise<SessionState | null> {
+  /**
+   * Resume (also Retry). Returns the state it ended in. A session in the
+   * restore line is woken by the line only (`byRestore`): a press does nothing.
+   */
+  async resume(
+    key: SessionKey,
+    how: "resume" | "resumeAll" = "resume",
+    byRestore = false,
+  ): Promise<SessionState | null> {
     await this.load();
     let end: SessionState | null = this.record(key)?.state ?? null;
+    if (!byRestore && this.restoreWaiting(key)) {
+      return end;
+    }
     await this.act(key, async () => {
       const rec = this.record(key);
       if (rec !== null) {
@@ -1388,6 +1511,9 @@ export class Engine {
   /** Forget: the record goes; the tab keeps an ordinary terminal where our pane was. */
   async forget(key: SessionKey): Promise<void> {
     await this.load();
+    if (this.restoreWaiting(key)) {
+      return;
+    }
     await this.act(key, async () => {
       const pane = this.record(key)?.pane ?? null;
       const pin = this.record(key)?.spaceName;

@@ -65,7 +65,7 @@ describe("under herdr-app check", () => {
       timer: { every: () => started.push("timer") },
     };
     new Suspender().init({}, cx);
-    assert.deepEqual(started, []);
+    assert.equal(started.length, 0, started.join(","));
     // The same copy in a live window starts its rounds, its commands and the rest.
     g["suspenderChecking"] = false;
     try {
