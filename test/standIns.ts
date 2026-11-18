@@ -94,6 +94,8 @@ export const home = () => ${JSON.stringify(home)};
 export const updates = () => ({ app: { version: "0.1.14", ready: null, updates: false } });
 export const window = () => { throw new Error("no window while loading"); };
 export const notify = () => null;
+// \`herdr-app check\` loading the mod: a test sets globalThis.suspenderChecking.
+export const checking = () => globalThis.suspenderChecking === true;
 // A test may play the window: globalThis.suspenderWindow = { layout(), run(name, args) }.
 export const layout = () => globalThis.suspenderWindow?.layout() ?? null;
 export const run = (name, args) => {

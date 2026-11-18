@@ -14,6 +14,7 @@
 // built around it, or around Herdr's own tab bar when the copy cannot be used.
 
 import { type AsyncContext, type Context, div, type Element, View } from "gpui-kit";
+import * as herdrModule from "herdr";
 import { appHome, props as herdrProps, keys, layout, nextCommand, notify, run, updates, writeTextFile } from "herdr";
 import { buildLivingLayout, LAYOUT_NAME, sessionsShown, sessionsToggle } from "./core/layout.ts";
 import type { SessionKey } from "./core/model.ts";
@@ -44,6 +45,21 @@ const coordinator = newCoordinator();
 
 /** Herdr versions the layout sync already warned about, shared by the copies of this window. */
 const layoutWarned = new Set<string>();
+
+/**
+ * `herdr-app check` is loading the mod (Herdr 0.1.16). A check runs the module
+ * and init() for real, in the person's own home: only the seed of a missing
+ * layout may happen then. Looked up on the module, not imported by name: an
+ * older Herdr has no `checking`, and a missing named import would fail the load.
+ */
+function underCheck(): boolean {
+  try {
+    const checking: unknown = (herdrModule as Record<string, unknown>)["checking"];
+    return typeof checking === "function" && checking() === true;
+  } catch {
+    return false;
+  }
+}
 
 /** The running Herdr's version, if it says. */
 function herdrVersion(): string | null {
@@ -195,14 +211,17 @@ function seedLayout(): Promise<unknown> {
 }
 
 // On load, with no copy on screen yet (a clean install has no layout that shows one).
+// Under a check only the seed: the rebuild waits for a live window.
 void seedLayout().then(() =>
-  keepLayout((text) => {
-    try {
-      notify({ title: text, level: "warning" });
-    } catch {
-      // No window to show it in (a check run): the next copy that shows says it.
-    }
-  }),
+  underCheck()
+    ? undefined
+    : keepLayout((text) => {
+        try {
+          notify({ title: text, level: "warning" });
+        } catch {
+          // No window to show it in (a check run): the next copy that shows says it.
+        }
+      }),
 );
 
 const copyId = (): string => `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
@@ -262,6 +281,10 @@ export default class Suspender extends View {
       // `mod.open` gives no role: the Sessions list in a window of its own.
       const overlay = typeof props.overlay === "string" ? props.overlay : null;
       this.panel = new PanelView({ engine, host, ports, mode: "window", overlay, updates: modUpdates() });
+    }
+    // A check draws the copy once and exits: nothing runs that would read or change the person's sessions.
+    if (underCheck()) {
+      return;
     }
 
     if (this.popup === null && this.confirm === null) {
