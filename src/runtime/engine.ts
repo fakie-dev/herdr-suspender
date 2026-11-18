@@ -2363,19 +2363,28 @@ export class Engine {
     const typedAt = this.ports.now();
 
     // Up when the agent runs under the shell with the command's arguments.
-    // Herdr lists the terminal only once it adopts it (`hc get` until then);
-    // an agent at a question of its own (Codex asking to trust a folder) may report nothing.
+    // Read from the core (`hc get`), not Herdr's list: Herdr shows the status of
+    // a terminal it has not put in a tab seconds after the core has it
+    // (measured, wakeFast.test.ts). An agent at a question of its own (Codex
+    // asking to trust a folder) may report nothing.
     let found: AgentProcess | null = null;
     let lastSnapshot = Number.NEGATIVE_INFINITY;
     const end = typedAt + START_TIMEOUT_MS;
     while (this.ports.now() < end) {
-      const term = await this.look(address);
+      const term = await this.lookInCore(address);
       if (term !== null && term.state !== "live") {
         return failed("reason.exited", address);
       }
       const now = this.ports.now();
       if (term !== null) {
         const reporting = adapter.matches(toTerminalView(term)) && term.status !== null;
+        // The core names the process in front: the agent itself, with the command's
+        // arguments, needs no process snapshot (PowerShell, a second or more).
+        const front = reporting ? agentInFront(term, adapter, argv.slice(1)) : null;
+        if (front !== null) {
+          found = front;
+          break;
+        }
         if ((reporting || now - typedAt >= SETTLE_MS) && now - lastSnapshot >= SNAPSHOT_EVERY_MS) {
           lastSnapshot = now;
           found = await this.findAgent(term, adapter, argv.slice(1));
@@ -2397,7 +2406,7 @@ export class Engine {
     const drawnBy = Math.min(end, this.ports.now() + REPORT_WAIT_MS);
     while (!found.reported && this.ports.now() < drawnBy) {
       await this.pause(POLL_MS);
-      const term = await this.look(address);
+      const term = await this.lookInCore(address);
       if (term === null || term.state !== "live") {
         return failed("reason.exited", address);
       }
@@ -2528,6 +2537,12 @@ export class Engine {
     const term = got === null || got.code !== 0 ? null : normalizeTerminal(parseJson(got.stdout));
     this.looked.set(address, { at: now, term });
     return term;
+  }
+
+  /** A terminal as the core has it now (`hc get`): its status and the process in front, without Herdr's lag. */
+  private async lookInCore(address: string): Promise<HostTerminal | null> {
+    const got = await this.ports.hc(["get", address, "--json"]).catch(() => null);
+    return got === null || got.code !== 0 ? null : normalizeTerminal(parseJson(got.stdout));
   }
 
   /** Until the new shell shows something (its prompt), at most PROMPT_WAIT_MS. */
@@ -2718,6 +2733,23 @@ function agentIn(
     return null;
   }
   return { shell, pid: agent.pid, name: agent.name, reported: false };
+}
+
+/**
+ * The agent as the terminal's foreground process, when the core names it: the
+ * adapter's program, run with every one of `args` (its session), under this
+ * terminal's shell. Null when the foreground is anything else.
+ */
+function agentInFront(term: HostTerminal, adapter: AgentAdapter, args: readonly string[]): AgentProcess | null {
+  const fg = term.foreground;
+  if (fg === null || term.pid === null) {
+    return null;
+  }
+  const view = processView(term, fg.pid, fg.name, fg.argv.join(" "));
+  if (!adapter.matches(view) || !args.every((arg) => fg.argv.includes(arg))) {
+    return null;
+  }
+  return { shell: term.pid, pid: fg.pid, name: fg.name, reported: true };
 }
 
 const isWorking = (status: string | null): boolean => status === "working" || status === "blocked";

@@ -334,8 +334,8 @@ describe("waking up", () => {
     );
     assert.equal(
       sim.execCalls.slice(listedBefore).filter((c) => /powershell/i.test(c.cmd)).length,
-      1,
-      "one process snapshot",
+      0,
+      "no process snapshot: the core names the agent as the terminal's foreground",
     );
 
     const rec = stored(ports)[KEY];

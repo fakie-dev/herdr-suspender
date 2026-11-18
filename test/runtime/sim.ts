@@ -103,6 +103,14 @@ export class Sim implements Host {
   runStartsShell = false;
   /** Herdr adopts terminals started with `hc run` (lists them, gives them a pane). */
   adopts = true;
+  /**
+   * Herdr lists a terminal it has not adopted yet, but without the agent's
+   * status: measured on 0.1.16, a woken Claude Code's status was in the core
+   * (`hc get`) 3 s before it was in terminals(). False: not listed until adopted.
+   */
+  listsUnadopted = false;
+  /** What the core names as a terminal's foreground instead of the agent typed into it (null: the agent). */
+  foregroundOverride: { pid: number; name: string; argv: string[] } | null = null;
   /** Herdr carries out `terminal.park`; false: it fails in the background (a toast), the pane stays. */
   parks = true;
   /** Terminals `terminal.park` took out of their tab, in order. */
@@ -292,7 +300,8 @@ export class Sim implements Host {
 
   terminals(): HostTerminal[] {
     return [...this.terms.values()]
-      .filter((t) => t.listed)
+      .filter((t) => t.listed || this.listsUnadopted)
+      .map((t) => (t.listed ? t : { ...t, status: null, app: null }))
       .map(
         ({
           agent: _a,
@@ -660,6 +669,16 @@ export class Sim implements Host {
             created_ms: t.createdMs,
             title: t.title,
             status: t.status === null ? null : { app: t.app, state: t.status },
+            // The process in front, as the core reports it: the agent typed into a shell.
+            foreground:
+              this.foregroundOverride ??
+              (t.agent !== null && t.agentPid !== null && t.ran !== null
+                ? {
+                    pid: t.agentPid,
+                    name: t.agent === "claude" ? "claude.exe" : "codex.exe",
+                    argv: t.ran.split(" "),
+                  }
+                : null),
           }),
         );
       }
