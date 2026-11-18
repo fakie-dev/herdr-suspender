@@ -16,7 +16,7 @@ import type { SessionKey, SessionRecord } from "../core/model.ts";
 import { reportedSize, scaleOf, toMod, type WindowPx, type WindowSize, windowPx } from "../core/scale.ts";
 import { t } from "../i18n/index.ts";
 import type { Ports } from "../platform/ports.ts";
-import type { Choice, Engine } from "../runtime/engine.ts";
+import type { Choice, Engine, WakeStep } from "../runtime/engine.ts";
 import type { Host } from "../runtime/host.ts";
 import {
   fitStrip,
@@ -122,12 +122,23 @@ export class SleepPane {
   /** The record to draw instead of the store's (the cover: the session as its pane shows it then). */
   private readonly drawn: (() => SessionRecord | null) | null;
 
-  constructor(engine: Engine, host: Host, ports: Ports, key: SessionKey, shown?: () => SessionRecord | null) {
+  /** The wake's step to draw instead of the engine's (the cover: the step it was at when the cover went up). */
+  private readonly drawnStep: (() => WakeStep | null) | null;
+
+  constructor(
+    engine: Engine,
+    host: Host,
+    ports: Ports,
+    key: SessionKey,
+    shown?: () => SessionRecord | null,
+    step?: () => WakeStep | null,
+  ) {
     this.engine = engine;
     this.host = host;
     this.ports = ports;
     this.key = key;
     this.drawn = shown ?? null;
+    this.drawnStep = step ?? null;
     this.size = paneSizes.get(key) ?? this.size;
   }
 
@@ -136,6 +147,10 @@ export class SleepPane {
     // The record says running a moment before the agent takes this pane's slot (Engine.showWoken):
     // until then this pane still shows the wake, or its last frames would lose the wake's line.
     return rec !== null && (rec.state === "running" || rec.state === "working") ? { ...rec, state: "waking" } : rec;
+  }
+
+  private step(): WakeStep | null {
+    return this.drawnStep !== null ? this.drawnStep() : this.engine.progress(this.key);
   }
 
   /** The size to lay out for before its root reports one (the cover knows its body's). */
@@ -321,7 +336,7 @@ export class SleepPane {
     // never cut in the middle of a word (gpui would break a word to wrap it).
     const room = statusWidth(this.size.width, scaleOf(settings()));
     const measure = (text: string): number => uiMeasure(text, STRIP_STATUS_TEXT);
-    const steps = wakeSteps(this.engine.progress(this.key));
+    const steps = wakeSteps(this.step());
     const stepsWidth = steps.reduce((sum, s) => sum + STEP_GAP + measure(s.label), SPINNER_PX);
     const status =
       rec.state === "waking" && stepsWidth <= room
@@ -355,7 +370,7 @@ export class SleepPane {
                   : stripStatus(rec, {
                       now: this.ports.now(),
                       agentName,
-                      progress: this.engine.progress(this.key),
+                      progress: this.step(),
                       fresh: this.engine.freshness(this.key),
                       line: this.engine.restorePlace(this.key),
                     }),

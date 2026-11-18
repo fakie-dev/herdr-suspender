@@ -2206,7 +2206,8 @@ export class Engine {
     if (this.host.panes().filter((p) => p.tab === tab).length !== 1) {
       return false;
     }
-    this.host.setShared(COVER_KEY, { key: shown.key, rec: shown, at: this.ports.now(), tab, alone });
+    const step = this.progress(shown.key);
+    this.host.setShared(COVER_KEY, { key: shown.key, rec: shown, step, at: this.ports.now(), tab, alone });
     this.host.runOnScreen("layout.select", { stack: place.stack, child: place.cover });
     return true;
   }

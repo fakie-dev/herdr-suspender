@@ -11,7 +11,7 @@ import { settings, theme } from "herdr";
 import type { SessionKey, SessionRecord } from "../core/model.ts";
 import { reportedSize, scaleOf, type WindowSize, windowPx } from "../core/scale.ts";
 import type { Ports } from "../platform/ports.ts";
-import { COVER_KEY, type Engine, settleCover } from "../runtime/engine.ts";
+import { COVER_KEY, type Engine, settleCover, type WakeStep } from "../runtime/engine.ts";
 import type { Host } from "../runtime/host.ts";
 import { paneSizes, SleepPane } from "./sleepPane.ts";
 
@@ -96,12 +96,13 @@ export class CoverView {
   }
 
   /** What a flow asked the cover to show: the session and its record as its pane draws it. */
-  private held(): { key: SessionKey; rec: SessionRecord } | null {
+  private held(): { key: SessionKey; rec: SessionRecord; step: WakeStep | null } | null {
     const value = this.host.shared(COVER_KEY);
     if (!isObject(value) || typeof value["key"] !== "string" || !isObject(value["rec"])) {
       return null;
     }
-    return { key: value["key"] as SessionKey, rec: value["rec"] as unknown as SessionRecord };
+    const step = typeof value["step"] === "string" ? (value["step"] as WakeStep) : null;
+    return { key: value["key"] as SessionKey, rec: value["rec"] as unknown as SessionRecord, step };
   }
 
   render(cx: Context): Element {
@@ -135,7 +136,15 @@ export class CoverView {
     }
     let pane = this.panes.get(held.key);
     if (pane === undefined) {
-      pane = new SleepPane(this.engine, this.host, this.ports, held.key, () => this.held()?.rec ?? null);
+      pane = new SleepPane(
+        this.engine,
+        this.host,
+        this.ports,
+        held.key,
+        () => this.held()?.rec ?? null,
+        // The step the wake was at when the cover went up: the engine clears it in the step that swaps.
+        () => this.held()?.step ?? null,
+      );
       this.panes.set(held.key, pane);
     }
     // The body's size in window px, so the first frame already lays the screen out on its rows.

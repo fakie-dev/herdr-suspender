@@ -257,6 +257,22 @@ describe("the cover over the work area (Sleep and Resume behind it)", () => {
     assert.equal(first(pane), first(covered));
   });
 
+  it("draws the wake at the step it was at when it went up, though the engine has cleared it since", async () => {
+    const { engine, sim, ports, cx } = await world("first row");
+    sim.coverLayout();
+    const g = globalThis as Record<string, unknown>;
+    g["suspenderTheme"] = { foreground: "#ffffff", muted: "#888888", dim: "#444444" };
+    try {
+      const shown = { ...engine.record(KEY), state: "waking" };
+      sim.setShared(COVER_KEY, { key: KEY, rec: shown, step: "ready", at: sim.now });
+      const root = sized(new CoverView(engine, sim, ports), cx, 900, 702);
+      const ready = [...walk(root)].find((el) => el.kids.includes("Ready"));
+      assert.ok(ready !== undefined && has(ready, "text_color", "#ffffff"), "Ready is the step under way");
+    } finally {
+      delete g["suspenderTheme"];
+    }
+  });
+
   it("draws nothing of a session when no flow holds it", async () => {
     const { engine, sim, ports, cx } = await world("first row");
     sim.coverLayout();

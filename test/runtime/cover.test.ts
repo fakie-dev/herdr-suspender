@@ -179,6 +179,8 @@ describe("a Resume behind the cover", () => {
     };
     await engine.resume(KEY);
     assert.equal((drawn as { rec?: { state?: string } } | null)?.rec?.state, "waking");
+    // And at the wake's last step, which the engine clears in the step that swaps the agent in.
+    assert.equal((drawn as { step?: string } | null)?.step, "ready");
   });
 });
 
