@@ -99,6 +99,15 @@ function markElement(m: ScreenMark, l: ScreenLook, shade: (share: number) => Col
   }
 }
 
+/**
+ * The size a session's sleeping pane was last drawn at, by the cover (one
+ * module instance: every copy of the window sees it). A sleeping pane starts
+ * only when it first shows, the moment the cover goes, and Herdr reports its
+ * size a frame later: it starts at this size, so that frame lays the screen
+ * out on the same rows the cover did.
+ */
+export const paneSizes = new Map<SessionKey, WindowSize>();
+
 export class SleepPane {
   /** As Herdr reports it: window px. */
   private size: WindowSize = { width: windowPx(0), height: windowPx(0) };
@@ -119,6 +128,7 @@ export class SleepPane {
     this.ports = ports;
     this.key = key;
     this.drawn = shown ?? null;
+    this.size = paneSizes.get(key) ?? this.size;
   }
 
   private rec(): SessionRecord | null {

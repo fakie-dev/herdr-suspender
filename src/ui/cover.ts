@@ -13,7 +13,7 @@ import { reportedSize, scaleOf, type WindowSize, windowPx } from "../core/scale.
 import type { Ports } from "../platform/ports.ts";
 import { COVER_KEY, type Engine, settleCover } from "../runtime/engine.ts";
 import type { Host } from "../runtime/host.ts";
-import { SleepPane } from "./sleepPane.ts";
+import { paneSizes, SleepPane } from "./sleepPane.ts";
 
 /** How often the cover looks whether its flow is through: every frame. */
 const FRAME_MS = 16;
@@ -141,10 +141,14 @@ export class CoverView {
     // The body's size in window px, so the first frame already lays the screen out on its rows.
     const zoom = scaleOf(settings()).zoom;
     const chrome = (2 * frame.border.width + (frame.header?.height ?? 0)) * zoom;
-    pane.sizeTo({
+    const bodySize = {
       width: windowPx(Math.max(0, this.size.width - 2 * frame.border.width * zoom)),
       height: windowPx(Math.max(0, this.size.height - chrome)),
-    });
+    };
+    pane.sizeTo(bodySize);
+    if (this.size.height > 0) {
+      paneSizes.set(held.key, bodySize);
+    }
     const header =
       frame.header === null
         ? null

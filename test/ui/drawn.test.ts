@@ -222,6 +222,19 @@ describe("the cover over the work area (Sleep and Resume behind it)", () => {
     }
   });
 
+  it("hands the size it drew at to the sleeping pane, whose first frame then has the same rows", async () => {
+    const lines = Array.from({ length: 50 }, (_, i) => `row ${i + 1}`);
+    const { engine, sim, ports, cx } = await world(lines.join(String.fromCharCode(10)));
+    sim.coverLayout();
+    sim.setShared(COVER_KEY, { key: KEY, rec: engine.record(KEY), at: sim.now });
+    const covered = sized(new CoverView(engine, sim, ports), cx, 900, 702);
+    const first = (root: unknown): string | undefined =>
+      [...walk(root)].flatMap((el) => el.kids).find((k): k is string => typeof k === "string" && k.startsWith("row "));
+    // A new sleeping pane, drawn once before Herdr reports its size.
+    const pane = new SleepPane(engine, sim, ports, KEY).render(cx);
+    assert.equal(first(pane), first(covered));
+  });
+
   it("draws nothing of a session when no flow holds it", async () => {
     const { engine, sim, ports, cx } = await world("first row");
     sim.coverLayout();
