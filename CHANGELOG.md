@@ -5,6 +5,8 @@ and the project uses [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.1.7] - 2026-11-18
+
 ### Changed
 
 - After a restart of the PC or of Herdr, the sessions that were running start again by themselves, one at a time
@@ -273,7 +275,8 @@ First release.
   command, so the draft is dropped instead of being sent.
 - The interface is English only.
 
-[Unreleased]: https://github.com/fakie-dev/herdr-suspender/compare/v0.1.6...HEAD
+[Unreleased]: https://github.com/fakie-dev/herdr-suspender/compare/v0.1.7...HEAD
+[0.1.7]: https://github.com/fakie-dev/herdr-suspender/compare/v0.1.6...v0.1.7
 [0.1.6]: https://github.com/fakie-dev/herdr-suspender/compare/v0.1.5...v0.1.6
 [0.1.5]: https://github.com/fakie-dev/herdr-suspender/compare/v0.1.4...v0.1.5
 [0.1.4]: https://github.com/fakie-dev/herdr-suspender/compare/v0.1.3...v0.1.4
