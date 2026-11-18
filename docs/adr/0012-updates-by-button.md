@@ -40,7 +40,9 @@ as numbers. The time and the answer go to `<app home>/suspender/update.json`, be
 conditional, so one copy in one window claims each day and each announcement. A failed request says nothing and
 the next day asks again. A newer version gets one toast, once per version, whose click opens Sessions, and a
 line at the top of Sessions with What's new (the release page in the browser) and Update. The switch at the
-bottom of Sessions turns the check off; off means no request at all. Every URL is built in `core/release.ts` from
+bottom of Sessions turns the check off; off means no request by itself. Check now beside the version (added in
+0.1.6, asked for by the person after a release came out minutes after the day's check) asks at once, on or off,
+because pressing it is the request; it counts as the day's check and has no toast, since Sessions is open. Every URL is built in `core/release.ts` from
 constants: the version must parse, a file path must be a plain relative path of a `.js`, `.json` or `.svg`.
 
 **The manifest.** `mods/suspender/manifest.json` lists every file of the mod with the sha256 of its text (LF line

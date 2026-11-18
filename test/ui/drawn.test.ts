@@ -494,4 +494,26 @@ describe("the update line and the switch in Sessions", () => {
     assert.equal(byId(root, "update-line"), undefined);
     assert.ok(byId(root, "update-footer") !== undefined);
   });
+
+  it("has Check now beside the version, and says what it found there", async () => {
+    const { engine, sim, ports, cx } = await world();
+    const w = new World();
+    w.install(LIVE, "0.1.2");
+    w.publish("0.1.2");
+    const updates = new Updater(w.deps("0.1.2"));
+    await updates.load();
+    const draw = (width: number) =>
+      sized(new PanelView({ engine, host: sim, ports, mode: "panel", overlay: null, updates }), cx, width, 900);
+    const button = byId(draw(368), "update-check-now");
+    assert.ok(button !== undefined && texts(button).includes("Check now"));
+    assert.ok(called(button, "on_click").length > 0, "it can be pressed");
+    await updates.checkNow();
+    const done = byId(draw(368), "update-check-now");
+    assert.ok(done !== undefined && texts(done).includes("Up to date"));
+    assert.equal(called(done, "on_click").length, 0, "nothing to press while it reports");
+    // Narrow: its icon, the words in a tooltip.
+    const narrow = byId(draw(110), "update-check-now");
+    assert.ok(narrow !== undefined && !texts(narrow).includes("Up to date"));
+    assert.ok(has(narrow, "tooltip", "Up to date"));
+  });
 });

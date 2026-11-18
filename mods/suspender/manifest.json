@@ -32,7 +32,7 @@
     "core/store.js": "9c741792175fe46d1de51e10ddc52a1141c42f32954031c6e9a42aae6902e4d2",
     "core/updateState.js": "b0c6b607cd5aa546e1b461aa7d7d6fd94f7532795f7e0e9f2281f52c4647ce37",
     "core/utf8.js": "d4077b16fce054dc6df8e980af25bcabc7f14171abf9d629a974c328c90f3b36",
-    "i18n/en.js": "dc74ca765ca335462f50e277eebe56ce4898273ae497066e29fbbca2b14aa2ee",
+    "i18n/en.js": "8b61998b2debc6a32ac70564cbb4c81ce6a2564d18e29fd641f22bd4a4b58673",
     "i18n/index.js": "637b3523edb0d70df3e05264e4f3fd3e12e82cf024b12cf2772becda412625f1",
     "icons/branch.svg": "c2226c59c3c69fc072f66e309dd3c5b1fd5cb5157c5699dfd1e896bc970822e0",
     "icons/check.svg": "606f1f65d58ab9edcc6d6bffca77021f74e9e57d6ec33483658e6462f3ad8c80",
@@ -59,16 +59,16 @@
     "runtime/layoutSync.js": "0c2edcc2cf4977985403bf22de989ad7c2ceb4388ea302e262728547697f1f74",
     "runtime/swap.js": "5ac6e3037566440265d5c0d8eee9ed1990fbcf43adfdb13da5dec28a173b4dd5",
     "runtime/tabsClone.js": "20d8070aa50b1e105606c883c7d18b2536eb7551670975f23325fe759c77cc46",
-    "runtime/updater.js": "eeab994c6b20357a995bb2dd02733b5095007896fefc21bee518af7d9f27550e",
+    "runtime/updater.js": "05ebc4e3db3e40cb97c2fd2c3512594fc052836b67cb6ff54f2cec96f75c5b37",
     "ui/format.js": "f7d72525f7b1e2dea51c05cd1abefff4cde36742bc82eeb5ac0e4569751a7983",
     "ui/kit.js": "d516b3323b295168fa32ccd035149fbbf72fce807332d85373d8d4a84c41c6d8",
-    "ui/panel.js": "cb28fc138b505f84ee460314eb9542cdedcc5c78c4bb668f669a501c576fa70f",
+    "ui/panel.js": "c91f728780187893d7271bd6b93a92c18737ccd9f74c17cdf82c22019a041112",
     "ui/pill.js": "4c88a17eece7fecb08eef8c7edfcaf4ca21f393b979dad746699f2add81232d0",
     "ui/popup.js": "fe17b0e055291d22cee3380f947573f6316da41db59803ca8c23df05f7e44768",
     "ui/sessionsModel.js": "03d057f4f5f821b8e4bfc39ad9102768855dc1dd8df8380a313422cf4e0a9412",
     "ui/sleepPane.js": "84695967db99c899085e73c81128b69d58d977ad754efba2818a29fe425012d6",
     "ui/textWidth.js": "80c1ef5aeb81c98b6574d4a4329e43b3545aea5c3595be8c8869bd4c2594308d",
     "ui/toggle.js": "69dbf38da060685f75d24be4f286999e0aae34fac581b0385ac2bb04a64b6e2c",
-    "ui/updateLine.js": "c4450230400e750b6e62892376517042237a26eda8be36f5517ffad66b038f0c"
+    "ui/updateLine.js": "ba0fd841d53ff53fbc93bfebfbad8bd19b4634187ca13e10dcb487d98110800f"
   }
 }

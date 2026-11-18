@@ -95,8 +95,11 @@ list, tries them with `herdr-app check`, and replaces `mods/suspender` and nothi
 layouts, other mods and saved sessions stay as they are. The old version is kept, and Roll back restores it. If
 you changed the mod's files, the button leaves them alone and tells you how to update by hand.
 
-To turn the check off, untick "Check for updates" at the bottom of Sessions. Then the mod makes no network
-requests at all.
+To look right away, press Check now beside the version at the bottom of Sessions: it asks GitHub once and says
+"Up to date", "Check failed", or offers the new version at the top.
+
+To turn the daily check off, untick "Check for updates" at the bottom of Sessions. Then the mod makes no network
+requests by itself; only Check now asks, when you press it.
 
 ## Remove
 

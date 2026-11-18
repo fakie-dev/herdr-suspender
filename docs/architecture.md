@@ -208,9 +208,12 @@ Sessions window.
 ([ADR 12](adr/0012-updates-by-button.md)). Every copy that stays on screen calls its `tick` from the 5-second
 round; it does nothing until 30 s after the load and then asks GitHub's latest release at most once a day, with
 the day claimed in `<app home>/suspender/update.json` by a conditional write so one copy in one window asks.
-With checks off (the switch at the bottom of Sessions) it fetches nothing. A newer version is announced once in
-a toast whose click runs `suspender.updates` (opens Sessions), and offered in a line at the top of the panel
-(`ui/updateLine.ts` holds what it says and how wide it is drawn).
+With checks off (the switch at the bottom of Sessions) it fetches nothing by itself. Check now beside the version
+asks at once, on or off, and counts as the day's check: it says Checking… (drawn at once, not at the next round),
+then Up to date or Check failed for `MANUAL_SHOWN_MS`, or nothing when a newer version gets its line at the top,
+with no toast. The footer keeps room for the longest of those words, so it does not jump. A newer version is
+announced once in a toast whose click runs `suspender.updates` (opens Sessions), and offered in a line at the top
+of the panel (`ui/updateLine.ts` holds what it says and how wide it is drawn).
 
 Update refuses unless `mods/suspender` is this version and matches its own `manifest.json` file for file.
 It fetches the release's manifest and files from the tag (`core/release.ts` builds every URL from constants),

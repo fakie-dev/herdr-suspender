@@ -135,4 +135,8 @@ export const en = {
     "update.footer.version": "Suspender {version}",
     "update.footer.checks": "Check for updates",
     "update.footer.checksShort": "Updates",
+    "update.footer.checkNow": "Check now",
+    "update.footer.checking": "Checking…",
+    "update.footer.upToDate": "Up to date",
+    "update.footer.failed": "Check failed",
 };

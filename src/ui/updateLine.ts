@@ -7,7 +7,7 @@
 import { type Scale, toMod, type WindowPx } from "../core/scale.ts";
 import type { Job, UpdateState } from "../core/updateState.ts";
 import { t } from "../i18n/index.ts";
-import { keysText, updateDetail, whyText } from "../runtime/updater.ts";
+import { keysText, type ManualCheck, updateDetail, whyText } from "../runtime/updater.ts";
 import type { Measure } from "./textWidth.ts";
 
 export type LineAction = "update" | "whatsNew" | "rollBack" | "page" | "dismiss";
@@ -122,6 +122,20 @@ export function fitUpdateLine(line: UpdateLine, width: WindowPx, scale: Scale, m
 
 export type FooterMode = "full" | "short" | "icon";
 
+/** The switch's label, and Check now as words or as its icon. */
+export interface FooterFit {
+  toggle: FooterMode;
+  link: "label" | "icon";
+}
+
+/** What Check now says: the button itself (null), or what it is doing or found. */
+export const LINK_LABEL: Readonly<Record<ManualCheck | "idle", Parameters<typeof t>[0]>> = {
+  idle: "update.footer.checkNow",
+  checking: "update.footer.checking",
+  upToDate: "update.footer.upToDate",
+  failed: "update.footer.failed",
+};
+
 export const FOOTER_LABEL: Readonly<Record<Exclude<FooterMode, "icon">, Parameters<typeof t>[0]>> = {
   full: "update.footer.checks",
   short: "update.footer.checksShort",
@@ -132,13 +146,34 @@ export function footerToggleWidth(mode: FooterMode, measure: Measure): number {
   return mode === "icon" ? FOOTER_BOX : FOOTER_BOX + LINE_GAP + measure(t(FOOTER_LABEL[mode]), FOOTER_TEXT);
 }
 
-/** The longest label that leaves the version some room; the box alone (label in its tooltip) when none does. */
-export function fitFooter(width: WindowPx, scale: Scale, measure: Measure): FooterMode {
+/**
+ * Check now's width: its icon, and as words the longest thing it says, so the
+ * footer keeps its place while it goes from Check now to Up to date.
+ */
+export function footerLinkWidth(mode: "label" | "icon", measure: Measure): number {
+  if (mode === "icon") {
+    return FOOTER_BOX;
+  }
+  const words = Math.max(...Object.values(LINK_LABEL).map((key) => measure(t(key), FOOTER_TEXT)));
+  return FOOTER_BOX + LINE_GAP + Math.ceil(words);
+}
+
+/**
+ * The longest labels that leave the version some room: the switch shortens
+ * first, then goes to its box, then Check now to its icon (words in tooltips).
+ */
+export function fitFooter(width: WindowPx, scale: Scale, measure: Measure): FooterFit {
   const room = toMod(scale, width) - 2 * FOOTER_PAD_X;
-  for (const mode of ["full", "short"] as const) {
-    if (footerToggleWidth(mode, measure) + LINE_GAP + FOOTER_VERSION_LEAST <= room) {
-      return mode;
+  const tries: FooterFit[] = [
+    { toggle: "full", link: "label" },
+    { toggle: "short", link: "label" },
+    { toggle: "icon", link: "label" },
+  ];
+  for (const fit of tries) {
+    const used = footerToggleWidth(fit.toggle, measure) + LINE_GAP + footerLinkWidth(fit.link, measure);
+    if (used + LINE_GAP + FOOTER_VERSION_LEAST <= room) {
+      return fit;
     }
   }
-  return "icon";
+  return { toggle: "icon", link: "icon" };
 }

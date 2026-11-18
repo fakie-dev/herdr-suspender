@@ -4,8 +4,10 @@
 // module loads (a `herdr-app check` run loads it too, and never stays that
 // long), one GET of GitHub's latest release of the mod's repository. A newer
 // version is announced once, in one toast, and offered in the Sessions panel.
-// With checks off nothing is fetched at all. A failed request says nothing;
-// the next day tries again.
+// With checks off nothing is fetched by itself. A failed request says nothing;
+// the next day tries again. Check now in Sessions asks at once, checks on or
+// off: the person asked. It counts as the day's check, needs no toast (Sessions
+// is open), and says Checking, Up to date or Check failed beside the version.
 //
 // Update: only `mods/suspender` changes, and only when it is still exactly
 // what a release installed (its own manifest) and is this running version.
@@ -56,6 +58,11 @@ const PARALLEL = 6;
 const WRITE_ATTEMPTS = 5;
 /** With checks off, how often the file is looked at again (another window may turn them on). */
 const OFF_LOOK_MS = 10 * 60 * 1000;
+/** How long "Up to date" or "Check failed" stays beside the version (until the next round after it). */
+export const MANUAL_SHOWN_MS = 4_000;
+
+/** What Check now says: while it asks, and for MANUAL_SHOWN_MS after. */
+export type ManualCheck = "checking" | "upToDate" | "failed";
 
 export interface SwapResult {
   /**
@@ -151,6 +158,10 @@ export class Updater {
   private current: Job | null = null;
   /** Bumped on every change the panel draws. */
   private rev = 0;
+  /** Check now in this window: what it says, and since when. */
+  private manual: { said: ManualCheck; at: number } | null = null;
+  /** Check now found a release while the daily check is off: it is offered all the same. */
+  private askedByHand = false;
   private readonly d: UpdaterDeps;
 
   constructor(d: UpdaterDeps) {
@@ -208,7 +219,13 @@ export class Updater {
   /** A newer release to offer, while checks are on. */
   available(): string | null {
     const latest = this.s.latest;
-    return this.s.checks && latest !== null && isNewer(latest, this.d.version) ? latest : null;
+    return (this.s.checks || this.askedByHand) && latest !== null && isNewer(latest, this.d.version) ? latest : null;
+  }
+
+  /** What Check now says beside the version, or null for the button itself. */
+  manualCheck(): ManualCheck | null {
+    const m = this.manual;
+    return m !== null && (m.said === "checking" || this.d.now() - m.at < MANUAL_SHOWN_MS) ? m.said : null;
   }
 
   /** What is under way: in this window, or (young enough) in another one. */
@@ -272,6 +289,10 @@ export class Updater {
   /** From every round of every copy: asks GitHub when a day has passed. Cheap when not due. */
   async tick(): Promise<void> {
     const now = this.d.now();
+    if (this.manual !== null && this.manualCheck() === null) {
+      this.manual = null;
+      this.d.changed();
+    }
     if (now < this.loadedAt + STARTUP_DELAY_MS || now < this.nextLook || this.checking !== null) {
       return;
     }
@@ -291,6 +312,37 @@ export class Updater {
       return;
     }
     this.nextLook = now + CHECK_EVERY_MS;
+    await this.ask(false);
+  }
+
+  /**
+   * Check now: one request at once, the daily check on or off. A press while
+   * one is out waits for it rather than asking again.
+   */
+  async checkNow(): Promise<void> {
+    if (this.manual?.said === "checking") {
+      return;
+    }
+    this.manual = { said: "checking", at: this.d.now() };
+    this.d.changed();
+    let latest: string | null = null;
+    try {
+      latest = await this.ask(true);
+    } finally {
+      const newer = latest !== null && isNewer(latest, this.d.version);
+      this.askedByHand = this.askedByHand || newer;
+      // A newer release has its line at the top; the button comes back at once.
+      this.manual = newer ? null : { said: latest === null ? "failed" : "upToDate", at: this.d.now() };
+      this.nextLook = this.d.now() + CHECK_EVERY_MS;
+      this.d.changed();
+    }
+  }
+
+  /**
+   * One GET of the latest release, recorded in the file. A newer one is
+   * toasted once per version; one found by hand is only marked as told.
+   */
+  private async ask(byHand: boolean): Promise<string | null> {
     let latest: string | null = null;
     try {
       const answer = await this.d.fetchText(latestReleaseUrl());
@@ -298,10 +350,19 @@ export class Updater {
     } catch {
       // Silent: the next day asks again.
     }
-    await this.edit((s) => ({ ...s, result: latest === null ? "failed" : "ok", latest: latest ?? s.latest }));
+    const at = this.d.now();
+    await this.edit((s) => ({
+      ...s,
+      result: latest === null ? "failed" : "ok",
+      latest: latest ?? s.latest,
+      lastCheck: byHand ? at : s.lastCheck,
+    }));
     if (latest !== null && isNewer(latest, this.d.version)) {
       const version = latest;
-      if (await this.edit((s) => (s.checks && s.notified !== version ? { ...s, notified: version } : null))) {
+      const told = await this.edit((s) =>
+        (s.checks || byHand) && s.notified !== version ? { ...s, notified: version } : null,
+      );
+      if (told && !byHand) {
         this.d.notify({
           title: t("update.out.title", { version }),
           body: t("update.out.body"),
@@ -310,10 +371,12 @@ export class Updater {
         });
       }
     }
+    return latest;
   }
 
   async setChecks(on: boolean): Promise<void> {
     await this.edit((s) => (s.checks === on ? null : { ...s, checks: on }));
+    this.askedByHand = false;
     this.nextLook = 0;
   }
 

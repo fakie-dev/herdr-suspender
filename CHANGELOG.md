@@ -5,6 +5,12 @@ and the project uses [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+
+- Check now, beside the version at the bottom of Sessions: it asks GitHub for a newer version right away instead
+  of waiting for the daily check, and says Up to date or Check failed, or offers the new version at the top. It
+  works with the daily check turned off too: pressing it is the request.
+
 ## [0.1.5] - 2026-11-18
 
 ### Fixed

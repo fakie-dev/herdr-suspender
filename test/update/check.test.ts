@@ -3,7 +3,7 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { latestReleaseUrl } from "../../src/core/release.ts";
-import { CHECK_EVERY_MS, STARTUP_DELAY_MS, Updater } from "../../src/runtime/updater.ts";
+import { CHECK_EVERY_MS, MANUAL_SHOWN_MS, STARTUP_DELAY_MS, Updater } from "../../src/runtime/updater.ts";
 import { DAY, LIVE, STATE, World } from "./world.ts";
 
 async function started(world: World, version = "0.1.2"): Promise<Updater> {
@@ -182,5 +182,90 @@ describe("turning the checks off", () => {
     assert.equal(u.available(), null);
     await u.setChecks(true);
     assert.equal(u.available(), "0.1.3");
+  });
+});
+
+describe("checking by hand (Check now)", () => {
+  it("asks at once, whatever the day's check found, and counts as the day's check", async () => {
+    const world = new World();
+    world.install(LIVE, "0.1.2");
+    world.publish("0.1.2");
+    const u = await started(world);
+    await u.tick();
+    world.publish("0.1.3");
+    world.now += 60_000;
+    await u.checkNow();
+    assert.equal(latestFetches(world), 2);
+    assert.equal(u.available(), "0.1.3");
+    assert.equal(u.manualCheck(), null, "the line at the top offers it; nothing more to say below");
+    assert.equal(u.state().lastCheck, world.now);
+    assert.deepEqual(world.notices, [], "no toast: the person is looking at Sessions");
+    // The daily check does not toast it later either, and waits a day from here.
+    world.now += DAY - 60_000;
+    await u.tick();
+    assert.equal(latestFetches(world), 2);
+    world.now += 60_000;
+    await u.tick();
+    assert.equal(latestFetches(world), 3);
+    assert.deepEqual(world.notices, []);
+  });
+
+  it("says Checking while it asks, and a second press does not ask twice", async () => {
+    const world = new World();
+    world.install(LIVE, "0.1.2");
+    world.publish("0.1.2");
+    const u = await started(world);
+    const first = u.checkNow();
+    assert.equal(u.manualCheck(), "checking");
+    await Promise.all([first, u.checkNow()]);
+    assert.equal(latestFetches(world), 1);
+  });
+
+  it("says up to date for a while, then goes quiet with a redraw", async () => {
+    const world = new World();
+    world.install(LIVE, "0.1.2");
+    world.publish("0.1.2");
+    const u = await started(world);
+    await u.checkNow();
+    assert.equal(u.manualCheck(), "upToDate");
+    world.now += MANUAL_SHOWN_MS - 1;
+    await u.tick();
+    assert.equal(u.manualCheck(), "upToDate");
+    world.now += 1;
+    const redraws = u.revision();
+    await u.tick();
+    assert.equal(u.manualCheck(), null);
+    assert.ok(u.revision() > redraws, "the panel is told");
+  });
+
+  it("says the check failed when the request fails", async () => {
+    const world = new World();
+    world.install(LIVE, "0.1.2");
+    world.web.set(latestReleaseUrl(), "fail");
+    const u = await started(world);
+    await u.checkNow();
+    assert.equal(u.manualCheck(), "failed");
+    assert.equal(u.state().result, "failed");
+  });
+
+  it("works with the daily check off, offers what it found, and still asks nothing by itself", async () => {
+    const world = new World();
+    world.install(LIVE, "0.1.2");
+    world.publish("0.1.3");
+    const u = await started(world);
+    await u.setChecks(false);
+    await u.checkNow();
+    assert.equal(latestFetches(world), 1);
+    assert.equal(u.available(), "0.1.3");
+    for (let day = 0; day < 3; day++) {
+      world.now += DAY;
+      await u.tick();
+    }
+    assert.equal(latestFetches(world), 1);
+    assert.equal(u.state().checks, false);
+    // The switch turned on and off again: off hides what was found, as for a daily check.
+    await u.setChecks(true);
+    await u.setChecks(false);
+    assert.equal(u.available(), null);
   });
 });

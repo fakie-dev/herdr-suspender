@@ -21,7 +21,7 @@ import { agentIcon, ICONS, icon, palette, stateMark, TONE_COLOR } from "./kit.js
 import { anchorRect, factsFor, hoverPopup } from "./popup.js";
 import { fitRow, groupSessions, isSleeping, MemoryPolicy, memoryFreedText, ROW_ITEM_GAP, ROW_SMALL_TEXT, ROW_TEXT, ROW_TITLE_PX, rowMemory, shownState, usedNow, } from "./sessionsModel.js";
 import { uiMeasure } from "./textWidth.js";
-import { ACTION_LABEL, BUTTON_ICON, BUTTON_PAD_X, BUTTON_TEXT, FOOTER_BOX, FOOTER_LABEL, FOOTER_PAD_X, FOOTER_TEXT, fitFooter, fitUpdateLine, LINE_GAP, LINE_LEAD, LINE_PAD_X, LINE_TEXT, updateLine, } from "./updateLine.js";
+import { ACTION_LABEL, BUTTON_ICON, BUTTON_PAD_X, BUTTON_TEXT, FOOTER_BOX, FOOTER_LABEL, FOOTER_PAD_X, FOOTER_TEXT, fitFooter, fitUpdateLine, LINE_GAP, LINE_LEAD, LINE_PAD_X, LINE_TEXT, LINK_LABEL, updateLine, } from "./updateLine.js";
 /** Running sessions' memory is read at most this often, and only while the panel is shown. */
 export const MEMORY_EVERY_MS = 30_000;
 /** The panel's width until Herdr reports it (window px at zoom 1). */
@@ -270,14 +270,39 @@ export class PanelView {
             .child(line.text))
             .children(line.actions.map(button));
     }
-    /** The bottom: this build's version and the switch for the daily check. */
+    /** The bottom: this build's version, Check now, and the switch for the daily check. */
     footer(color, scale) {
         const u = this.o.updates;
         if (u === undefined || u === null) {
             return null;
         }
         const on = u.state().checks;
-        const mode = fitFooter(this.size.width, scale, uiMeasure);
+        const fit = fitFooter(this.size.width, scale, uiMeasure);
+        const mode = fit.toggle;
+        const said = u.manualCheck();
+        const words = t(LINK_LABEL[said ?? "idle"]);
+        const tint = color(said === "upToDate" ? "done" : said === "failed" ? "working" : said === null ? "accent" : "dim");
+        const lead = said === "checking"
+            ? svg(`${ICONS}/spinner.svg`).size(FOOTER_BOX).flex_none().text_color(tint).spin(900)
+            : icon(said === "upToDate" ? "check" : said === "failed" ? "close" : "download", FOOTER_BOX, tint);
+        const link = h_flex()
+            .id("update-check-now")
+            .flex_none()
+            .gap(LINE_GAP)
+            .items_center()
+            .text_color(tint)
+            .when(fit.link === "icon", (el) => el.tooltip(words))
+            .when(said === null, (el) => el
+            .cursor_pointer()
+            .on_mouse_down("left", (_e, cx) => cx.stop_propagation())
+            .on_click((_e, cx) => {
+            // Checking… is drawn at once: the round would show it only seconds later, after the answer.
+            const asked = u.checkNow();
+            cx.notify();
+            this.act(() => asked, cx);
+        }))
+            .child(lead)
+            .when(fit.link === "label", (el) => el.child(words));
         const box = h_flex()
             .size(FOOTER_BOX)
             .flex_none()
@@ -303,6 +328,7 @@ export class PanelView {
             .min_w(0)
             .truncate()
             .child(t("update.footer.version", { version: u.version })))
+            .child(link)
             .child(h_flex()
             .id("update-checks")
             .flex_none()

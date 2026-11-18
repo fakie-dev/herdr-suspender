@@ -14,6 +14,7 @@ import {
   FOOTER_PAD_X,
   fitFooter,
   fitUpdateLine,
+  footerLinkWidth,
   footerToggleWidth,
   LINE_GAP,
   LINE_LEAD,
@@ -126,20 +127,32 @@ describe("the update line at any width", () => {
 });
 
 describe("the switch at the bottom at any width", () => {
-  it("stays inside the panel from 100 px, shortening its label before it goes", () => {
+  it("stays inside the panel from 100 px, with Check now, shortening its labels before they go", () => {
     for (const zoom of ZOOMS) {
       for (let px = 100; px <= 1400; px += 3) {
         const width = windowPx(px * zoom);
-        const mode = fitFooter(width, { zoom }, uiMeasure);
-        const drawn = 2 * FOOTER_PAD_X + footerToggleWidth(mode, uiMeasure);
-        assert.ok(drawn <= toMod({ zoom }, width), `${px} px, zoom ${zoom}: ${drawn} drawn (${mode})`);
+        const fit = fitFooter(width, { zoom }, uiMeasure);
+        const drawn =
+          2 * FOOTER_PAD_X + footerToggleWidth(fit.toggle, uiMeasure) + LINE_GAP + footerLinkWidth(fit.link, uiMeasure);
+        assert.ok(drawn <= toMod({ zoom }, width), `${px} px, zoom ${zoom}: ${drawn} drawn (${JSON.stringify(fit)})`);
       }
     }
   });
 
   it("says it in full on a panel of the usual width", () => {
-    assert.equal(fitFooter(windowPx(320), { zoom: 1 }, uiMeasure), "full");
-    assert.equal(fitFooter(windowPx(110), { zoom: 1 }, uiMeasure), "icon");
+    assert.deepEqual(fitFooter(windowPx(320), { zoom: 1 }, uiMeasure), { toggle: "full", link: "label" });
+    assert.deepEqual(fitFooter(windowPx(110), { zoom: 1 }, uiMeasure), { toggle: "icon", link: "icon" });
+  });
+
+  it("keeps room for the longest thing Check now says, so the footer does not jump", () => {
+    for (const key of [
+      "update.footer.checkNow",
+      "update.footer.checking",
+      "update.footer.upToDate",
+      "update.footer.failed",
+    ] as const) {
+      assert.ok(uiMeasure(t(key), 11.5) + 12 + LINE_GAP <= footerLinkWidth("label", uiMeasure), key);
+    }
     assert.ok(modPx(LINE_PAD_X) > 0);
   });
 });

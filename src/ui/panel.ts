@@ -58,6 +58,7 @@ import {
   LINE_LEAD,
   LINE_PAD_X,
   LINE_TEXT,
+  LINK_LABEL,
   type LineAction,
   updateLine,
 } from "./updateLine.ts";
@@ -349,14 +350,42 @@ export class PanelView {
       .children(line.actions.map(button));
   }
 
-  /** The bottom: this build's version and the switch for the daily check. */
+  /** The bottom: this build's version, Check now, and the switch for the daily check. */
   private footer(color: Palette, scale: Scale): Element | null {
     const u = this.o.updates;
     if (u === undefined || u === null) {
       return null;
     }
     const on = u.state().checks;
-    const mode = fitFooter(this.size.width, scale, uiMeasure);
+    const fit = fitFooter(this.size.width, scale, uiMeasure);
+    const mode = fit.toggle;
+    const said = u.manualCheck();
+    const words = t(LINK_LABEL[said ?? "idle"]);
+    const tint = color(said === "upToDate" ? "done" : said === "failed" ? "working" : said === null ? "accent" : "dim");
+    const lead =
+      said === "checking"
+        ? svg(`${ICONS}/spinner.svg`).size(FOOTER_BOX).flex_none().text_color(tint).spin(900)
+        : icon(said === "upToDate" ? "check" : said === "failed" ? "close" : "download", FOOTER_BOX, tint);
+    const link = h_flex()
+      .id("update-check-now")
+      .flex_none()
+      .gap(LINE_GAP)
+      .items_center()
+      .text_color(tint)
+      .when(fit.link === "icon", (el) => el.tooltip(words))
+      .when(said === null, (el) =>
+        el
+          .cursor_pointer()
+          .on_mouse_down("left", (_e, cx) => cx.stop_propagation())
+          .on_click((_e, cx) => {
+            // Checking… is drawn at once: the round would show it only seconds later, after the answer.
+            const asked = u.checkNow();
+            cx.notify();
+            this.act(() => asked, cx);
+          }),
+      )
+      .child(lead)
+      .when(fit.link === "label", (el) => el.child(words));
     const box = h_flex()
       .size(FOOTER_BOX)
       .flex_none()
@@ -384,6 +413,7 @@ export class PanelView {
           .truncate()
           .child(t("update.footer.version", { version: u.version })),
       )
+      .child(link)
       .child(
         h_flex()
           .id("update-checks")
