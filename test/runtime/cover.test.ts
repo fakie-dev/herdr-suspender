@@ -10,8 +10,8 @@ import { describe, it } from "node:test";
 import type { AgentAdapter } from "../../src/adapters/contract.ts";
 import { COVER_ID } from "../../src/core/layout.ts";
 import type { AgentId, SessionKey } from "../../src/core/model.ts";
-import { COVER_KEY, Engine, newCoordinator } from "../../src/runtime/engine.ts";
-import { fakeAdapter, Sim } from "./sim.ts";
+import { COVER_KEY, Engine, newCoordinator, settleCover } from "../../src/runtime/engine.ts";
+import { fakeAdapter, Sim, TAB } from "./sim.ts";
 
 const KEY: SessionKey = "claude:s1";
 
@@ -43,7 +43,7 @@ function watch(sim: Sim): { command: string; covered: boolean }[] {
 const index = (seen: { command: string }[], command: string): number => seen.findIndex((s) => s.command === command);
 
 describe("a Sleep behind the cover", () => {
-  it("covers the work area before the split and shows it again with the sleeping pane in the slot", async () => {
+  it("covers the work area before the split, and the cover goes once the sleeping pane stands alone in the tab", async () => {
     const { sim, engine } = world();
     await engine.tick();
     const seen = watch(sim);
@@ -53,8 +53,11 @@ describe("a Sleep behind the cover", () => {
       const at = seen.find((s) => s.command === command);
       assert.equal(at?.covered, true, `${command} behind the cover`);
     }
-    const lowered = seen.findIndex((s, i) => s.command === "layout.select" && i > index(seen, "terminal.park"));
-    assert.ok(lowered > 0, "shown again after the park");
+    // Not with the park: measured on Herdr 0.1.16, the park lands a frame or two later, and a cover put
+    // away with it showed the split again. The cover's copy puts it away when Herdr shows the result.
+    assert.equal(sim.workShows(), COVER_ID);
+    assert.deepEqual((sim.shared(COVER_KEY) as { tab?: string; alone?: unknown } | null)?.alone, null);
+    assert.equal(settleCover(sim, sim.now), true);
     assert.equal(sim.workShows(), "main");
     assert.equal(sim.shared(COVER_KEY), null);
   });
@@ -134,6 +137,8 @@ describe("a Resume behind the cover", () => {
     const { sim, engine } = world();
     await engine.tick();
     await engine.sleep(KEY);
+    // The cover's copy puts the sleep's cover away within frames.
+    settleCover(sim, sim.now);
     const seen = watch(sim);
     const labels: boolean[] = [];
     const hc = sim.hc.bind(sim);
@@ -148,16 +153,22 @@ describe("a Resume behind the cover", () => {
     assert.deepEqual(labels, [true], "adopted behind the cover");
     const swap = seen.find((s) => s.command === "pane.swap");
     assert.equal(swap?.covered, true);
+    // The flow does not put it away (its copy may be the sleeping pane, which the close ends): the cover's
+    // copy does, once the agent stands alone in the tab.
+    const address = engine.record(KEY)?.terminal;
+    assert.equal((sim.shared(COVER_KEY) as { alone?: unknown } | null)?.alone, address);
+    assert.equal(sim.workShows(), COVER_ID);
+    assert.equal(settleCover(sim, sim.now), true);
     assert.equal(sim.workShows(), "main");
     assert.equal(sim.shared(COVER_KEY), null);
-    // Shown again in the same step as the close: the copy that closes may be the sleeping pane, which ends there.
-    assert.ok(index(seen, "layout.select") < index(seen, "pane.close"));
   });
 
   it("says the session is waking while it covers, though the record already says running", async () => {
     const { sim, engine } = world();
     await engine.tick();
     await engine.sleep(KEY);
+    // The cover's copy puts the sleep's cover away within frames.
+    settleCover(sim, sim.now);
     let drawn: unknown = null;
     const hc = sim.hc.bind(sim);
     sim.hc = (args: string[]) => {
@@ -176,6 +187,8 @@ describe("a Resume Herdr does not show", () => {
     const { sim, engine } = world();
     await engine.tick();
     await engine.sleep(KEY);
+    // The cover's copy puts the sleep's cover away within frames.
+    settleCover(sim, sim.now);
     sim.adopts = false;
     await engine.resume(KEY);
     assert.equal(engine.record(KEY)?.state, "error");
@@ -192,11 +205,37 @@ describe("a cover left up", () => {
     assert.equal(sim.workShows(), "main");
   });
 
-  it("stays while a flow holds it", async () => {
+  it("stays while its flow is not through: the tab does not hold only what the flow leaves there", async () => {
     const { sim, engine } = world();
+    // Waiting for a mod pane alone in TAB, which still shows the agent's terminal.
     sim.selectWork(COVER_ID);
-    sim.setShared(COVER_KEY, { key: KEY, rec: null, at: sim.now });
+    sim.setShared(COVER_KEY, { key: KEY, rec: null, at: sim.now, tab: TAB, alone: null });
     await engine.tick();
     assert.equal(sim.workShows(), COVER_ID);
+    assert.equal(settleCover(sim, sim.now), false);
+    // Waiting for that terminal: through.
+    const terminal = sim.paneList.find((p) => p.tab === TAB)?.terminal ?? null;
+    sim.setShared(COVER_KEY, { key: KEY, rec: null, at: sim.now, tab: TAB, alone: terminal });
+    assert.equal(settleCover(sim, sim.now), true);
+    assert.equal(sim.workShows(), "main");
+  });
+
+  it("is put away when held too long: a flow that never got through does not hide the tabs", async () => {
+    const { sim } = world();
+    sim.selectWork(COVER_ID);
+    sim.setShared(COVER_KEY, { key: KEY, rec: null, at: sim.now, tab: TAB, alone: null });
+    assert.equal(settleCover(sim, sim.now + 4_000), false);
+    assert.equal(settleCover(sim, sim.now + 5_000), true);
+    assert.equal(sim.workShows(), "main");
+  });
+
+  it("with two panes in the tab, the split is still there: not through", async () => {
+    const { sim } = world();
+    // After the swap and before the park: our pane first in the slot, the agent beside it.
+    const ours = sim.addModPane(TAB, { role: "sleep", key: KEY });
+    sim.paneList.sort((a, b) => (a.pane === ours ? -1 : b.pane === ours ? 1 : 0));
+    sim.selectWork(COVER_ID);
+    sim.setShared(COVER_KEY, { key: KEY, rec: null, at: sim.now, tab: TAB, alone: null });
+    assert.equal(settleCover(sim, sim.now), false);
   });
 });

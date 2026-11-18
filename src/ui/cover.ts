@@ -11,9 +11,12 @@ import { settings, theme } from "herdr";
 import type { SessionKey, SessionRecord } from "../core/model.ts";
 import { reportedSize, scaleOf, type WindowSize, windowPx } from "../core/scale.ts";
 import type { Ports } from "../platform/ports.ts";
-import { COVER_KEY, type Engine } from "../runtime/engine.ts";
+import { COVER_KEY, type Engine, settleCover } from "../runtime/engine.ts";
 import type { Host } from "../runtime/host.ts";
 import { SleepPane } from "./sleepPane.ts";
+
+/** How often the cover looks whether its flow is through: every frame. */
+const FRAME_MS = 16;
 
 /** Herdr's look for a pane alone in its tab, from the tab block's `pane`; the shipped main.json's when unsaid. */
 interface Frame {
@@ -80,6 +83,8 @@ export class CoverView {
   private size: WindowSize = { width: windowPx(0), height: windowPx(0) };
   /** One sleeping pane drawing per session, so each keeps the size it measured. */
   private readonly panes = new Map<SessionKey, SleepPane>();
+  /** This copy watches, every frame, for the flow it covers to be through (settleCover). */
+  private watching = false;
   private readonly engine: Engine;
   private readonly host: Host;
   private readonly ports: Ports;
@@ -113,6 +118,20 @@ export class CoverView {
     const held = this.held();
     if (held === null) {
       return root;
+    }
+    if (!this.watching) {
+      this.watching = true;
+      cx.spawn(async (task) => {
+        try {
+          // Herdr lists the tab's panes as they are after each update: once the flow's pane stands alone
+          // there, the next frame may show the tabs again.
+          while (this.held() !== null && !settleCover(this.host, this.ports.now())) {
+            await task.sleep(FRAME_MS);
+          }
+        } finally {
+          this.watching = false;
+        }
+      });
     }
     let pane = this.panes.get(held.key);
     if (pane === undefined) {

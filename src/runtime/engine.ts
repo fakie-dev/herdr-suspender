@@ -1997,7 +1997,7 @@ export class Engine {
     }
     const target = rec.terminal !== null ? this.paneOf(rec.terminal) : null;
     // The split beside the agent shows until Herdr lists it: behind the cover, it never does.
-    const covered = flow.splitFrom === null && target !== null && this.raiseCover(target, rec);
+    const covered = flow.splitFrom === null && target !== null && this.raiseCover(target, rec, null);
     const pane = this.splitSleepPane(rec, target, flow) ?? (await this.newSleepPane(rec, target, flow));
     if (pane === null) {
       if (covered) {
@@ -2012,10 +2012,8 @@ export class Engine {
       this.host.run("pane.swap", { pane, target });
       this.host.run("terminal.park", { terminal: rec.terminal });
     }
-    if (covered) {
-      // In the same step: Herdr draws the work area again with our pane alone in the slot.
-      this.lowerCover();
-    }
+    // The cover goes once Herdr shows our pane alone in the tab (settleCover): measured on 0.1.16, the
+    // park lands a frame or two after the swap, and a cover put away with them showed the split again.
     flow.prepared = pane;
     const tab = this.host.panes().find((p) => p.pane === pane)?.tab ?? rec.tabId;
     await this.patch(key, (r) => {
@@ -2195,9 +2193,11 @@ export class Engine {
    * Shows the cover over the work area, drawing `shown` (the session as its
    * sleeping pane shows it), when it can stand in for `pane`'s tab: the layout
    * has it and shows the tabs, the tab is on screen, and `pane` is alone in it
-   * (the cover would hide any other pane). Returns whether it is up.
+   * (the cover would hide any other pane). `alone`: what the tab holds once
+   * the flow is through, by which the cover is put away (settleCover): that
+   * terminal's pane, or null for a mod pane (ours). Returns whether it is up.
    */
-  private raiseCover(pane: string, shown: SessionRecord): boolean {
+  private raiseCover(pane: string, shown: SessionRecord, alone: string | null): boolean {
     const place = coverPlace(this.host.windowLayout());
     const tab = this.host.panes().find((p) => p.pane === pane)?.tab;
     if (place === null || place.active !== place.tab || tab === undefined || !this.onScreen(pane)) {
@@ -2206,34 +2206,19 @@ export class Engine {
     if (this.host.panes().filter((p) => p.tab === tab).length !== 1) {
       return false;
     }
-    this.host.setShared(COVER_KEY, { key: shown.key, rec: shown, at: this.ports.now() });
+    this.host.setShared(COVER_KEY, { key: shown.key, rec: shown, at: this.ports.now(), tab, alone });
     this.host.runOnScreen("layout.select", { stack: place.stack, child: place.cover });
     return true;
   }
 
-  /** The tabs again in the work area, in the caller's step. */
+  /** The tabs again in the work area, now (a flow that failed). */
   private lowerCover(): void {
-    const place = coverPlace(this.host.windowLayout());
-    if (place !== null) {
-      this.host.runOnScreen("layout.select", { stack: place.stack, child: place.tab });
-    }
-    this.host.setShared(COVER_KEY, null);
+    lowerCover(this.host);
   }
 
-  /**
-   * A cover up with no flow holding it (Herdr keeps the stack's child across
-   * a restart, a copy closed mid-way) would hide the tabs for good: put away.
-   */
+  /** A cover up with no flow holding it, or held too long, is put away (settleCover). */
   private putAwayStrayCover(): void {
-    const place = coverPlace(this.host.windowLayout());
-    if (place === null || place.active === place.tab) {
-      return;
-    }
-    const held = this.host.shared(COVER_KEY) as { at?: unknown } | null;
-    const at = typeof held?.at === "number" ? held.at : null;
-    if (at === null || this.ports.now() - at >= COVER_STALE_MS) {
-      this.lowerCover();
-    }
+    settleCover(this.host, this.ports.now());
   }
 
   /** The pane is in the tab on screen (the shown tab of the shown space). */
@@ -2528,7 +2513,7 @@ export class Engine {
     const covered =
       where !== null &&
       sleepPane !== null &&
-      this.raiseCover(sleepPane, { ...where, state: "waking", pane: sleepPane });
+      this.raiseCover(sleepPane, { ...where, state: "waking", pane: sleepPane }, address);
     if (where !== null) {
       await this.ports
         .hc(["label", address, `herdr.space=${where.spaceId}`, `herdr.tab=${where.tabId}`])
@@ -2574,10 +2559,8 @@ export class Engine {
     if (this.onScreen(pane)) {
       this.host.runOnScreen("pane.focus", { pane });
     }
-    if (covered) {
-      // Before the close, in the same step: the copy that closes may be the sleeping pane, which ends there.
-      this.lowerCover();
-    }
+    // The cover goes once Herdr shows the agent alone in the tab (settleCover, run by the cover's own copy:
+    // this one may be the sleeping pane, which ends at the close below).
     // Last: when this copy is that pane, closing it ends this copy.
     if (sleepPane !== null && this.paneExists(sleepPane)) {
       this.host.run("pane.close", { pane: sleepPane });
@@ -2775,6 +2758,43 @@ function processView(term: HostTerminal, pid: number, name: string, commandLine?
   // With its command line when the table has it: npm's Claude Code is node running its script.
   const argv = commandLine ? [name, ...commandLine.split(/\s+/).slice(1)] : [name];
   return { ...toTerminalView(term), app: null, foreground: { pid, argv, name } };
+}
+
+/** The tabs again in the work area, and nobody holding the cover. */
+function lowerCover(host: Host): void {
+  const place = coverPlace(host.windowLayout());
+  if (place !== null && place.active !== place.tab) {
+    host.runOnScreen("layout.select", { stack: place.stack, child: place.tab });
+  }
+  host.setShared(COVER_KEY, null);
+}
+
+/**
+ * Puts the cover away once its flow is through: Herdr shows the tab it stood
+ * in for with only what the flow left there (`alone`: that terminal's pane, or
+ * null: a mod pane, ours). Also when nobody holds it (Herdr keeps a stack's
+ * child across a restart, a copy closed mid-way) or it was held longer than
+ * COVER_STALE_MS. The cover's own copy calls it every frame while it is up;
+ * every round calls it too. Returns whether the cover is down.
+ */
+export function settleCover(host: Host, now: number): boolean {
+  const place = coverPlace(host.windowLayout());
+  if (place === null || place.active === place.tab) {
+    // Not up, or not yet: a select Herdr has not applied leaves the hold as it is.
+    return true;
+  }
+  const held = host.shared(COVER_KEY) as { at?: unknown; tab?: unknown; alone?: unknown } | null;
+  const at = typeof held?.at === "number" ? held.at : null;
+  if (at !== null && now - at < COVER_STALE_MS && typeof held?.tab === "string") {
+    const inTab = host.panes().filter((p) => p.tab === held.tab);
+    const want = typeof held.alone === "string" ? held.alone : null;
+    const through = inTab.length === 1 && (want === null ? inTab[0]?.terminal === null : inTab[0]?.terminal === want);
+    if (!through) {
+      return false;
+    }
+  }
+  lowerCover(host);
+  return true;
 }
 
 /** The agent's process under the terminal's shell in a process tree (with `args`, run with them). */
