@@ -5,6 +5,8 @@ and the project uses [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.1.6] - 2026-11-18
+
 ### Added
 
 - Check now, beside the version at the bottom of Sessions: it asks GitHub for a newer version right away instead
@@ -254,7 +256,8 @@ First release.
   command, so the draft is dropped instead of being sent.
 - The interface is English only.
 
-[Unreleased]: https://github.com/fakie-dev/herdr-suspender/compare/v0.1.5...HEAD
+[Unreleased]: https://github.com/fakie-dev/herdr-suspender/compare/v0.1.6...HEAD
+[0.1.6]: https://github.com/fakie-dev/herdr-suspender/compare/v0.1.5...v0.1.6
 [0.1.5]: https://github.com/fakie-dev/herdr-suspender/compare/v0.1.4...v0.1.5
 [0.1.4]: https://github.com/fakie-dev/herdr-suspender/compare/v0.1.3...v0.1.4
 [0.1.3]: https://github.com/fakie-dev/herdr-suspender/compare/v0.1.2...v0.1.3
