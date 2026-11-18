@@ -131,45 +131,62 @@
           "gap": 8,
           "children": [
             {
-              "id": "main",
-              "type": "block",
-              "content": {
-                "tab": "active",
-                "pane": {
-                  "gap": 8,
-                  "radius": 10,
-                  "background": "background",
-                  "lone": true,
-                  "border": {
-                    "width": 1,
-                    "color": "border"
-                  },
-                  "focus": {
-                    "width": 1,
-                    "color": "accent"
-                  },
-                  "header": {
-                    "content": {
-                      "mod": "pane"
-                    },
-                    "height": 30,
-                    "position": "top",
-                    "reveal": "always"
-                  }
-                }
-              },
-              "floating": [
+              "id": "suspender-work",
+              "type": "stack",
+              "active": "main",
+              "children": [
                 {
-                  "id": "suspender-pill",
+                  "id": "main",
+                  "type": "block",
+                  "content": {
+                    "tab": "active",
+                    "pane": {
+                      "gap": 8,
+                      "radius": 10,
+                      "background": "background",
+                      "lone": true,
+                      "border": {
+                        "width": 1,
+                        "color": "border"
+                      },
+                      "focus": {
+                        "width": 1,
+                        "color": "accent"
+                      },
+                      "header": {
+                        "content": {
+                          "mod": "pane"
+                        },
+                        "height": 30,
+                        "position": "top",
+                        "reveal": "always"
+                      }
+                    }
+                  },
+                  "floating": [
+                    {
+                      "id": "suspender-pill",
+                      "content": {
+                        "mod": "suspender",
+                        "props": {
+                          "role": "pill"
+                        }
+                      },
+                      "edge": "right",
+                      "align": "end",
+                      "peek": 38
+                    }
+                  ]
+                },
+                {
+                  "id": "suspender-cover",
+                  "type": "block",
                   "content": {
                     "mod": "suspender",
                     "props": {
-                      "role": "pill"
+                      "role": "cover"
                     }
-                  },
-                  "edge": "right",
-                  "align": "end",
-                  "peek": 38
+                  }
                 }
               ]
             },
@@ -239,7 +256,7 @@
   ],
   "suspender_generated": {
     "from": "5ae0c5da8ee9ed7ebde11f1ee0ab2710fba0970b4159cc6c88b00e6bdcf757f9",
-    "generator": 5,
+    "generator": 6,
     "tabs": "builtin",
     "base": {
       "brand": "workspace-chrome",

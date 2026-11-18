@@ -13,6 +13,9 @@ and the project uses [Semantic Versioning](https://semver.org/).
 
 ### Changed
 
+- Sleep and Resume no longer show a split for a moment. With the Suspender layout, a tab on screen with one agent
+  is covered by a picture of its sleeping pane while its panes are rearranged, and shown again once Herdr has
+  them in place. Other tabs, and the mod without its layout, work as before.
 - Resume is about 3 seconds faster. Measured on Herdr 0.1.16, a woken Claude Code told the core it was up 3 seconds
   before Herdr's list showed it, and the mod then took a PowerShell process snapshot to find a process the core
   already names. The mod now reads the core while it waits and takes the agent from the terminal's foreground.

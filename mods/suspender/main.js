@@ -1,7 +1,7 @@
 // The mod's one view. `props().role` says which copy this is: "sleep" (a
 // sleeping tab, `props.key`), "confirm" (the question for a working agent),
 // "popup" (the facts of a session, over a row or a strip), and "toggle" |
-// "panel" | "pill" | "window" (the Sessions button, list and sleep pill, each
+// "panel" | "pill" | "cover" | "window" (the Sessions button, list, sleep pill and the cover over the work area, each
 // drawn by its own module; no role at all is the window `mod.open` makes).
 // Every copy runs an engine: one of them leads (binds sessions, recognises a
 // restart), and whichever copy a person presses a button in carries the
@@ -25,6 +25,7 @@ import { herdrHost } from "./runtime/herdrHost.js";
 import { syncLayout } from "./runtime/layoutSync.js";
 import { CLONE_NAME, tabsKeeper } from "./runtime/tabsClone.js";
 import { Updater } from "./runtime/updater.js";
+import { CoverView } from "./ui/cover.js";
 import { PanelView } from "./ui/panel.js";
 import { PillView } from "./ui/pill.js";
 import { PopupView } from "./ui/popup.js";
@@ -218,6 +219,7 @@ export default class Suspender extends View {
     panel = null;
     toggle = null;
     pill = null;
+    cover = null;
     init(_props, cx) {
         // Herdr hands the block's props through props(), not through init's argument.
         const raw = herdrProps();
@@ -247,6 +249,10 @@ export default class Suspender extends View {
         }
         else if (props.role === "pill") {
             this.pill = new PillView(engine, host);
+        }
+        else if (props.role === "cover") {
+            // The other child of the tab block's stack: shown only while a Sleep or a Resume rearranges a tab.
+            this.cover = new CoverView(engine, host, ports);
         }
         else if (props.role === "panel") {
             this.panel = new PanelView({ engine, host, ports, mode: "panel", overlay: null, updates: modUpdates() });
@@ -335,7 +341,12 @@ export default class Suspender extends View {
         if (this.confirm !== null) {
             return this.confirm.render(cx);
         }
-        return (this.popup?.render(cx) ?? this.panel?.render(cx) ?? this.toggle?.render(cx) ?? this.pill?.render(cx) ?? div());
+        return (this.popup?.render(cx) ??
+            this.panel?.render(cx) ??
+            this.toggle?.render(cx) ??
+            this.pill?.render(cx) ??
+            this.cover?.render(cx) ??
+            div());
     }
     close(_cx) {
         this.confirm?.close();

@@ -1,5 +1,5 @@
 // `Host` on Herdr's live API. Never loaded by the tests.
-import { focused, machines, notify, openOverlay, panes, run, setShared, shared, spaces, terminals } from "herdr";
+import { focused, layout, machines, notify, openOverlay, panes, run, setShared, shared, spaces, terminals, } from "herdr";
 import { MOD_NAME } from "./engine.js";
 import { normalizePane, normalizeTerminal } from "./host.js";
 /** The question for a working agent, as a small dialog. */
@@ -27,6 +27,14 @@ export function herdrHost(clock) {
         spaces: () => spaces()
             .filter((s) => s.machine === null)
             .map((s) => ({ id: s.id, name: s.name, named: s.named })),
+        windowLayout: () => {
+            try {
+                return layout();
+            }
+            catch {
+                return null;
+            }
+        },
         ready: () => machines().find((m) => m.name === null)?.layout === "ready",
         focused: () => {
             const f = focused();

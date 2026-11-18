@@ -70,7 +70,10 @@ is what its pane shows and is never "checking".
    about 66 ms after it is asked for, so the panel beside the agent shows for about four frames. The mod API
    cannot avoid it: `run` returns nothing (not the new pane's id), mods get no pane bounds to cover the slot,
    `pane.zoom` does not apply to a pane alone in its tab, and parking the agent first closes a tab it was alone
-   in.
+   in. So with the living layout, a tab on screen with the agent alone in it is covered for that moment: the
+   tab block sits in a stack beside `suspender-cover`, which draws the sleeping pane and is put away once Herdr
+   lists the tab as the flow left it ([ADR 18](adr/0018-a-cover-hides-the-split.md)). A Resume uses it the same
+   way while Herdr adopts the woken terminal.
    In the same step, before the park, a space nobody named is renamed to the name it shows: Herdr names such a
    space after its first terminal, and one whose only terminal was the agent would be called after its own
    folder (`~` at home) while it sleeps. The record keeps the pin; when the last session sleeping in that space

@@ -58,6 +58,14 @@ function markElement(m, l, shade) {
         }
     }
 }
+/**
+ * The size a session's sleeping pane was last drawn at, by the cover (one
+ * module instance: every copy of the window sees it). A sleeping pane starts
+ * only when it first shows, the moment the cover goes, and Herdr reports its
+ * size a frame later: it starts at this size, so that frame lays the screen
+ * out on the same rows the cover did.
+ */
+export const paneSizes = new Map();
 export class SleepPane {
     /** As Herdr reports it: window px. */
     size = { width: windowPx(0), height: windowPx(0) };
@@ -69,14 +77,31 @@ export class SleepPane {
     host;
     ports;
     key;
-    constructor(engine, host, ports, key) {
+    /** The record to draw instead of the store's (the cover: the session as its pane shows it then). */
+    drawn;
+    /** The wake's step to draw instead of the engine's (the cover: the step it was at when the cover went up). */
+    drawnStep;
+    constructor(engine, host, ports, key, shown, step) {
         this.engine = engine;
         this.host = host;
         this.ports = ports;
         this.key = key;
+        this.drawn = shown ?? null;
+        this.drawnStep = step ?? null;
+        this.size = paneSizes.get(key) ?? this.size;
     }
     rec() {
-        return this.engine.record(this.key);
+        const rec = this.drawn !== null ? this.drawn() : this.engine.record(this.key);
+        // The record says running a moment before the agent takes this pane's slot (Engine.showWoken):
+        // until then this pane still shows the wake, or its last frames would lose the wake's line.
+        return rec !== null && (rec.state === "running" || rec.state === "working") ? { ...rec, state: "waking" } : rec;
+    }
+    step() {
+        return this.drawnStep !== null ? this.drawnStep() : this.engine.progress(this.key);
+    }
+    /** The size to lay out for before its root reports one (the cover knows its body's). */
+    sizeTo(size) {
+        this.size = size;
     }
     /** Whether this pane's tab is the one on screen. */
     visible() {
@@ -241,7 +266,7 @@ export class SleepPane {
         // never cut in the middle of a word (gpui would break a word to wrap it).
         const room = statusWidth(this.size.width, scaleOf(settings()));
         const measure = (text) => uiMeasure(text, STRIP_STATUS_TEXT);
-        const steps = wakeSteps(this.engine.progress(this.key));
+        const steps = wakeSteps(this.step());
         const stepsWidth = steps.reduce((sum, s) => sum + STEP_GAP + measure(s.label), SPINNER_PX);
         const status = rec.state === "waking" && stepsWidth <= room
             ? h_flex()
@@ -264,7 +289,7 @@ export class SleepPane {
                 : stripStatus(rec, {
                     now: this.ports.now(),
                     agentName,
-                    progress: this.engine.progress(this.key),
+                    progress: this.step(),
                     fresh: this.engine.freshness(this.key),
                     line: this.engine.restorePlace(this.key),
                 }), rec.state === "stopping" ? Math.max(0, room - SPINNER_PX - STEP_GAP) : room, measure).map((line) => div().whitespace_nowrap().child(line)));

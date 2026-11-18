@@ -13,7 +13,10 @@
 //    window buttons) and our own hidden column `suspender-panel`, rightmost in
 //    the work row.
 //
-// Both float `suspender-pill`, the "Sleep" drawer, over the tab block.
+// Both float `suspender-pill`, the "Sleep" drawer, over the tab block, and
+// put the tab block in a stack, `suspender-work`, beside `suspender-cover`:
+// the engine shows the cover for a moment while a Sleep or a Resume
+// rearranges the tab's panes, so the split that places a pane never shows.
 //
 // Blocks are found by id or mod, never by position. A main.json the
 // insertions do not fit is reported, not thrown: the caller keeps the last
@@ -22,7 +25,7 @@ import { PILL_PEEK } from "./scale.js";
 import { sha256Hex } from "./sha256.js";
 export const LAYOUT_NAME = "suspender";
 /** Bumped when the insertions change, so existing living layouts are rebuilt. */
-export const GENERATOR_VERSION = 5;
+export const GENERATOR_VERSION = 6;
 export const TOGGLE_ID = "suspender-toggle";
 export const TOPBAR_ID = "suspender-topbar";
 export const PANEL_ID = "suspender-panel";
@@ -31,6 +34,9 @@ export const PILL_ID = "suspender-pill";
 export const TABS_CLONE = "suspender-tabs";
 /** The Sessions panel's id among the side panel's children (`panel-body`), and the copy's button id. */
 export const SESSIONS_CHILD = "suspender";
+/** The stack the tab block is put in, and the cover beside it (`insertCover`). */
+export const WORK_ID = "suspender-work";
+export const COVER_ID = "suspender-cover";
 const MOD = "suspender";
 /** "Sessions · N" for N up to 99 (122.4 px of Geist 12 with its icon and padding), with room to spare. */
 export const TOGGLE_WIDTH_PX = 126;
@@ -159,6 +165,44 @@ function insertPill(root) {
     ];
     return null;
 }
+/**
+ * The tab block goes into a stack in its place, with the cover as the stack's
+ * other child: the stack takes the block's size and limits in its row, the
+ * block fills the stack and keeps everything else (its floating pill). A tab
+ * block without an id gets no cover, as nothing could select it again.
+ */
+function insertCover(root) {
+    const hit = find(root, (node) => contentOf(node)?.tab === "active");
+    const parent = hit?.path.at(-1);
+    if (!hit || typeof hit.node.id !== "string" || parent === undefined || !Array.isArray(parent.children)) {
+        return;
+    }
+    const tab = hit.node;
+    const stack = { id: WORK_ID, type: "stack", active: tab.id };
+    for (const field of ["size", "min", "max"]) {
+        if (tab[field] !== undefined) {
+            stack[field] = tab[field];
+            delete tab[field];
+        }
+    }
+    stack.children = [tab, { id: COVER_ID, type: "block", content: { mod: MOD, props: { role: "cover" } } }];
+    parent.children[parent.children.indexOf(tab)] = stack;
+}
+/** Where the cover is in a live layout (`layout()`), and which of the stack's children shows; null without it. */
+export function coverPlace(layout) {
+    if (!isObject(layout)) {
+        return null;
+    }
+    const hit = find(layout, (node) => node.id === WORK_ID && node.type === "stack");
+    const children = Array.isArray(hit?.node.children) ? hit.node.children.filter(isObject) : [];
+    const tab = children.find((c) => contentOf(c)?.tab === "active");
+    const cover = children.find((c) => c.id === COVER_ID);
+    if (hit === null || typeof tab?.id !== "string" || cover === undefined) {
+        return null;
+    }
+    const active = typeof hit.node.active === "string" ? hit.node.active : tab.id;
+    return { stack: WORK_ID, tab: tab.id, cover: COVER_ID, active };
+}
 /** Every block of a layout tree (in `children`, at any depth), the root included. */
 function blocks(root) {
     const out = [];
@@ -213,7 +257,7 @@ export function buildLivingLayout(main, mainVersion, tabs = "builtin") {
     }
     // main came from JSON, so a JSON round trip is a full copy (and needs no runtime API).
     const layout = JSON.parse(JSON.stringify(main));
-    for (const id of [TOGGLE_ID, TOPBAR_ID, PANEL_ID, PILL_ID, SESSIONS_CHILD]) {
+    for (const id of [TOGGLE_ID, TOPBAR_ID, PANEL_ID, PILL_ID, SESSIONS_CHILD, WORK_ID, COVER_ID]) {
         if (hasId(layout, id)) {
             return { ok: false, reason: `main.json already has a node "${id}"` };
         }
@@ -224,6 +268,7 @@ export function buildLivingLayout(main, mainVersion, tabs = "builtin") {
     if (problem !== null) {
         return { ok: false, reason: problem };
     }
+    insertCover(layout);
     return { ok: true, layout: withOrigin(layout, mainVersion, layoutHash(main), tabs, modsById(main)) };
 }
 /**
