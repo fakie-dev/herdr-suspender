@@ -27,6 +27,8 @@ useStandIns({ appHome: join(home, ".config", "herdr-app"), home, readsHang: fals
 const { SleepPane } = await import("../../src/ui/sleepPane.ts");
 const { PopupView } = await import("../../src/ui/popup.ts");
 const { PanelView } = await import("../../src/ui/panel.ts");
+const { CoverView } = await import("../../src/ui/cover.ts");
+const { COVER_KEY } = await import("../../src/runtime/engine.ts");
 const { openPopup } = await import("../../src/ui/popup.ts");
 const { STRIP_TEXT, STRIP_STATUS_INDENT, STRIP_STATUS_TEXT, STRIP_HEIGHT_ESTIMATE, statusWidth } = await import(
   "../../src/ui/format.ts"
@@ -188,6 +190,43 @@ describe("the last screen of a sleeping tab and its strip", () => {
       .map((el) => called(el, "top")[0]?.[1])
       .find((v) => typeof v === "number" && v > 0) as number;
     assert.ok(screenTop + top + 18 <= 702 - 120, `${screenTop} + ${top} + 18`);
+  });
+});
+
+describe("the cover over the work area (Sleep and Resume behind it)", () => {
+  it("draws the session's sleeping pane in the tab's frame: border, header and the strip", async () => {
+    const { engine, sim, ports, cx } = await world("first row");
+    sim.coverLayout();
+    const g = globalThis as Record<string, unknown>;
+    g["suspenderTheme"] = { accent: "#89b4fa", border: "#45475a", background: "#1e1e2e", foreground: "#cdd6f4" };
+    try {
+      const shown = { ...engine.record(KEY), state: "stopping" };
+      sim.setShared(COVER_KEY, { key: KEY, rec: shown, at: sim.now });
+      const root = sized(new CoverView(engine, sim, ports), cx, 900, 702);
+      const frame = byId(root, "cover-frame");
+      assert.ok(frame !== undefined);
+      assert.ok(has(frame, "rounded", 10));
+      assert.ok(has(frame, "border", 1));
+      assert.ok(has(frame, "border_color", "#89b4fa"), "the focused pane's border");
+      const header = byId(root, "cover-header");
+      assert.ok(header !== undefined && has(header, "h", 30));
+      assert.ok(texts(header).includes("suspender"), "the title Herdr gives a mod pane");
+      assert.ok(byId(root, "strip") !== undefined, "the sleeping pane's strip");
+      assert.ok(
+        texts(root).some((x) => x.includes("first row")),
+        "its last screen",
+      );
+      assert.ok(texts(root).includes("Stopping…"), texts(root).join(" | "));
+    } finally {
+      delete g["suspenderTheme"];
+    }
+  });
+
+  it("draws nothing of a session when no flow holds it", async () => {
+    const { engine, sim, ports, cx } = await world("first row");
+    sim.coverLayout();
+    const root = sized(new CoverView(engine, sim, ports), cx, 900, 702);
+    assert.equal(byId(root, "strip"), undefined);
   });
 });
 

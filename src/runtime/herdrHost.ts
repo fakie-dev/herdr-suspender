@@ -1,6 +1,18 @@
 // `Host` on Herdr's live API. Never loaded by the tests.
 
-import { focused, machines, notify, openOverlay, panes, run, setShared, shared, spaces, terminals } from "herdr";
+import {
+  focused,
+  layout,
+  machines,
+  notify,
+  openOverlay,
+  panes,
+  run,
+  setShared,
+  shared,
+  spaces,
+  terminals,
+} from "herdr";
 import type { SessionKey } from "../core/model.ts";
 import { MOD_NAME } from "./engine.ts";
 import { type Host, type HostPane, type HostTerminal, normalizePane, normalizeTerminal } from "./host.ts";
@@ -34,6 +46,13 @@ export function herdrHost(clock: { sleep(ms: number): Promise<void> }): Host {
       spaces()
         .filter((s) => s.machine === null)
         .map((s) => ({ id: s.id, name: s.name, named: s.named })),
+    windowLayout: () => {
+      try {
+        return layout();
+      } catch {
+        return null;
+      }
+    },
     ready: () => machines().find((m) => m.name === null)?.layout === "ready",
     focused: () => {
       const f = focused();

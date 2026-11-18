@@ -80,7 +80,7 @@ export type QuietCommand =
  * (it keeps the panel per space). Only for the tab the person is on, or a
  * place they asked to go to.
  */
-export type ScreenCommand = "pane.focus" | "tab.select" | "space.select";
+export type ScreenCommand = "pane.focus" | "tab.select" | "space.select" | "layout.select";
 
 export interface Host {
   terminals(): HostTerminal[];
@@ -88,6 +88,8 @@ export interface Host {
   tabs(): HostTab[];
   /** This machine's spaces. */
   spaces(): HostSpace[];
+  /** The shown layout's tree (`layout()`), with each stack's shown child; null if there is none. */
+  windowLayout(): unknown;
   /** This machine's layout document is loaded: panes() and tabs() are complete. */
   ready(): boolean;
   focused(): { pane: string | null; terminal: string | null } | null;

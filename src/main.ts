@@ -1,7 +1,7 @@
 // The mod's one view. `props().role` says which copy this is: "sleep" (a
 // sleeping tab, `props.key`), "confirm" (the question for a working agent),
 // "popup" (the facts of a session, over a row or a strip), and "toggle" |
-// "panel" | "pill" | "window" (the Sessions button, list and sleep pill, each
+// "panel" | "pill" | "cover" | "window" (the Sessions button, list, sleep pill and the cover over the work area, each
 // drawn by its own module; no role at all is the window `mod.open` makes).
 // Every copy runs an engine: one of them leads (binds sessions, recognises a
 // restart), and whichever copy a person presses a button in carries the
@@ -27,6 +27,7 @@ import { herdrHost } from "./runtime/herdrHost.ts";
 import { syncLayout } from "./runtime/layoutSync.ts";
 import { CLONE_NAME, type TabsOutcome, tabsKeeper } from "./runtime/tabsClone.ts";
 import { Updater } from "./runtime/updater.ts";
+import { CoverView } from "./ui/cover.ts";
 import { PanelView } from "./ui/panel.ts";
 import { PillView } from "./ui/pill.ts";
 import { PopupView } from "./ui/popup.ts";
@@ -242,6 +243,7 @@ export default class Suspender extends View {
   private panel: PanelView | null = null;
   private toggle: ToggleView | null = null;
   private pill: PillView | null = null;
+  private cover: CoverView | null = null;
 
   override init(_props: unknown, cx: AsyncContext): void {
     // Herdr hands the block's props through props(), not through init's argument.
@@ -275,6 +277,9 @@ export default class Suspender extends View {
       this.toggle = new ToggleView(engine);
     } else if (props.role === "pill") {
       this.pill = new PillView(engine, host);
+    } else if (props.role === "cover") {
+      // The other child of the tab block's stack: shown only while a Sleep or a Resume rearranges a tab.
+      this.cover = new CoverView(engine, host, ports);
     } else if (props.role === "panel") {
       this.panel = new PanelView({ engine, host, ports, mode: "panel", overlay: null, updates: modUpdates() });
     } else if (props.role === "window" || props.role === undefined) {
@@ -360,7 +365,12 @@ export default class Suspender extends View {
       return this.confirm.render(cx);
     }
     return (
-      this.popup?.render(cx) ?? this.panel?.render(cx) ?? this.toggle?.render(cx) ?? this.pill?.render(cx) ?? div()
+      this.popup?.render(cx) ??
+      this.panel?.render(cx) ??
+      this.toggle?.render(cx) ??
+      this.pill?.render(cx) ??
+      this.cover?.render(cx) ??
+      div()
     );
   }
 

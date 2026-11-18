@@ -14,6 +14,7 @@ import { emptyInfo } from "../adapters/common.ts";
 import type { AgentAdapter, TerminalView } from "../adapters/contract.ts";
 import { ADAPTERS } from "../adapters/index.ts";
 import { classifyTerminal, LABEL_AGENT, LABEL_SESSION, LABEL_STATE, sessionLabels } from "../core/classify.ts";
+import { coverPlace } from "../core/layout.ts";
 import { type Effect, type Event, transition } from "../core/machine.ts";
 import {
   type AgentId,
@@ -56,6 +57,13 @@ import {
 /** The mod's folder name: what `pane.split {mod}` asks for. */
 export const MOD_NAME = "suspender";
 export const LEADER_KEY = "suspender.leader";
+/**
+ * What the cover draws while it is up (ui/cover.ts): the session, and its
+ * record as its sleeping pane shows it then. Null when no flow holds the cover.
+ */
+export const COVER_KEY = "suspender.cover";
+/** A cover held longer than this is left by its flow (a copy that closed mid-way): the next round puts it away. */
+const COVER_STALE_MS = 5_000;
 /** Bumped after every store write, so other copies redraw (and other windows re-read). */
 export const REV_KEY = "suspender.rev";
 /** Bumped when a wake moves to its next step, so the sleep pane redraws. */
@@ -512,6 +520,7 @@ export class Engine {
    * still looked at.
    */
   private async round(): Promise<void> {
+    this.putAwayStrayCover();
     if (!this.claim()) {
       await this.load();
       this.publishTabLabel();
@@ -1987,8 +1996,13 @@ export class Engine {
       return;
     }
     const target = rec.terminal !== null ? this.paneOf(rec.terminal) : null;
+    // The split beside the agent shows until Herdr lists it: behind the cover, it never does.
+    const covered = flow.splitFrom === null && target !== null && this.raiseCover(target, rec);
     const pane = this.splitSleepPane(rec, target, flow) ?? (await this.newSleepPane(rec, target, flow));
     if (pane === null) {
+      if (covered) {
+        this.lowerCover();
+      }
       return;
     }
     let pin: SpacePin | null = null;
@@ -1997,6 +2011,10 @@ export class Engine {
       pin = this.pinSpaceName(target);
       this.host.run("pane.swap", { pane, target });
       this.host.run("terminal.park", { terminal: rec.terminal });
+    }
+    if (covered) {
+      // In the same step: Herdr draws the work area again with our pane alone in the slot.
+      this.lowerCover();
     }
     flow.prepared = pane;
     const tab = this.host.panes().find((p) => p.pane === pane)?.tab ?? rec.tabId;
@@ -2171,6 +2189,51 @@ export class Engine {
    */
   private newTabOffScreen(space: string, props: Record<string, unknown>): void {
     this.host.run("tab.new", { space, mod: MOD_NAME, props, focus: false });
+  }
+
+  /**
+   * Shows the cover over the work area, drawing `shown` (the session as its
+   * sleeping pane shows it), when it can stand in for `pane`'s tab: the layout
+   * has it and shows the tabs, the tab is on screen, and `pane` is alone in it
+   * (the cover would hide any other pane). Returns whether it is up.
+   */
+  private raiseCover(pane: string, shown: SessionRecord): boolean {
+    const place = coverPlace(this.host.windowLayout());
+    const tab = this.host.panes().find((p) => p.pane === pane)?.tab;
+    if (place === null || place.active !== place.tab || tab === undefined || !this.onScreen(pane)) {
+      return false;
+    }
+    if (this.host.panes().filter((p) => p.tab === tab).length !== 1) {
+      return false;
+    }
+    this.host.setShared(COVER_KEY, { key: shown.key, rec: shown, at: this.ports.now() });
+    this.host.runOnScreen("layout.select", { stack: place.stack, child: place.cover });
+    return true;
+  }
+
+  /** The tabs again in the work area, in the caller's step. */
+  private lowerCover(): void {
+    const place = coverPlace(this.host.windowLayout());
+    if (place !== null) {
+      this.host.runOnScreen("layout.select", { stack: place.stack, child: place.tab });
+    }
+    this.host.setShared(COVER_KEY, null);
+  }
+
+  /**
+   * A cover up with no flow holding it (Herdr keeps the stack's child across
+   * a restart, a copy closed mid-way) would hide the tabs for good: put away.
+   */
+  private putAwayStrayCover(): void {
+    const place = coverPlace(this.host.windowLayout());
+    if (place === null || place.active === place.tab) {
+      return;
+    }
+    const held = this.host.shared(COVER_KEY) as { at?: unknown } | null;
+    const at = typeof held?.at === "number" ? held.at : null;
+    if (at === null || this.ports.now() - at >= COVER_STALE_MS) {
+      this.lowerCover();
+    }
   }
 
   /** The pane is in the tab on screen (the shown tab of the shown space). */
@@ -2461,6 +2524,11 @@ export class Engine {
     // Decided now, given back in the step that shows the agent: nothing may wait there.
     const giveBack = await this.letGoOfSpaceName(key, pin);
     const where = rec ?? null;
+    // Herdr adopts the agent by splitting the tab's last pane: behind the cover, that split never shows.
+    const covered =
+      where !== null &&
+      sleepPane !== null &&
+      this.raiseCover(sleepPane, { ...where, state: "waking", pane: sleepPane });
     if (where !== null) {
       await this.ports
         .hc(["label", address, `herdr.space=${where.spaceId}`, `herdr.tab=${where.tabId}`])
@@ -2468,6 +2536,9 @@ export class Engine {
     }
     const pane = await this.waitFor(() => this.paneOf(address), PANE_WAIT_MS, FRAME_MS);
     if (pane === null) {
+      if (covered) {
+        this.lowerCover();
+      }
       this.setProgress(key, null);
       await this.discard(address);
       if (fresh) {
@@ -2502,6 +2573,10 @@ export class Engine {
     // that tab and its space (measured), and the side panel goes with the space.
     if (this.onScreen(pane)) {
       this.host.runOnScreen("pane.focus", { pane });
+    }
+    if (covered) {
+      // Before the close, in the same step: the copy that closes may be the sleeping pane, which ends there.
+      this.lowerCover();
     }
     // Last: when this copy is that pane, closing it ends this copy.
     if (sleepPane !== null && this.paneExists(sleepPane)) {

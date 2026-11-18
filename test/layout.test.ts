@@ -86,8 +86,12 @@ describe("buildLivingLayout from the real main.json", () => {
     const row = parentOf(layout, panel);
     assert.equal(row?.type, "row");
     const siblings = row?.children ?? [];
-    assert.ok(siblings.includes(tab), "in the same row as the tab block");
-    assert.ok(siblings.indexOf(panel) > siblings.indexOf(tab), "right of the tab block");
+    // The tab block sits in the cover's stack, which holds its place in the row (coverLayout.test.ts).
+    const place = byId(layout, "suspender-work");
+    assert.ok(place?.children?.includes(tab), "the tab block is in the stack");
+    assert.ok(place);
+    assert.ok(siblings.includes(place), "in the same row as the tab block");
+    assert.ok(siblings.indexOf(panel) > siblings.indexOf(place), "right of the tab block");
     assert.equal(siblings.at(-1), panel, "rightmost, after the shipped Files/Changes panel");
   });
 
@@ -125,7 +129,13 @@ describe("buildLivingLayout from the real main.json", () => {
       assert.ok(ids.includes(id), `${id} kept`);
     }
     const added = ids.filter((id) => !shippedIds.includes(id));
-    assert.deepEqual(added.sort(), ["suspender-panel", "suspender-toggle", "suspender-topbar"]);
+    assert.deepEqual(added.sort(), [
+      "suspender-cover",
+      "suspender-panel",
+      "suspender-toggle",
+      "suspender-topbar",
+      "suspender-work",
+    ]);
   });
 });
 
@@ -168,8 +178,8 @@ describe("buildLivingLayout with the live copy of the tab bar (clone)", () => {
   it("records the mode and the generator it was built by", () => {
     const generated = clone().suspender_generated as { tabs?: unknown; generator?: unknown };
     assert.equal(generated.tabs, "clone");
-    // 5: the Sleep pill peeks 38 px, a square button (was 30).
-    assert.equal(generated.generator, 5);
+    // 5: the Sleep pill peeks 38 px, a square button (was 30). 6: the cover's stack around the tab block.
+    assert.equal(generated.generator, 6);
     assert.equal((build().suspender_generated as { tabs?: unknown }).tabs, "builtin");
   });
 
@@ -188,7 +198,7 @@ describe("buildLivingLayout with the live copy of the tab bar (clone)", () => {
     const added = nodes(clone())
       .map((n) => n.id)
       .filter((id) => !shippedIds.includes(id));
-    assert.deepEqual(added, ["suspender"]);
+    assert.deepEqual(added.sort(), ["suspender", "suspender-cover", "suspender-work"]);
   });
 });
 

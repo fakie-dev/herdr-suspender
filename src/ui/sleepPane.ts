@@ -110,16 +110,24 @@ export class SleepPane {
   private readonly host: Host;
   private readonly ports: Ports;
   private readonly key: SessionKey;
+  /** The record to draw instead of the store's (the cover: the session as its pane shows it then). */
+  private readonly drawn: (() => SessionRecord | null) | null;
 
-  constructor(engine: Engine, host: Host, ports: Ports, key: SessionKey) {
+  constructor(engine: Engine, host: Host, ports: Ports, key: SessionKey, shown?: () => SessionRecord | null) {
     this.engine = engine;
     this.host = host;
     this.ports = ports;
     this.key = key;
+    this.drawn = shown ?? null;
   }
 
   private rec(): SessionRecord | null {
-    return this.engine.record(this.key);
+    return this.drawn !== null ? this.drawn() : this.engine.record(this.key);
+  }
+
+  /** The size to lay out for before its root reports one (the cover knows its body's). */
+  sizeTo(size: WindowSize): void {
+    this.size = size;
   }
 
   /** Whether this pane's tab is the one on screen. */

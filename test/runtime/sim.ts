@@ -8,6 +8,7 @@
 // that ends at the terminal's index with its size holds its rectangle.
 
 import type { AgentAdapter, TerminalView } from "../../src/adapters/contract.ts";
+import { COVER_ID, WORK_ID } from "../../src/core/layout.ts";
 import type { AgentId, SessionInfo, SessionKey } from "../../src/core/model.ts";
 import type { ExecResult, Ports } from "../../src/platform/ports.ts";
 import type { Host, HostPane, HostSpace, HostTab, HostTerminal, NoticeLevel } from "../../src/runtime/host.ts";
@@ -298,6 +299,60 @@ export class Sim implements Host {
 
   // ---- Host
 
+  /** The window's layout (`layout()`): none unless a test gives it the Suspender layout's cover stack. */
+  layoutTree: unknown = null;
+
+  /** The Suspender layout around the tab block: the stack with the tab block shown and the cover beside it. */
+  coverLayout(): void {
+    this.layoutTree = {
+      id: "root",
+      type: "row",
+      children: [
+        {
+          id: WORK_ID,
+          type: "stack",
+          active: "main",
+          children: [
+            {
+              id: "main",
+              type: "block",
+              // As Herdr 0.1.16's main.json frames its panes.
+              content: {
+                tab: "active",
+                pane: {
+                  radius: 10,
+                  background: "background",
+                  border: { width: 1, color: "border" },
+                  focus: { width: 1, color: "accent" },
+                  header: { content: { mod: "pane" }, height: 30, position: "top" },
+                },
+              },
+            },
+            { id: COVER_ID, type: "block", content: { mod: "suspender", props: { role: "cover" } } },
+          ],
+        },
+      ],
+    };
+  }
+
+  /** Which child of the cover's stack shows, or null without that layout. */
+  workShows(): string | null {
+    const root = this.layoutTree as { children?: { id: string; active?: string }[] } | null;
+    return root?.children?.find((c) => c.id === WORK_ID)?.active ?? null;
+  }
+
+  selectWork(child: string): void {
+    const root = this.layoutTree as { children?: { id: string; active?: string }[] } | null;
+    const stack = root?.children?.find((c) => c.id === WORK_ID);
+    if (stack) {
+      stack.active = child;
+    }
+  }
+
+  windowLayout(): unknown {
+    return this.layoutTree === null ? null : JSON.parse(JSON.stringify(this.layoutTree));
+  }
+
   terminals(): HostTerminal[] {
     return [...this.terms.values()]
       .filter((t) => t.listed || this.listsUnadopted)
@@ -516,6 +571,12 @@ export class Sim implements Host {
       }
       case "tab.select": {
         this.select(String(args["id"]));
+        return;
+      }
+      case "layout.select": {
+        if (args["stack"] === WORK_ID) {
+          this.selectWork(String(args["child"]));
+        }
         return;
       }
       case "space.rename": {
