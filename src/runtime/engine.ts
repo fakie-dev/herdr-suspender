@@ -2029,22 +2029,13 @@ export class Engine {
   }
 
   /**
-   * A new tab for our pane in `space`, and the screen given back at once: Herdr
-   * shows a new tab (measured), and nobody asked to go there. In the same step,
-   * so Herdr applies them in order: the tab that space showed, then the tab that
-   * was on screen (`tab.select` goes to another space too, with that tab's focus).
+   * A new tab for our pane in `space`, opened without the focus (Herdr 0.1.16):
+   * the tab and space on screen, the tab that space shows and the focus stay
+   * (measured). Before, Herdr showed the new tab and the mod selected the old
+   * ones back in the same step.
    */
   private newTabOffScreen(space: string, props: Record<string, unknown>): void {
-    const tabs = this.host.tabs();
-    const shown = tabs.find((t) => t.active && t.spaceActive)?.id ?? null;
-    const spaceShown = tabs.find((t) => t.space === space && t.active)?.id ?? null;
-    this.host.runOnScreen("tab.new", { space, mod: MOD_NAME, props });
-    if (spaceShown !== null && spaceShown !== shown) {
-      this.host.runOnScreen("tab.select", { id: spaceShown });
-    }
-    if (shown !== null) {
-      this.host.runOnScreen("tab.select", { id: shown });
-    }
+    this.host.run("tab.new", { space, mod: MOD_NAME, props, focus: false });
   }
 
   /** The pane is in the tab on screen (the shown tab of the shown space). */

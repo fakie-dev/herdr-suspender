@@ -69,16 +69,18 @@ export type QuietCommand =
   | "terminal.park"
   | "terminal.kill"
   // Measured on Herdr 0.1.15: renaming a space that is not shown leaves the shown space, tab and focus.
-  | "space.rename";
+  | "space.rename"
+  // Only with `focus: false` (Herdr 0.1.16, measured): the new tab is added and nothing on screen moves.
+  | "tab.new";
 
 /**
  * App commands that change what the screen shows: `pane.focus` of a pane in
- * another tab shows that tab and its space, and `tab.new` shows the new tab
- * (measured); with another space, Herdr's tab bar also closes the side panel
+ * another tab shows that tab and its space, and so does `tab.new` without
+ * `focus: false` (measured); with another space, Herdr's tab bar also closes the side panel
  * (it keeps the panel per space). Only for the tab the person is on, or a
  * place they asked to go to.
  */
-export type ScreenCommand = "pane.focus" | "tab.new" | "tab.select" | "space.select";
+export type ScreenCommand = "pane.focus" | "tab.select" | "space.select";
 
 export interface Host {
   terminals(): HostTerminal[];

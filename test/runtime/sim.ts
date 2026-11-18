@@ -453,8 +453,27 @@ export class Sim implements Host {
         const pane = this.newPane(id, null, mod, (args["props"] as Record<string, unknown>) ?? {});
         // Herdr shows the new tab (measured): it becomes its space's tab and the
         // tab on screen. Commands apply in order, so a later `tab.select` wins
-        // even when the new tab is listed late.
+        // even when the new tab is listed late. With `focus: false` (Herdr 0.1.16,
+        // measured in an isolated core) it is only added: the tab and space shown,
+        // the tab its own space shows and the focus all stay.
         const space = String(args["space"] ?? SPACE);
+        if (args["focus"] === false) {
+          const add = (): void => {
+            this.addTab(id, space);
+            const added = this.tabList.find((t) => t.id === id);
+            if (added) {
+              added.active = false;
+            }
+            this.paneList.push(pane);
+          };
+          const late = mod !== null ? (this.modPaneDelays.shift() ?? 0) : 0;
+          if (late > 0) {
+            this.later(late, add);
+          } else {
+            add();
+          }
+          return;
+        }
         const order = ++this.screenOrder;
         const show = (): void => {
           this.addTab(id, space);

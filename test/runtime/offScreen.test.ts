@@ -134,5 +134,14 @@ describe("a sleep whose tab has no pane left for ours (a new tab in its space)",
     assert.ok(tab !== "" && tab !== "tb2", "our pane is in a new tab");
     assert.equal(sim.tabList.find((t) => t.id === tab)?.space, "sp2", "of the session's space");
     assert.deepEqual(screen(sim), before);
+    // Herdr 0.1.16: the tab opens without the focus, so the screen never moves, not even for a frame.
+    assert.deepEqual(
+      sim.commands.filter((c) => c.command === "tab.new").map((c) => c.args["focus"]),
+      [false],
+    );
+    assert.deepEqual(
+      sim.commands.filter((c) => c.command === "tab.select" || c.command === "space.select"),
+      [],
+    );
   });
 });
