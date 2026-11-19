@@ -2,6 +2,7 @@
 import { focused, layout, machines, notify, openOverlay, panes, run, setShared, shared, spaces, terminals, } from "herdr";
 import { MOD_NAME } from "./engine.js";
 import { normalizePane, normalizeTerminal } from "./host.js";
+import { agentLooks } from "./looks.js";
 /** The question for a working agent, as a small dialog. */
 const CONFIRM_SIZE = { width: 440, height: 132 };
 const present = (value) => value !== null;
@@ -46,6 +47,7 @@ export function herdrHost(clock) {
         runOnScreen: (command, args) => {
             runCommand(command, args);
         },
+        agentLooks: () => agentLooks,
         shared: (key) => shared(key),
         setShared: (key, value) => {
             setShared(key, value);

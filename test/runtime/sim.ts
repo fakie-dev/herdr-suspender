@@ -8,6 +8,7 @@
 // that ends at the terminal's index with its size holds its rectangle.
 
 import type { AgentAdapter, TerminalView } from "../../src/adapters/contract.ts";
+import { type AgentLook, AgentLooks } from "../../src/core/agentLook.ts";
 import { COVER_ID, WORK_ID } from "../../src/core/layout.ts";
 import type { AgentId, SessionInfo, SessionKey } from "../../src/core/model.ts";
 import type { ExecResult, Ports } from "../../src/platform/ports.ts";
@@ -601,6 +602,23 @@ export class Sim implements Host {
   }
   runOnScreen(command: string, args: Record<string, unknown>): void {
     this.run(command, args);
+  }
+  /** Herdr's program table (`knownAgents()`): icons by program key, as Herdr answers when asked. */
+  programs: Record<string, AgentLook> = {};
+  programsFail = false;
+  programCalls = 0;
+  private readonly looks = new AgentLooks({
+    known: async () => {
+      this.programCalls++;
+      if (this.programsFail) {
+        throw new Error("knownAgents failed");
+      }
+      return Object.entries(this.programs).map(([key, look]) => ({ key, ...look, agent: true }));
+    },
+    live: () => [],
+  });
+  agentLooks(): AgentLooks {
+    return this.looks;
   }
   shared(key: string): unknown {
     return this.sharedValues.get(key) ?? null;

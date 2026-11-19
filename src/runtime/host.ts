@@ -4,6 +4,7 @@
 // imports nothing from Herdr.
 
 import type { TerminalView } from "../adapters/contract.ts";
+import type { AgentLooks } from "../core/agentLook.ts";
 import type { SessionKey } from "../core/model.ts";
 
 /** A core terminal, reduced to what the engine reads. */
@@ -97,6 +98,8 @@ export interface Host {
   run(command: QuietCommand, args: Record<string, unknown>): void;
   /** An app command that changes what the screen shows (see `ScreenCommand`). Never throws. */
   runOnScreen(command: ScreenCommand, args: Record<string, unknown>): void;
+  /** Herdr's program table, shared by every copy of the mod in this window (runtime/looks.ts). */
+  agentLooks(): AgentLooks;
   shared(key: string): unknown;
   setShared(key: string, value: unknown): void;
   sleep(ms: number): Promise<void>;

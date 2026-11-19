@@ -3,10 +3,11 @@
 
 import { h_flex } from "gpui-base";
 import { type Color, type Context, type Element, image, svg } from "gpui-kit";
-import { knownAgents, panes, theme } from "herdr";
-import { type AgentLook, AgentLooks } from "../core/agentLook.ts";
+import { theme } from "herdr";
+import type { AgentLook } from "../core/agentLook.ts";
 import type { AgentId } from "../core/model.ts";
 import { AGENT_ICON, STATE_SPINNER, STATE_SPINNER_GAP } from "../core/scale.ts";
+import { agentLooks } from "../runtime/looks.ts";
 import type { Tone } from "./sessionsModel.ts";
 
 export const ICONS = "mods/suspender/icons";
@@ -51,10 +52,7 @@ export function agentTile(agent: AgentId, color: Palette, size: number = AGENT_I
  * once (knownAgents() runs a check process), and live panes' programs until it
  * answers.
  */
-const looks = new AgentLooks({
-  known: () => knownAgents(),
-  live: () => panes().map((p) => p.program),
-});
+const looks = agentLooks;
 
 /**
  * The agent's icon as Herdr's own Agents list draws `program.icon`: a picture

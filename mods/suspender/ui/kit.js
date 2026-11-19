@@ -2,9 +2,9 @@
 // by name, the agent's icon (or its letter tile), the tone colours of a state.
 import { h_flex } from "gpui-base";
 import { image, svg } from "gpui-kit";
-import { knownAgents, panes, theme } from "herdr";
-import { AgentLooks } from "../core/agentLook.js";
+import { theme } from "herdr";
 import { AGENT_ICON, STATE_SPINNER, STATE_SPINNER_GAP } from "../core/scale.js";
+import { agentLooks } from "../runtime/looks.js";
 export const ICONS = "mods/suspender/icons";
 /** A theme colour by name (theme() names every one the mod uses; a missing one draws nothing). */
 export function palette() {
@@ -40,10 +40,7 @@ export function agentTile(agent, color, size = AGENT_ICON) {
  * once (knownAgents() runs a check process), and live panes' programs until it
  * answers.
  */
-const looks = new AgentLooks({
-    known: () => knownAgents(),
-    live: () => panes().map((p) => p.program),
-});
+const looks = agentLooks;
 /**
  * The agent's icon as Herdr's own Agents list draws `program.icon`: a picture
  * with `image()`, a one-colour glyph with `svg()` in the text colour. No

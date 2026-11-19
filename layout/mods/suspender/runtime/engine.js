@@ -36,6 +36,12 @@ export const REV_KEY = "suspender.rev";
 export const PROGRESS_KEY = "suspender.progress";
 /** "Sessions · N" for the live copy of the tab bar, which reads it with shared() (runtime/tabsClone.ts). */
 export const TAB_LABEL_KEY = "suspender.tabLabel";
+/**
+ * Each session's tab with its agent's icon from Herdr's program table, for the
+ * live copy of the tab bar: a sleeping tab holds only our pane, which has no
+ * program to draw (ADR 19).
+ */
+export const TAB_ICONS_KEY = "suspender.tabIcons";
 /** Set when the leader has confirmed sessions' states in this run: every copy redraws ("checking" ends). */
 export const CHECKED_KEY = "suspender.checked";
 /** The terminal's own pid when it was bound: a restart gives it a new one. */
@@ -315,13 +321,16 @@ export class Engine {
      */
     async round() {
         this.putAwayStrayCover();
+        await this.lookAgents();
         if (!this.claim()) {
             await this.load();
             this.publishTabLabel();
+            this.publishTabIcons();
             return;
         }
         await this.load();
         this.publishTabLabel();
+        this.publishTabIcons();
         if (!this.host.ready()) {
             return;
         }
@@ -450,6 +459,35 @@ export class Engine {
         const label = t("toggle.label", { count: sleepingCount(this.records()) });
         if (this.host.shared(TAB_LABEL_KEY) !== label) {
             this.host.setShared(TAB_LABEL_KEY, label);
+        }
+    }
+    /** Asks Herdr's program table when it is due (once per window; again a minute after a failure). */
+    async lookAgents() {
+        const started = this.host.agentLooks().start(this.ports.now());
+        if (started !== null) {
+            await started;
+        }
+    }
+    /**
+     * Each session's tab with its agent's icon, for the live copy of the tab bar,
+     * which draws it on a tab whose pane is ours. Published for running sessions
+     * too, so the icon is there the moment a tab's agent gives its place to our
+     * pane. A tab with sessions of several agents shows the one whose pane is
+     * there, else the one running. Set only when it changes (it redraws every mod).
+     */
+    publishTabIcons() {
+        const looks = this.host.agentLooks();
+        const rank = (r) => (r.pane !== null ? 2 : RUNNING.includes(r.state) ? 1 : 0);
+        const byTab = new Map();
+        for (const r of [...this.records()].sort((a, b) => rank(a) - rank(b))) {
+            const icon = looks.look(r.agent);
+            if (icon !== null) {
+                byTab.set(r.tabId, icon);
+            }
+        }
+        const icons = Object.fromEntries([...byTab].sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0)));
+        if (JSON.stringify(this.host.shared(TAB_ICONS_KEY)) !== JSON.stringify(icons)) {
+            this.host.setShared(TAB_ICONS_KEY, icons);
         }
     }
     claim() {
@@ -2334,6 +2372,7 @@ export class Engine {
                 this.co.storeRev = rev;
                 this.host.setShared(REV_KEY, rev);
                 this.publishTabLabel();
+                this.publishTabIcons();
                 return;
             }
         }

@@ -21,7 +21,11 @@ import {
 import { type FakePorts, fakePorts } from "../fakePorts.ts";
 
 const fixture = (name: string): string => readFileSync(new URL(`../fixtures/${name}`, import.meta.url), "utf8");
-const SHIPPED = { "0.1.14": fixture("tabs-main-0.1.14.js"), "0.1.15": fixture("tabs-main-0.1.15.js") };
+const SHIPPED = {
+  "0.1.14": fixture("tabs-main-0.1.14.js"),
+  "0.1.15": fixture("tabs-main-0.1.15.js"),
+  "0.1.16": fixture("tabs-main-0.1.16.js"),
+};
 const sha = (text: string): string => createHash("sha256").update(text).digest("hex");
 
 // The patch as the ticket words it, character for character.
@@ -30,13 +34,19 @@ const ENABLED_AFTER = 'const enabled = [...(shared("workspace.panels") ?? ["file
 const BUTTONS = ".when(w?.buttons,";
 const SESSIONS =
   '.child(panelButton("suspender", String(shared("suspender.tabLabel") ?? "Sessions"), "mods/suspender/icons/moon.svg"))';
-const mark = (text: string): string => `// suspender-tabs: from tabs/main.js sha256=${sha(text)} patch=1`;
+// The sleeping agent's icon (ADR 19): only where the shipped file names a tab's program this way.
+const PROGRAM_BEFORE = "const program = lead?.program;";
+const PROGRAM_AFTER =
+  'const program = (lead?.mod === "suspender" ? shared("suspender.tabIcons")?.[lead.tab] : null) ?? lead?.program;';
+/** Herdr releases whose tab bar takes a tab's icon from `const program = lead?.program;`. */
+const NAMES_PROGRAM = new Set(["0.1.16"]);
+const mark = (text: string): string => `// suspender-tabs: from tabs/main.js sha256=${sha(text)} patch=2`;
 
 const count = (text: string, needle: string): number => text.split(needle).length - 1;
 
 describe("patchTabs", () => {
   for (const [version, source] of Object.entries(SHIPPED)) {
-    it(`patches Herdr ${version}'s tab bar: the fingerprint first, then the shipped file with two changes`, () => {
+    it(`patches Herdr ${version}'s tab bar: the fingerprint first, then the shipped file with its changes`, () => {
       const out = patchTabs(source, sha(source));
       assert.ok(out !== null);
       const [first, ...rest] = out.split("\n");
@@ -45,9 +55,13 @@ describe("patchTabs", () => {
       assert.equal(count(body, ENABLED_AFTER), 1);
       assert.equal(count(body, ENABLED_BEFORE), 0);
       assert.equal(count(body, SESSIONS), 1);
-      // Undo the two changes: what is left is the shipped file, byte for byte (its mods/tabs/ paths too).
+      const icon = NAMES_PROGRAM.has(version);
+      assert.equal(count(body, PROGRAM_AFTER), icon ? 1 : 0);
+      assert.equal(count(body, PROGRAM_BEFORE), icon ? 0 : count(source, PROGRAM_BEFORE));
+      // Undo the changes: what is left is the shipped file, byte for byte (its mods/tabs/ paths too).
       const undone = body
         .replace(ENABLED_AFTER, ENABLED_BEFORE)
+        .replace(PROGRAM_AFTER, PROGRAM_BEFORE)
         .replace(/\.child\(panelButton\("suspender"[^\n]*\n\s*/, "");
       assert.equal(undone, source);
     });
@@ -90,6 +104,24 @@ describe("patchTabs", () => {
     const source = SHIPPED["0.1.15"];
     assert.equal(patchTabs(`${source}\n// ${ENABLED_AFTER}\n`, "x"), null);
     assert.equal(patchTabs(`${source}\n// ${SESSIONS}\n`, "x"), null);
+  });
+
+  it("still patches a tab bar that names a tab's program another way, without the icon", () => {
+    const source = SHIPPED["0.1.16"].replace(PROGRAM_BEFORE, "const program = lead && lead.program;");
+    const out = patchTabs(source, sha(source));
+    assert.ok(out !== null);
+    assert.equal(count(out, SESSIONS), 1);
+    assert.equal(count(out, PROGRAM_AFTER), 0);
+  });
+
+  it("leaves the icon out, and patches the rest, when its anchor is there twice or the change is already there", () => {
+    for (const extra of [PROGRAM_BEFORE, PROGRAM_AFTER]) {
+      const source = `${SHIPPED["0.1.16"]}\n// ${extra}\n`;
+      const out = patchTabs(source, sha(source));
+      assert.ok(out !== null, extra);
+      assert.equal(count(out, SESSIONS), 1);
+      assert.equal(count(out, PROGRAM_BEFORE), count(source, PROGRAM_BEFORE), "nothing replaced");
+    }
   });
 
   it("refuses when an anchor is there twice", () => {
@@ -465,5 +497,30 @@ describe("tabsKeeper (what the shown copies of one window ask)", () => {
       assert.equal(checks, 2);
       assert.ok(first);
     });
+  });
+});
+
+describe("the sleeping agent's icon in the copy of the tab bar", () => {
+  // The changed line, run on its own: `lead` is the pane the tab bar picked for a tab, `shared` Herdr's.
+  const pick = (lead: unknown, icons: unknown): unknown =>
+    new Function("lead", "shared", `${PROGRAM_AFTER} return program;`)(lead, (key: string) =>
+      key === "suspender.tabIcons" ? icons : null,
+    );
+  const ICON = { icon: "icons/claude.svg", tint: false };
+  const SHELL = { key: "shell", icon: "icons/shell.svg", tint: true, agent: false };
+
+  it("draws the published icon on a tab whose pane is ours", () => {
+    assert.deepEqual(pick({ pane: "p1", mod: "suspender", tab: "tb1" }, { tb1: ICON }), ICON);
+  });
+
+  it("keeps a terminal's own program, whatever is published for its tab", () => {
+    assert.deepEqual(pick({ pane: "p1", terminal: "t1", tab: "tb1", program: SHELL }, { tb1: ICON }), SHELL);
+  });
+
+  it("draws nothing new for another mod's pane, a tab with nothing published, or before anything is", () => {
+    assert.equal(pick({ pane: "p1", mod: "files", tab: "tb1" }, { tb1: ICON }), undefined);
+    assert.equal(pick({ pane: "p1", mod: "suspender", tab: "tb2" }, { tb1: ICON }), undefined);
+    assert.equal(pick({ pane: "p1", mod: "suspender", tab: "tb1" }, null), undefined);
+    assert.equal(pick(undefined, { tb1: ICON }), undefined);
   });
 });

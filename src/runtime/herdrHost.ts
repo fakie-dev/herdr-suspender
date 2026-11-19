@@ -16,6 +16,7 @@ import {
 import type { SessionKey } from "../core/model.ts";
 import { MOD_NAME } from "./engine.ts";
 import { type Host, type HostPane, type HostTerminal, normalizePane, normalizeTerminal } from "./host.ts";
+import { agentLooks } from "./looks.ts";
 
 /** The question for a working agent, as a small dialog. */
 const CONFIRM_SIZE = { width: 440, height: 132 };
@@ -64,6 +65,7 @@ export function herdrHost(clock: { sleep(ms: number): Promise<void> }): Host {
     runOnScreen: (command, args) => {
       runCommand(command, args);
     },
+    agentLooks: () => agentLooks,
     shared: (key) => shared(key),
     setShared: (key, value) => {
       setShared(key, value);

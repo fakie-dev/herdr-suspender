@@ -26,7 +26,7 @@ import { syncLayout, tabsFallbackNotice } from "./layoutSync.ts";
 
 export const CLONE_NAME = TABS_CLONE;
 /** Bumped when the patch changes, so copies made by an older build are written again. */
-export const PATCH_VERSION = 1;
+export const PATCH_VERSION = 2;
 export const CLONE_MARK = "// suspender-tabs: from tabs/main.js sha256=";
 /** How long `mod.clone` may take to put the copy's main.js on disk. */
 export const CLONE_WAIT_MS = 5_000;
@@ -45,6 +45,14 @@ const ENABLED = 'const enabled = [...(shared("workspace.panels") ?? ["files", "c
 const ANCHOR_BUTTONS = ".when(w?.buttons,";
 const SESSIONS_BUTTON =
   '.child(panelButton("suspender", String(shared("suspender.tabLabel") ?? "Sessions"), "mods/suspender/icons/moon.svg"))';
+/**
+ * A tab's icon is its lead pane's program; a sleeping tab's lead is our pane,
+ * which has none, so it gets the icon the engine published for its tab (ADR 19).
+ * Optional: a tab bar that names the program another way is patched without it.
+ */
+const ANCHOR_PROGRAM = "const program = lead?.program;";
+const PROGRAM =
+  'const program = (lead?.mod === "suspender" ? shared("suspender.tabIcons")?.[lead.tab] : null) ?? lead?.program;';
 
 export interface TabsCloneDeps {
   ports: Ports;
@@ -78,7 +86,12 @@ export function patchTabs(source: string, hash: string): string | null {
   if (count(source, ANCHOR_ENABLED) !== 1 || count(source, ANCHOR_BUTTONS) !== 1) {
     return null;
   }
-  const enabled = source.replace(ANCHOR_ENABLED, ENABLED);
+  // The icon only where its anchor is there once and the change is not there yet; never a reason to refuse.
+  const iconed =
+    count(source, ANCHOR_PROGRAM) === 1 && count(source, PROGRAM) === 0
+      ? source.replace(ANCHOR_PROGRAM, PROGRAM)
+      : source;
+  const enabled = iconed.replace(ANCHOR_ENABLED, ENABLED);
   // The new button goes on a line of its own, indented like the `.when` it precedes.
   const at = enabled.indexOf(ANCHOR_BUTTONS);
   const lineStart = enabled.lastIndexOf("\n", at) + 1;
