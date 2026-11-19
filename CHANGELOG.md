@@ -5,6 +5,8 @@ and the project uses [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.1.9] - 2026-11-19
+
 ### Changed
 
 - A sleeping tab keeps its agent's icon in the tab bar (Claude Code's, Codex's), so you can tell at a glance what
@@ -298,7 +300,8 @@ First release.
   command, so the draft is dropped instead of being sent.
 - The interface is English only.
 
-[Unreleased]: https://github.com/fakie-dev/herdr-suspender/compare/v0.1.8...HEAD
+[Unreleased]: https://github.com/fakie-dev/herdr-suspender/compare/v0.1.9...HEAD
+[0.1.9]: https://github.com/fakie-dev/herdr-suspender/compare/v0.1.8...v0.1.9
 [0.1.8]: https://github.com/fakie-dev/herdr-suspender/compare/v0.1.7...v0.1.8
 [0.1.7]: https://github.com/fakie-dev/herdr-suspender/compare/v0.1.6...v0.1.7
 [0.1.6]: https://github.com/fakie-dev/herdr-suspender/compare/v0.1.5...v0.1.6
