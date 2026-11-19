@@ -5,6 +5,12 @@ and the project uses [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Changed
+
+- A sleeping tab keeps its agent's icon in the tab bar (Claude Code's, Codex's), so you can tell at a glance what
+  sleeps there. Before, the tab showed no icon while its session slept. Needs the Suspender layout on Herdr 0.1.16
+  or newer.
+
 ## [0.1.8] - 2026-11-18
 
 ### Fixed

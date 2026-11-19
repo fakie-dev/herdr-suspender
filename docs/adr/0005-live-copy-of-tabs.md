@@ -21,7 +21,7 @@ The mod keeps `mods/suspender-tabs`, made once with Herdr's own `mod.clone {name
 "suspender-tabs"}` (so `mod.json` and the icons come from Herdr), and owns its `main.js`: the shipped
 `tabs/main.js`, unchanged except for two insertions, each at an anchor that must occur exactly once. The panel
 list gets `"suspender"` appended, and `panelButton("suspender", <label>, "mods/suspender/icons/moon.svg")` goes
-before `.when(w?.buttons,`. Both are made on the whole file, whichever anchor comes first, and a result that does
+before `.when(w?.buttons,`. A third, optional insertion gives a sleeping tab its agent's icon ([ADR 19](0019-a-sleeping-tab-keeps-its-icon.md)). Both are made on the whole file, whichever anchor comes first, and a result that does
 not hold each change exactly once is refused like a missing anchor. Paths are not rewritten: the window-button icons stay `mods/tabs/...`. The label is
 the shared value `suspender.tabLabel`, which the engine sets only when its text changes.
 

@@ -207,7 +207,10 @@ copy stays as it was, the layout goes back to Herdr's own tab bar with our toggl
 column, and one toast says so. The copy reads
 its label from `shared("suspender.tabLabel")`, which the engine sets after each round and each store write, only
 when the text changes. `suspender.panel` opens and closes Sessions in either mode (`sessionsToggle`). See
-[ADR 5](adr/0005-live-copy-of-tabs.md).
+[ADR 5](adr/0005-live-copy-of-tabs.md). Where Herdr's tab bar takes a tab's icon from `const program =
+lead?.program;`, the copy also draws a sleeping tab with its agent's icon: the engine publishes each session's tab
+with that icon from Herdr's program table (`shared("suspender.tabIcons")`, from the table the Sessions list
+draws agents with, `runtime/looks.ts`), and the copy uses it for a tab whose pane is ours ([ADR 19](adr/0019-a-sleeping-tab-keeps-its-icon.md)).
 
 Without the layout the mod still works: Sleep and Resume, restored tabs, and Sessions as a window. Two things
 depend on a copy of the mod being on screen, and the layout is what keeps one there. Keys reach only a mod that
