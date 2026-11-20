@@ -157,6 +157,23 @@ describe("last screen", () => {
     assert.deepEqual(screenLines("x\r\ny", 5), ["x", "y"]);
   });
 
+  it("makes room from blank rows between blocks first, so the top stays where it was", () => {
+    // A Claude Code screen: the logo on top, a gap, the input box and its status at the bottom.
+    const screen = ["logo 1", "logo 2", "", "note", "", "", "", "", "input", "status"].join("\n");
+    assert.deepEqual(screenLines(screen, 7), ["logo 1", "logo 2", "", "note", "", "input", "status"]);
+  });
+
+  it("takes the blank rows nearest the bottom first and keeps one between two blocks", () => {
+    const screen = ["a", "", "", "b", "", "", "c"].join("\n");
+    assert.deepEqual(screenLines(screen, 6), ["a", "", "", "b", "", "c"]);
+    assert.deepEqual(screenLines(screen, 5), ["a", "", "b", "", "c"]);
+  });
+
+  it("drops rows from the top only once no gap is left to close", () => {
+    assert.deepEqual(screenLines(["a", "", "", "b", "c", "d"].join("\n"), 4), ["", "b", "c", "d"]);
+    assert.deepEqual(screenLines("a\nb\nc\nd", 2), ["c", "d"]);
+  });
+
   it("clock: hours and minutes today", () => {
     assert.equal(clock(at(9, 7), NOW), "09:07");
   });

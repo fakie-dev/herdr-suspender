@@ -299,14 +299,28 @@ export function fitStrip(
   };
 }
 
-/** The last `max` lines of a screen, without the blank lines under the prompt. */
+/**
+ * The lines of a screen that fit in `max` rows, without the blank lines under
+ * the prompt. Rows that do not fit come out of the gaps between blocks first,
+ * from the bottom up and keeping one blank row in each, so what is above a gap
+ * stays on the row it had on screen (an agent's logo and first lines do not
+ * move or get cut); only then from the top.
+ */
 export function screenLines(text: string | null, max: number): string[] {
   if (text === null || max <= 0) {
     return [];
   }
+  const blank = (line: string | undefined): boolean => (line ?? "").trim() === "";
   const lines = text.replace(/\r\n?/g, "\n").split("\n");
-  while (lines.length > 0 && (lines.at(-1) ?? "").trim() === "") {
+  while (lines.length > 0 && blank(lines.at(-1))) {
     lines.pop();
+  }
+  let extra = lines.length - max;
+  for (let i = lines.length - 1; extra > 0 && i > 0; i--) {
+    if (blank(lines[i]) && blank(lines[i - 1])) {
+      lines.splice(i, 1);
+      extra--;
+    }
   }
   return lines.slice(-max);
 }

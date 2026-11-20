@@ -252,8 +252,8 @@ export class SleepPane {
   /**
    * The last screen, dimmed, on the terminal's cells with its padding. Its
    * rows end above the strip, so the last ones (an agent's input box and the
-   * status line under it) stay in sight; rows that no longer fit go from the
-   * top, as in a terminal made shorter. `hc read` gives text only, so the
+   * status line under it) stay in sight; rows that no longer fit come out of
+   * blank gaps first, then from the top (screenLines). `hc read` gives text only, so the
    * screen keeps no colours.
    */
   private screen(rec: SessionRecord): Element {
