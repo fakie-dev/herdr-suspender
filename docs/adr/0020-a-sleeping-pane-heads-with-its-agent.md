@@ -33,7 +33,7 @@ extended from outside. ADR 5's live copy works for the tab bar and works here.
 
 ## Consequences
 
-- A sleeping pane reads "Claude Code  C:\path\to\project" with the agent's icon, as before it slept, and keeps the
+- A sleeping pane reads "Claude Code C:\path\to\project" with the agent's icon, as before it slept, and keeps the
   header's split, zoom and close buttons. It shows no status: a sleeping agent reports none.
 - Herdr's own header (a layout without ours, or the fallback) still names the mod.
 - One more `herdr-app check` per module load (about a second), after the tab bar's.
