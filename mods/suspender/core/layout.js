@@ -4,7 +4,7 @@
 // layout. Two ways to show Sessions (TabsMode):
 //
 //  - clone (the usual one): the tabs block shows `suspender-tabs`, the live
-//    copy of Herdr's tab bar with a "Sessions · N" button beside Files and
+//    copy of Herdr's tab bar with a "Sessions" button beside Files and
 //    Changes (runtime/tabsClone.ts), and the Sessions list is the side panel
 //    stack's third child, `suspender`, so it opens, switches and is remembered
 //    per space exactly like Files and Changes;
@@ -32,13 +32,17 @@ export const PANEL_ID = "suspender-panel";
 export const PILL_ID = "suspender-pill";
 /** The live copy of Herdr's tab bar with the Sessions button (runtime/tabsClone.ts). */
 export const TABS_CLONE = "suspender-tabs";
+/** The live copy of Herdr's pane header (runtime/tabsClone.ts), which shows a sleeping pane's agent (ADR 20). */
+export const PANE_COPY = "suspender-pane";
+/** Herdr's own pane header, the one the copy stands in for. */
+const SHIPPED_PANE_HEADER = "pane";
 /** The Sessions panel's id among the side panel's children (`panel-body`), and the copy's button id. */
 export const SESSIONS_CHILD = "suspender";
 /** The stack the tab block is put in, and the cover beside it (`insertCover`). */
 export const WORK_ID = "suspender-work";
 export const COVER_ID = "suspender-cover";
 const MOD = "suspender";
-/** "Sessions · N" for N up to 99 (122.4 px of Geist 12 with its icon and padding), with room to spare. */
+/** "Sessions" (it read "Sessions" up to 0.1.9; the width stayed), with room to spare. */
 export const TOGGLE_WIDTH_PX = 126;
 const PANEL_SIZE = { px: 320 };
 const PANEL_MIN_PX = 200;
@@ -147,6 +151,19 @@ function useClone(root) {
     });
     return null;
 }
+/**
+ * Every pane's header drawn by the copy, where main.json has Herdr's own pane
+ * header there; any other header (none, or the person's own mod) is left.
+ */
+function useHeaderCopy(root) {
+    const content = find(root, (node) => contentOf(node)?.tab === "active")?.node.content;
+    const pane = isObject(content) ? content["pane"] : null;
+    const header = isObject(pane) ? pane["header"] : null;
+    const headerContent = isObject(header) ? header["content"] : null;
+    if (isObject(headerContent) && headerContent["mod"] === SHIPPED_PANE_HEADER) {
+        headerContent["mod"] = PANE_COPY;
+    }
+}
 function insertPill(root) {
     const hit = find(root, (node) => contentOf(node)?.tab === "active");
     if (!hit) {
@@ -231,9 +248,9 @@ function modsById(main) {
     return out;
 }
 /** Suspender's own mods: never carried over from the layout on disk, always built as now. */
-const ourMod = (mod) => mod === MOD || mod === TABS_CLONE;
+const ourMod = (mod) => mod === MOD || mod === TABS_CLONE || mod === PANE_COPY;
 /** `main` with `cloned_from` right after `type`, as Herdr's own clones have it. */
-function withOrigin(layout, mainVersion, hash, tabs, base) {
+function withOrigin(layout, mainVersion, hash, tabs, header, base) {
     const out = {};
     for (const [field, value] of Object.entries(layout)) {
         if (field === "cloned_from" || field === "suspender_generated") {
@@ -248,10 +265,10 @@ function withOrigin(layout, mainVersion, hash, tabs, base) {
         out.cloned_from = { name: "main", version: mainVersion };
     }
     // `base`: the mods main.json had, so a later build can tell a mod the person put in from Herdr's own change.
-    out.suspender_generated = { from: hash, generator: GENERATOR_VERSION, tabs, base };
+    out.suspender_generated = { from: hash, generator: GENERATOR_VERSION, tabs, header, base };
     return out;
 }
-export function buildLivingLayout(main, mainVersion, tabs = "builtin") {
+export function buildLivingLayout(main, mainVersion, tabs = "builtin", header = "builtin") {
     if (!isObject(main) || typeof main.type !== "string" || !Array.isArray(main.children)) {
         return { ok: false, reason: "main.json is not a layout tree" };
     }
@@ -269,7 +286,10 @@ export function buildLivingLayout(main, mainVersion, tabs = "builtin") {
         return { ok: false, reason: problem };
     }
     insertCover(layout);
-    return { ok: true, layout: withOrigin(layout, mainVersion, layoutHash(main), tabs, modsById(main)) };
+    if (header === "clone") {
+        useHeaderCopy(layout);
+    }
+    return { ok: true, layout: withOrigin(layout, mainVersion, layoutHash(main), tabs, header, modsById(main)) };
 }
 /**
  * `built` (a fresh build from `main`) with what the person changed in
@@ -318,11 +338,16 @@ export function tabsModeOf(current) {
     const tabs = generated?.["tabs"];
     return tabs === "clone" || tabs === "builtin" ? tabs : null;
 }
+/** The pane header a living layout was built with: a layout from before the copy records none (Herdr's own). */
+export function headerModeOf(current) {
+    const generated = isObject(current) && isObject(current.suspender_generated) ? current.suspender_generated : null;
+    return generated?.["header"] === "clone" ? "clone" : "builtin";
+}
 /**
  * Whether `current` (the living layout on disk, or null) is out of date for
- * this main.json, Herdr version and tab bar mode.
+ * this main.json, Herdr version, tab bar mode and pane header.
  */
-export function needsRebuild(main, mainVersion, current, tabs = "builtin") {
+export function needsRebuild(main, mainVersion, current, tabs = "builtin", header = "builtin") {
     if (!isObject(current)) {
         return true;
     }
@@ -331,6 +356,7 @@ export function needsRebuild(main, mainVersion, current, tabs = "builtin") {
     return (generated?.from !== layoutHash(main) ||
         generated.generator !== GENERATOR_VERSION ||
         tabsModeOf(current) !== tabs ||
+        headerModeOf(current) !== header ||
         origin?.version !== mainVersion);
 }
 /** The node with this id in a live layout tree (`layout()`), or null. */

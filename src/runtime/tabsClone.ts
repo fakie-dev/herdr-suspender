@@ -19,7 +19,7 @@
 // Paths inside the copy stay `mods/tabs/...`: its window-button icons are
 // always the shipped ones.
 
-import { TABS_CLONE, type TabsMode } from "../core/layout.ts";
+import { type HeaderMode, PANE_COPY, TABS_CLONE, type TabsMode } from "../core/layout.ts";
 import { sha256Hex } from "../core/sha256.ts";
 import type { ExecResult, Ports } from "../platform/ports.ts";
 import { syncLayout, tabsFallbackNotice } from "./layoutSync.ts";
@@ -54,13 +54,66 @@ const ANCHOR_PROGRAM = "const program = lead?.program;";
 const PROGRAM =
   'const program = (lead?.mod === "suspender" ? shared("suspender.tabIcons")?.[lead.tab] : null) ?? lead?.program;';
 
-export interface TabsCloneDeps {
+/** The pane header copy (ADR 20): Herdr's `pane/main.js`, with the pane it draws passed through `sleeping`. */
+export const PANE_MARK = "// suspender-pane: from pane/main.js sha256=";
+export const PANE_PATCH_VERSION = 1;
+const ANCHOR_ME = "const p = this.me();";
+const ME = "const p = sleeping(this.me());";
+/**
+ * Appended to the copy: an import may stand anywhere at a module's top level.
+ * Our sleeping pane gets the program and folder of the agent asleep in it, as
+ * the engine publishes them, so the header draws it as it drew the agent.
+ */
+const PANE_HELPER = [
+  "",
+  "// suspender-pane: a sleeping session's pane shows its agent and folder (Suspender, ADR 20).",
+  'import { shared as suspenderShared } from "herdr";',
+  "function sleeping(p) {",
+  '  const head = p?.mod === "suspender" ? suspenderShared("suspender.paneHeads")?.[p.pane] : null;',
+  "  if (!head) return p;",
+  "  const program = { key: head.key, name: head.name, icon: head.icon ?? null, tint: head.tint === true,",
+  "    tile: null, color: null, shell: false, agent: true };",
+  "  return { ...p, cwd: head.cwd ?? p.cwd, program };",
+  "}",
+  "",
+];
+
+/**
+ * The pane header copy's main.js for this shipped pane/main.js, or null when
+ * its anchor is missing or not unique, or a `sleeping` is already there.
+ */
+export function patchPane(source: string, hash: string): string | null {
+  if (count(source, ANCHOR_ME) !== 1 || source.includes("function sleeping(")) {
+    return null;
+  }
+  const eol = source.includes("\r\n") ? "\r\n" : "\n";
+  const body = source.replace(ANCHOR_ME, ME).replace(/(\r?\n)*$/, "");
+  return `${PANE_MARK}${hash} patch=${PANE_PATCH_VERSION}\n${body}${eol}${PANE_HELPER.join(eol)}`;
+}
+
+/** One live copy of a shipped mod: where it comes from, its folder, its fingerprint line and its patch. */
+interface CopySpec {
+  /** The shipped mod it copies. */
+  source: string;
+  /** The copy's folder under mods/. */
+  name: string;
+  mark: string;
+  patch(source: string, hash: string): string | null;
+}
+
+const TABS_SPEC: CopySpec = { source: "tabs", name: CLONE_NAME, mark: CLONE_MARK, patch: patchTabs };
+const PANE_SPEC: CopySpec = { source: "pane", name: PANE_COPY, mark: PANE_MARK, patch: patchPane };
+
+export interface CopyDeps {
   ports: Ports;
   /** `~/.config/herdr-app` (or wherever `HERDR_APP_HOME` points). */
   appHome: string;
+  sleep(ms: number): Promise<void>;
+}
+
+export interface TabsCloneDeps extends CopyDeps {
   /** Herdr's own copy: `run("mod.clone", { name: "tabs", as: CLONE_NAME })`. May throw. */
   cloneMod(): void;
-  sleep(ms: number): Promise<void>;
 }
 
 /**
@@ -112,14 +165,14 @@ function parse(text: string | null): unknown {
   }
 }
 
-/** A copy this mod may write over: one it patched, or Herdr's plain clone of `tabs`. */
-function ours(main: string, modJson: string | null): boolean {
-  if (main.startsWith(CLONE_MARK)) {
+/** A copy this mod may write over: one it patched, or Herdr's plain clone of the shipped mod. */
+function ours(spec: CopySpec, main: string, modJson: string | null): boolean {
+  if (main.startsWith(spec.mark)) {
     return true;
   }
   const meta = parse(modJson);
   const from = typeof meta === "object" && meta !== null ? (meta as { cloned_from?: unknown }).cloned_from : null;
-  return typeof from === "object" && from !== null && (from as { name?: unknown }).name === "tabs";
+  return typeof from === "object" && from !== null && (from as { name?: unknown }).name === spec.source;
 }
 
 /** Puts `text` at `path` unless it is there already; false when that does not stick. */
@@ -136,10 +189,11 @@ async function put(ports: Ports, path: string, text: string): Promise<boolean> {
  * shipped mod.json into the candidate folder outside `mods/`, and checked
  * there. A check that cannot run does not pass.
  */
-async function candidatePasses(d: TabsCloneDeps, main: string): Promise<boolean> {
+async function candidatePasses(spec: CopySpec, d: CopyDeps, main: string): Promise<boolean> {
   const { ports } = d;
-  const dir = [d.appHome, ...CANDIDATE_DIR].join(ports.sep);
-  const modJson = (await ports.readText([d.appHome, "mods", "tabs", "mod.json"].join(ports.sep))) ?? CANDIDATE_MOD_JSON;
+  const dir = [d.appHome, CANDIDATE_DIR[0], CANDIDATE_DIR[1], spec.name].join(ports.sep);
+  const modJson =
+    (await ports.readText([d.appHome, "mods", spec.source, "mod.json"].join(ports.sep))) ?? CANDIDATE_MOD_JSON;
   if (
     !(await put(ports, [dir, "mod.json"].join(ports.sep), modJson)) ||
     !(await put(ports, [dir, "main.js"].join(ports.sep), main))
@@ -160,34 +214,46 @@ async function candidatePasses(d: TabsCloneDeps, main: string): Promise<boolean>
  * written there. Never throws.
  */
 export async function ensureTabsClone(d: TabsCloneDeps): Promise<TabsOutcome> {
+  return ensureCopy(TABS_SPEC, d, d.cloneMod);
+}
+
+/**
+ * Makes sure `mods/suspender-pane/main.js` is the patch of Herdr's shipped
+ * pane header, checked as the tab bar's copy is (ADR 20). Never throws.
+ */
+export async function ensurePaneCopy(d: CopyDeps, clonePane: () => void): Promise<TabsOutcome> {
+  return ensureCopy(PANE_SPEC, d, clonePane);
+}
+
+async function ensureCopy(spec: CopySpec, d: CopyDeps, cloneMod: () => void): Promise<TabsOutcome> {
   const { ports } = d;
   const path = (...parts: string[]): string => [d.appHome, ...parts].join(ports.sep);
-  const shipped = await ports.readText(path("mods", "tabs", "main.js"));
+  const shipped = await ports.readText(path("mods", spec.source, "main.js"));
   if (shipped === null) {
     return { mode: "builtin", why: "no-tabs" };
   }
-  const want = patchTabs(shipped, sha256Hex(shipped));
+  const want = spec.patch(shipped, sha256Hex(shipped));
   if (want === null) {
     return { mode: "builtin", why: "anchors" };
   }
-  const cloneDir = path("mods", CLONE_NAME);
+  const cloneDir = path("mods", spec.name);
   const clonePath = [cloneDir, "main.js"].join(ports.sep);
   let current = await ports.readText(clonePath);
   if (
     current !== null &&
     current !== want &&
-    !ours(current, await ports.readText([cloneDir, "mod.json"].join(ports.sep)))
+    !ours(spec, current, await ports.readText([cloneDir, "mod.json"].join(ports.sep)))
   ) {
     return { mode: "builtin", why: "foreign" };
   }
   // Checked before anything under mods/ changes: the live copy only ever gets this text.
-  if (!(await candidatePasses(d, want))) {
+  if (!(await candidatePasses(spec, d, want))) {
     return { mode: "builtin", why: "check-failed" };
   }
 
   if (current === null) {
     try {
-      d.cloneMod();
+      cloneMod();
     } catch {
       return { mode: "builtin", why: "clone-failed" };
     }
@@ -231,6 +297,8 @@ export interface TabsKeeperDeps {
   appHome: string;
   /** Herdr's own copy: `run("mod.clone", { name: "tabs", as: CLONE_NAME })`. May throw. */
   cloneMod(): void;
+  /** The same for the pane header: `run("mod.clone", { name: "pane", as: PANE_COPY })`. None: no header copy. */
+  clonePane?(): void;
   /** The running Herdr's version ("" when it does not say). */
   herdrVersion(): string;
   /** Versions already told about, shared with the layout sync of this window. */
@@ -241,6 +309,8 @@ export interface TabsKeeperDeps {
 /** One run of ensureTabsClone: its answer, and until when it may still be at work. */
 interface Attempt {
   result: Promise<TabsOutcome>;
+  /** The pane header the layout gets, settled after the tab bar's answer. */
+  header: Promise<HeaderMode>;
   settled: boolean;
   aliveUntil: number;
 }
@@ -263,6 +333,7 @@ export function tabsKeeper(
   const start = (sleep: (ms: number) => Promise<void>, toast: (text: string) => void): Attempt => {
     const run: Attempt = {
       result: Promise.resolve({ mode: "builtin", why: "check-failed" }),
+      header: Promise.resolve("builtin"),
       settled: false,
       aliveUntil: 0,
     };
@@ -297,11 +368,24 @@ export function tabsKeeper(
     run.result = ensureTabsClone({ ports, appHome: d.appHome, cloneMod: d.cloneMod, sleep: step(sleep) })
       .catch((): TabsOutcome => ({ mode: "builtin", why: "check-failed" }))
       .then((out) => {
-        run.settled = true;
         if (out.mode === "builtin") {
           tabsFallbackNotice({ herdrVersion: d.herdrVersion(), toast, warned: d.warned });
         }
         return out;
+      });
+    // The header copy after the tab bar's, in the same run; a header that cannot be used is quiet (Herdr's own stays).
+    const clonePane = d.clonePane;
+    run.header = run.result
+      .then(async (): Promise<HeaderMode> => {
+        if (clonePane === undefined) {
+          return "builtin";
+        }
+        const out = await ensurePaneCopy({ ports, appHome: d.appHome, sleep: step(sleep) }, clonePane);
+        return out.mode === "clone" ? "clone" : "builtin";
+      })
+      .catch((): HeaderMode => "builtin")
+      .finally(() => {
+        run.settled = true;
       });
     return run;
   };
@@ -311,6 +395,7 @@ export function tabsKeeper(
       attempt = start(sleep, toast);
     }
     const out = await attempt.result;
+    const header = await attempt.header;
     try {
       await syncLayout({
         ports: d.ports,
@@ -319,6 +404,7 @@ export function tabsKeeper(
         toast,
         warned: d.warned,
         tabs: out.mode,
+        header,
       });
     } catch {
       // The mod works without its layout.

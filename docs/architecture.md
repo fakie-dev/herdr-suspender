@@ -210,7 +210,10 @@ when the text changes. `suspender.panel` opens and closes Sessions in either mod
 [ADR 5](adr/0005-live-copy-of-tabs.md). Where Herdr's tab bar takes a tab's icon from `const program =
 lead?.program;`, the copy also draws a sleeping tab with its agent's icon: the engine publishes each session's tab
 with that icon from Herdr's program table (`shared("suspender.tabIcons")`, from the table the Sessions list
-draws agents with, `runtime/looks.ts`), and the copy uses it for a tab whose pane is ours ([ADR 19](adr/0019-a-sleeping-tab-keeps-its-icon.md)).
+draws agents with, `runtime/looks.ts`), and the copy uses it for a tab whose pane is ours ([ADR 19](adr/0019-a-sleeping-tab-keeps-its-icon.md)). A second
+live copy, `mods/suspender-pane` of Herdr's `pane` header, heads a sleeping pane with its agent's icon, name and
+folder from `shared("suspender.paneHeads")`; the layout uses it where main.json has Herdr's pane header
+([ADR 20](adr/0020-a-sleeping-pane-heads-with-its-agent.md)).
 
 Without the layout the mod still works: Sleep and Resume, restored tabs, and Sessions as a window. Two things
 depend on a copy of the mod being on screen, and the layout is what keeps one there. Keys reach only a mod that

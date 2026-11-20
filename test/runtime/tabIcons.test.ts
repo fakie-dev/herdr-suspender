@@ -7,7 +7,7 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import type { AgentId, SessionKey } from "../../src/core/model.ts";
-import { Engine, newCoordinator, TAB_ICONS_KEY, TAB_LABEL_KEY } from "../../src/runtime/engine.ts";
+import { Engine, newCoordinator, PANE_HEADS_KEY, TAB_ICONS_KEY, TAB_LABEL_KEY } from "../../src/runtime/engine.ts";
 import { fakeAdapter, Sim } from "./sim.ts";
 
 const KEY: SessionKey = "claude:s1";
@@ -122,5 +122,32 @@ describe("the agent's icon on its tab", () => {
     await engine.tick();
     await other.tick();
     assert.deepEqual(sets, [{}, { [tabOf(engine, KEY)]: CLAUDE }]);
+  });
+});
+
+describe("the sleeping pane's header (ADR 20)", () => {
+  it("names each sleeping pane with its agent, icon and folder, and only while it sleeps", async () => {
+    const { sim, engine } = world();
+    await engine.tick();
+    assert.deepEqual(sim.shared(PANE_HEADS_KEY), {}, "a running session has no pane of ours");
+    await engine.sleep(KEY);
+    const rec = engine.record(KEY);
+    assert.ok(rec?.pane);
+    assert.deepEqual(sim.shared(PANE_HEADS_KEY), {
+      [rec.pane]: { key: "claude", name: "Claude Code", icon: CLAUDE.icon, tint: CLAUDE.tint, cwd: rec.cwd },
+    });
+    await engine.resume(KEY);
+    await engine.tick();
+    assert.deepEqual(sim.shared(PANE_HEADS_KEY), {}, "woken: its pane is gone");
+  });
+
+  it("still names the agent and folder when Herdr's table has no icon for it", async () => {
+    const { sim, engine } = world();
+    sim.programs = {};
+    await engine.tick();
+    await engine.sleep(KEY);
+    const rec = engine.record(KEY);
+    assert.ok(rec?.pane);
+    assert.deepEqual(sim.shared(PANE_HEADS_KEY), { [rec.pane]: { key: "claude", name: "Claude Code", cwd: rec.cwd } });
   });
 });

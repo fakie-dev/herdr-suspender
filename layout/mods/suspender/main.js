@@ -14,8 +14,8 @@
 // built around it, or around Herdr's own tab bar when the copy cannot be used.
 import { div, View } from "gpui-kit";
 import * as herdrModule from "herdr";
-import { appHome, props as herdrProps, keys, layout, nextCommand, notify, run, updates, writeTextFile } from "herdr";
-import { buildLivingLayout, LAYOUT_NAME, sessionsShown, sessionsToggle } from "./core/layout.js";
+import { appHome, props as herdrProps, keys, layout, nextCommand, notify, placement, run, updates, writeTextFile, } from "herdr";
+import { buildLivingLayout, LAYOUT_NAME, PANE_COPY, sessionsShown, sessionsToggle } from "./core/layout.js";
 import { MOD_VERSION } from "./core/release.js";
 import { SHIPPED_MAIN, SHIPPED_MAIN_VERSION } from "./core/shippedMain.js";
 import { herdrPorts } from "./platform/ports.js";
@@ -91,6 +91,9 @@ function tabsAndLayout(sleep, toast) {
         appHome: appHome(),
         cloneMod: () => {
             run("mod.clone", { name: "tabs", as: CLONE_NAME });
+        },
+        clonePane: () => {
+            run("mod.clone", { name: "pane", as: PANE_COPY });
         },
         herdrVersion: () => herdrVersion() ?? "",
         warned: layoutWarned,
@@ -248,7 +251,7 @@ export default class Suspender extends View {
             this.toggle = new ToggleView(engine);
         }
         else if (props.role === "pill") {
-            this.pill = new PillView(engine, host);
+            this.pill = new PillView(engine, host, () => placement()?.hovered === true);
         }
         else if (props.role === "cover") {
             // The other child of the tab block's stack: shown only while a Sleep or a Resume rearranges a tab.

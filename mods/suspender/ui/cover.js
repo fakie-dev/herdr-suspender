@@ -5,10 +5,12 @@
 // show: the session's sleeping pane, in the frame Herdr gives a pane alone in
 // its tab (the tab block's `pane` look: border, focus colour, radius, header).
 import { h_flex, v_flex } from "gpui-base";
-import { div } from "gpui-kit";
-import { settings, theme } from "herdr";
+import { div, image, svg } from "gpui-kit";
+import { home, settings, theme } from "herdr";
+import { PANE_COPY } from "../core/layout.js";
 import { reportedSize, scaleOf, windowPx } from "../core/scale.js";
 import { COVER_KEY, settleCover } from "../runtime/engine.js";
+import { agentLooks } from "../runtime/looks.js";
 import { paneSizes, SleepPane } from "./sleepPane.js";
 /** How often the cover looks whether its flow is through: every frame. */
 const FRAME_MS = 16;
@@ -17,7 +19,7 @@ const SHIPPED = {
     background: "background",
     // A pane put to sleep or woken had the focus: its border is the focus one.
     border: { width: 1, color: "accent" },
-    header: { height: 30, position: "top" },
+    header: { height: 30, position: "top", agent: false },
 };
 const isObject = (value) => typeof value === "object" && value !== null && !Array.isArray(value);
 const num = (value, fallback) => typeof value === "number" && Number.isFinite(value) && value >= 0 ? value : fallback;
@@ -54,9 +56,39 @@ export function frameOf(layout) {
         header: spec === null
             ? SHIPPED.header
             : isObject(header)
-                ? { height: num(header["height"], 30), position: header["position"] === "bottom" ? "bottom" : "top" }
+                ? {
+                    height: num(header["height"], 30),
+                    position: header["position"] === "bottom" ? "bottom" : "top",
+                    agent: isObject(header["content"]) && header["content"]["mod"] === PANE_COPY,
+                }
                 : null,
     };
+}
+/**
+ * Where Herdr's pane header puts a folder: "~" for home, "~/..." under it,
+ * else as it is (Windows paths are not shortened there either).
+ */
+export function headerFolder(cwd, homeDir) {
+    if (cwd === "") {
+        return "";
+    }
+    if (homeDir !== "" && cwd === homeDir) {
+        return "~";
+    }
+    return homeDir !== "" && cwd.startsWith(`${homeDir}/`) ? `~${cwd.slice(homeDir.length)}` : cwd;
+}
+/** What the pane header copy draws for our pane: the agent's icon and name, then its folder, dim. */
+function agentHead(rec, name, color) {
+    const look = agentLooks.look(rec.agent);
+    const dim = color("dim");
+    const pic = look === null
+        ? []
+        : [look.tint ? svg(look.icon).size(14).flex_none().text_color(dim) : image(look.icon).w(14).h(14).flex_none()];
+    return [
+        ...pic,
+        div().flex_none().truncate().max_w(260).font_medium().text_color(color("foreground")).child(name),
+        div().flex_1().truncate().text_color(dim).child(headerFolder(rec.cwd, home())),
+    ];
 }
 export class CoverView {
     /** As Herdr reports it: window px. */
@@ -144,8 +176,10 @@ export class CoverView {
                 .when(frame.header.position === "bottom", (el) => el.border_t(1))
                 .border_color(color("border"))
                 .text_size(12)
-                // A mod pane's header names the mod (Herdr's `pane` header: the pane's title).
-                .child(div().flex_none().truncate().font_medium().text_color(color("foreground")).child("suspender"));
+                .children(frame.header.agent
+                ? agentHead(held.rec, this.engine.adapter(held.rec.agent).displayName, color)
+                : // A mod pane's header names the mod (Herdr's `pane` header: the pane's title).
+                    [div().flex_none().truncate().font_medium().text_color(color("foreground")).child("suspender")]);
         const body = div().flex_1().min_h(0).relative().child(pane.render(cx));
         return root.child(v_flex()
             .id("cover-frame")

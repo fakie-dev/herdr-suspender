@@ -244,6 +244,23 @@ describe("the cover over the work area (Sleep and Resume behind it)", () => {
     }
   });
 
+  it("with the pane header copy, heads the pane as the copy does: the agent's name and its folder", async () => {
+    const { engine, sim, ports, cx } = await world("first row");
+    sim.coverLayout();
+    const tree = sim.layoutTree as {
+      children: { children: { content: { pane?: { header: { content: object } } } }[] }[];
+    };
+    const look = tree.children[0]?.children[0]?.content.pane;
+    assert.ok(look);
+    look.header.content = { mod: "suspender-pane" };
+    sim.setShared(COVER_KEY, { key: KEY, rec: { ...engine.record(KEY), state: "stopping" }, at: sim.now });
+    const header = byId(sized(new CoverView(engine, sim, ports), cx, 900, 702), "cover-header");
+    assert.ok(header !== undefined);
+    assert.ok(texts(header).includes("Claude Code"), texts(header).join(" | "));
+    assert.ok(texts(header).includes(CWD), "its folder");
+    assert.ok(!texts(header).includes("suspender"), "not the mod's name");
+  });
+
   it("hands the size it drew at to the sleeping pane, whose first frame then has the same rows", async () => {
     const lines = Array.from({ length: 50 }, (_, i) => `row ${i + 1}`);
     const { engine, sim, ports, cx } = await world(lines.join(String.fromCharCode(10)));

@@ -4,6 +4,7 @@ import { readFileSync } from "node:fs";
 import { describe, it } from "node:test";
 import {
   buildLivingLayout,
+  type HeaderMode,
   LAYOUT_NAME,
   needsRebuild,
   sessionsShown,
@@ -35,8 +36,8 @@ const parentOf = (root: LayoutNode, node: LayoutNode): LayoutNode | undefined =>
   nodes(root).find((n) => n.children?.includes(node));
 const tabBlock = (root: LayoutNode): LayoutNode | undefined => nodes(root).find((n) => n.content?.tab === "active");
 
-function build(source: unknown = main(), version = "0.1.14", tabs?: TabsMode): LayoutNode {
-  const out = buildLivingLayout(source, version, tabs);
+function build(source: unknown = main(), version = "0.1.14", tabs?: TabsMode, header?: HeaderMode): LayoutNode {
+  const out = buildLivingLayout(source, version, tabs, header);
   assert.ok(out.ok, out.ok ? "" : out.reason);
   return out.layout as LayoutNode;
 }
@@ -199,6 +200,46 @@ describe("buildLivingLayout with the live copy of the tab bar (clone)", () => {
       .map((n) => n.id)
       .filter((id) => !shippedIds.includes(id));
     assert.deepEqual(added.sort(), ["suspender", "suspender-cover", "suspender-work"]);
+  });
+});
+
+describe("buildLivingLayout with the live copy of the pane header (ADR 20)", () => {
+  /** The mod that draws each pane's header in the tab block's pane look. */
+  const headerMod = (layout: LayoutNode): unknown =>
+    (tabBlock(layout)?.content as { pane?: { header?: { content?: { mod?: unknown } } } } | undefined)?.pane?.header
+      ?.content?.mod;
+
+  it("draws every pane's header with the copy where main.json uses Herdr's own pane header", () => {
+    assert.equal(headerMod(main() as LayoutNode), "pane");
+    const layout = build(main(), "0.1.14", "clone", "clone");
+    assert.equal(headerMod(layout), "suspender-pane");
+    assert.equal((layout.suspender_generated as { header?: unknown }).header, "clone");
+  });
+
+  it("keeps Herdr's pane header without the copy, with either tab bar", () => {
+    for (const tabs of ["clone", "builtin"] as const) {
+      const layout = build(main(), "0.1.14", tabs);
+      assert.equal(headerMod(layout), "pane", tabs);
+      assert.equal((layout.suspender_generated as { header?: unknown }).header, "builtin", tabs);
+    }
+  });
+
+  it("leaves a header of the person's own mod alone", () => {
+    const source = main() as LayoutNode;
+    const block = tabBlock(source);
+    assert.ok(block);
+    const header = (block.content as { pane: { header: { content: { mod: string } } } }).pane.header;
+    header.content.mod = "my-header";
+    assert.equal(headerMod(build(source, "0.1.14", "clone", "clone")), "my-header");
+  });
+
+  it("rebuilds when the header copy comes or goes, and not otherwise", () => {
+    const withCopy = build(main(), "0.1.14", "clone", "clone");
+    const without = build(main(), "0.1.14", "clone");
+    assert.equal(needsRebuild(main(), "0.1.14", without, "clone", "clone"), true);
+    assert.equal(needsRebuild(main(), "0.1.14", withCopy, "clone", "builtin"), true);
+    assert.equal(needsRebuild(main(), "0.1.14", withCopy, "clone", "clone"), false);
+    assert.equal(needsRebuild(main(), "0.1.14", without, "clone"), false, "a layout from before records no header");
   });
 });
 

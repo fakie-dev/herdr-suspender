@@ -258,6 +258,7 @@
     "from": "5ae0c5da8ee9ed7ebde11f1ee0ab2710fba0970b4159cc6c88b00e6bdcf757f9",
     "generator": 6,
     "tabs": "builtin",
+    "header": "builtin",
     "base": {
       "brand": "workspace-chrome",
       "spaces": "spaces",

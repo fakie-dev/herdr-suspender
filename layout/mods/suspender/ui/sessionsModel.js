@@ -1,4 +1,4 @@
-// What the Sessions panel, its popup, the "Sessions · N" button and the sleep
+// What the Sessions panel, its popup, the "Sessions" button and the sleep
 // pill say, as plain data: groups and their order, the memory figures, which
 // items a row keeps at a width, the popup's facts, where it opens, when memory
 // is measured. Pure, so it is tested without Herdr; `panel.ts`, `popup.ts`,
@@ -10,7 +10,7 @@ import { t } from "../i18n/index.js";
 import { clock, measureAt } from "./format.js";
 import { textWidth } from "./textWidth.js";
 // ---- states and groups
-/** States whose tab holds a sleep pane: what "Sessions · N" counts. */
+/** States whose tab holds a sleep pane: what lights the Sessions moon. */
 const SLEEPING = new Set([
     "asleep",
     "interrupted",
@@ -431,20 +431,16 @@ export function panelShown(layout, id) {
     };
     return visit(layout) ?? false;
 }
-// ---- the "Sessions · N" block (role "toggle", toggle.ts draws it)
+// ---- the "Sessions" block (role "toggle", toggle.ts draws it)
 /** Its padding inside the layout block (6 + 6), the button's padding (8 + 8), the moon (14) and its gap (5). */
 export const TOGGLE_OUTER_PAD = 6;
 export const TOGGLE_PAD = 8;
 export const TOGGLE_ICON_PX = 14;
 export const TOGGLE_GAP = 5;
 export const TOGGLE_TEXT = 12;
-/** How wide "Sessions · N" is drawn, in the mod's px. */
-export function toggleWidth(count, measure) {
-    return (2 * TOGGLE_OUTER_PAD +
-        2 * TOGGLE_PAD +
-        TOGGLE_ICON_PX +
-        TOGGLE_GAP +
-        measure(t("toggle.label", { count }), TOGGLE_TEXT));
+/** How wide "Sessions" is drawn, in the mod's px. */
+export function toggleWidth(measure) {
+    return 2 * TOGGLE_OUTER_PAD + 2 * TOGGLE_PAD + TOGGLE_ICON_PX + TOGGLE_GAP + measure(t("toggle.label"), TOGGLE_TEXT);
 }
 // ---- the pill
 /** The agent the pill offers to sleep: the focused terminal's, when it is live and an agent. */

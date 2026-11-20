@@ -5,6 +5,22 @@ and the project uses [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+
+- A sleeping pane's header shows its agent as the terminal's did: the agent's icon and name and the project folder,
+  instead of "suspender". Needs the Suspender layout with Herdr's own pane header.
+
+### Changed
+
+- The Sessions button reads "Sessions", without the count of sleeping sessions.
+
+### Fixed
+
+- The last screen on a sleeping tab no longer jumps up by the strip's height or cuts the agent's logo: rows that do
+  not fit come out of blank gaps between blocks first, so the top stays where it was on screen.
+- The Sleep pill no longer stays open: after a Sleep from the pill it drew nothing under the pointer, and Herdr kept
+  the drawer open until it was hovered again.
+
 ## [0.1.9] - 2026-11-19
 
 ### Changed

@@ -27,7 +27,7 @@ import {
   updates,
   writeTextFile,
 } from "herdr";
-import { buildLivingLayout, LAYOUT_NAME, sessionsShown, sessionsToggle } from "./core/layout.ts";
+import { buildLivingLayout, LAYOUT_NAME, PANE_COPY, sessionsShown, sessionsToggle } from "./core/layout.ts";
 import type { SessionKey } from "./core/model.ts";
 import { MOD_VERSION } from "./core/release.ts";
 import { SHIPPED_MAIN, SHIPPED_MAIN_VERSION } from "./core/shippedMain.ts";
@@ -109,6 +109,9 @@ function tabsAndLayout(sleep: (ms: number) => Promise<void>, toast: (text: strin
     appHome: appHome(),
     cloneMod: () => {
       run("mod.clone", { name: "tabs", as: CLONE_NAME });
+    },
+    clonePane: () => {
+      run("mod.clone", { name: "pane", as: PANE_COPY });
     },
     herdrVersion: () => herdrVersion() ?? "",
     warned: layoutWarned,

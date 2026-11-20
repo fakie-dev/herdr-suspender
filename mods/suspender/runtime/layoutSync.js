@@ -8,7 +8,7 @@
 // the live tab bar copy (runtime/tabsClone.ts). Without one (the module just
 // loaded, no copy has looked yet) the layout keeps the mode it has. A main.json
 // with no place for Sessions beside Files and Changes gets the shipped tab bar.
-import { buildLivingLayout, keepPersonChanges, LAYOUT_NAME, needsRebuild, tabsModeOf, } from "../core/layout.js";
+import { buildLivingLayout, headerModeOf, keepPersonChanges, LAYOUT_NAME, needsRebuild, tabsModeOf, } from "../core/layout.js";
 import { t } from "../i18n/index.js";
 /** Writes refused because another copy wrote in between, before leaving the file to it. */
 export const SYNC_ATTEMPTS = 3;
@@ -47,16 +47,17 @@ export async function syncLayout(d) {
         const currentText = await d.ports.readText(livingPath);
         const current = parse(currentText);
         let tabs = d.tabs ?? tabsModeOf(current) ?? "builtin";
-        let built = buildLivingLayout(main, d.herdrVersion, tabs);
+        const header = d.header ?? headerModeOf(current);
+        let built = buildLivingLayout(main, d.herdrVersion, tabs, header);
         if (!built.ok && tabs === "clone") {
             // No place for Sessions beside Files and Changes: Herdr's own tab bar, our own button.
             tabs = "builtin";
-            built = buildLivingLayout(main, d.herdrVersion, tabs);
+            built = buildLivingLayout(main, d.herdrVersion, tabs, header);
             if (built.ok) {
                 tabsFallbackNotice(d);
             }
         }
-        if (!needsRebuild(main, d.herdrVersion, current, tabs)) {
+        if (!needsRebuild(main, d.herdrVersion, current, tabs, header)) {
             return "fresh";
         }
         if (!built.ok) {

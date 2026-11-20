@@ -18,7 +18,6 @@ import { isAgentId, sessionKey, } from "../core/model.js";
 import { defaultStorePath, parseStore, readStore, STORE_ATTEMPTS, StoreConflictError, serializeStore, } from "../core/store.js";
 import { hasMessage, t } from "../i18n/index.js";
 import { allProcesses, depthUnder, processDetails, subtree, treesMemoryMb, } from "../platform/proc.js";
-import { sleepingCount } from "../ui/sessionsModel.js";
 import { normalizeTerminal, toTerminalView, } from "./host.js";
 /** The mod's folder name: what `pane.split {mod}` asks for. */
 export const MOD_NAME = "suspender";
@@ -34,7 +33,7 @@ const COVER_STALE_MS = 5_000;
 export const REV_KEY = "suspender.rev";
 /** Bumped when a wake moves to its next step, so the sleep pane redraws. */
 export const PROGRESS_KEY = "suspender.progress";
-/** "Sessions · N" for the live copy of the tab bar, which reads it with shared() (runtime/tabsClone.ts). */
+/** "Sessions" for the live copy of the tab bar, which reads it with shared() (runtime/tabsClone.ts). */
 export const TAB_LABEL_KEY = "suspender.tabLabel";
 /**
  * Each session's tab with its agent's icon from Herdr's program table, for the
@@ -42,6 +41,11 @@ export const TAB_LABEL_KEY = "suspender.tabLabel";
  * program to draw (ADR 19).
  */
 export const TAB_ICONS_KEY = "suspender.tabIcons";
+/**
+ * Each sleeping pane with its agent's name, icon and folder, for the live copy
+ * of Herdr's pane header: a mod pane's header otherwise names the mod (ADR 20).
+ */
+export const PANE_HEADS_KEY = "suspender.paneHeads";
 /** Set when the leader has confirmed sessions' states in this run: every copy redraws ("checking" ends). */
 export const CHECKED_KEY = "suspender.checked";
 /** The terminal's own pid when it was bound: a restart gives it a new one. */
@@ -326,11 +330,13 @@ export class Engine {
             await this.load();
             this.publishTabLabel();
             this.publishTabIcons();
+            this.publishPaneHeads();
             return;
         }
         await this.load();
         this.publishTabLabel();
         this.publishTabIcons();
+        this.publishPaneHeads();
         if (!this.host.ready()) {
             return;
         }
@@ -452,11 +458,11 @@ export class Engine {
         return split !== undefined && this.ports.now() - split.at < LATE_PANE_MS;
     }
     /**
-     * "Sessions · N" for the live copy of the tab bar. Setting a shared value
+     * "Sessions" for the live copy of the tab bar. Setting a shared value
      * redraws every mod in the window, so only a changed text is set.
      */
     publishTabLabel() {
-        const label = t("toggle.label", { count: sleepingCount(this.records()) });
+        const label = t("toggle.label");
         if (this.host.shared(TAB_LABEL_KEY) !== label) {
             this.host.setShared(TAB_LABEL_KEY, label);
         }
@@ -488,6 +494,33 @@ export class Engine {
         const icons = Object.fromEntries([...byTab].sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0)));
         if (JSON.stringify(this.host.shared(TAB_ICONS_KEY)) !== JSON.stringify(icons)) {
             this.host.setShared(TAB_ICONS_KEY, icons);
+        }
+    }
+    /**
+     * Each sleeping pane with its agent's name, icon and folder, for the live copy
+     * of the pane header (ADR 20). Set only when it changes (it redraws every mod).
+     */
+    publishPaneHeads() {
+        const looks = this.host.agentLooks();
+        const heads = [];
+        for (const r of this.records()) {
+            if (r.pane === null) {
+                continue;
+            }
+            const look = looks.look(r.agent);
+            heads.push([
+                r.pane,
+                {
+                    key: r.agent,
+                    name: this.adapters[r.agent].displayName,
+                    ...(look === null ? {} : { icon: look.icon, tint: look.tint }),
+                    cwd: r.cwd,
+                },
+            ]);
+        }
+        const value = Object.fromEntries(heads.sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0)));
+        if (JSON.stringify(this.host.shared(PANE_HEADS_KEY)) !== JSON.stringify(value)) {
+            this.host.setShared(PANE_HEADS_KEY, value);
         }
     }
     claim() {
@@ -2373,6 +2406,7 @@ export class Engine {
                 this.host.setShared(REV_KEY, rev);
                 this.publishTabLabel();
                 this.publishTabIcons();
+                this.publishPaneHeads();
                 return;
             }
         }

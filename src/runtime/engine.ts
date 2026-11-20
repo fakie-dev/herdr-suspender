@@ -76,6 +76,11 @@ export const TAB_LABEL_KEY = "suspender.tabLabel";
  * program to draw (ADR 19).
  */
 export const TAB_ICONS_KEY = "suspender.tabIcons";
+/**
+ * Each sleeping pane with its agent's name, icon and folder, for the live copy
+ * of Herdr's pane header: a mod pane's header otherwise names the mod (ADR 20).
+ */
+export const PANE_HEADS_KEY = "suspender.paneHeads";
 /** Set when the leader has confirmed sessions' states in this run: every copy redraws ("checking" ends). */
 export const CHECKED_KEY = "suspender.checked";
 /** The terminal's own pid when it was bound: a restart gives it a new one. */
@@ -532,11 +537,13 @@ export class Engine {
       await this.load();
       this.publishTabLabel();
       this.publishTabIcons();
+      this.publishPaneHeads();
       return;
     }
     await this.load();
     this.publishTabLabel();
     this.publishTabIcons();
+    this.publishPaneHeads();
     if (!this.host.ready()) {
       return;
     }
@@ -710,6 +717,34 @@ export class Engine {
     const icons = Object.fromEntries([...byTab].sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0)));
     if (JSON.stringify(this.host.shared(TAB_ICONS_KEY)) !== JSON.stringify(icons)) {
       this.host.setShared(TAB_ICONS_KEY, icons);
+    }
+  }
+
+  /**
+   * Each sleeping pane with its agent's name, icon and folder, for the live copy
+   * of the pane header (ADR 20). Set only when it changes (it redraws every mod).
+   */
+  private publishPaneHeads(): void {
+    const looks = this.host.agentLooks();
+    const heads: [string, Record<string, unknown>][] = [];
+    for (const r of this.records()) {
+      if (r.pane === null) {
+        continue;
+      }
+      const look = looks.look(r.agent);
+      heads.push([
+        r.pane,
+        {
+          key: r.agent,
+          name: this.adapters[r.agent].displayName,
+          ...(look === null ? {} : { icon: look.icon, tint: look.tint }),
+          cwd: r.cwd,
+        },
+      ]);
+    }
+    const value = Object.fromEntries(heads.sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0)));
+    if (JSON.stringify(this.host.shared(PANE_HEADS_KEY)) !== JSON.stringify(value)) {
+      this.host.setShared(PANE_HEADS_KEY, value);
     }
   }
 
@@ -2713,6 +2748,7 @@ export class Engine {
         this.host.setShared(REV_KEY, rev);
         this.publishTabLabel();
         this.publishTabIcons();
+        this.publishPaneHeads();
         return;
       }
     }

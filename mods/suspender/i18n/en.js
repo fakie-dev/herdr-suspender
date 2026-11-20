@@ -3,7 +3,7 @@
 // (see README, "Adding a language").
 export const en = {
     // Button next to the tabs, floating pill over the tab.
-    "toggle.label": "Sessions · {count}",
+    "toggle.label": "Sessions",
     "pill.sleep": "Sleep · {agent}",
     // Asking before putting a working agent to sleep.
     "confirm.title": "{agent} is still answering",

@@ -1,6 +1,6 @@
 // The live copy of Herdr's tab bar: `mods/suspender-tabs/`, Herdr's shipped
-// `tabs` mod with a third panel button, "Sessions · N", beside Files and
-// Changes, so the strip reads `+ Files Changes Sessions · N  - □ ×`.
+// `tabs` mod with a third panel button, "Sessions", beside Files and
+// Changes, so the strip reads `+ Files Changes Sessions  - □ ×`.
 //
 // The copy is made once with Herdr's own `mod.clone`. Its main.js is then the
 // shipped tabs/main.js plus one patch, and its first line records the sha256
@@ -18,7 +18,7 @@
 //
 // Paths inside the copy stay `mods/tabs/...`: its window-button icons are
 // always the shipped ones.
-import { TABS_CLONE } from "../core/layout.js";
+import { PANE_COPY, TABS_CLONE } from "../core/layout.js";
 import { sha256Hex } from "../core/sha256.js";
 import { syncLayout, tabsFallbackNotice } from "./layoutSync.js";
 export const CLONE_NAME = TABS_CLONE;
@@ -47,6 +47,43 @@ const SESSIONS_BUTTON = '.child(panelButton("suspender", String(shared("suspende
  */
 const ANCHOR_PROGRAM = "const program = lead?.program;";
 const PROGRAM = 'const program = (lead?.mod === "suspender" ? shared("suspender.tabIcons")?.[lead.tab] : null) ?? lead?.program;';
+/** The pane header copy (ADR 20): Herdr's `pane/main.js`, with the pane it draws passed through `sleeping`. */
+export const PANE_MARK = "// suspender-pane: from pane/main.js sha256=";
+export const PANE_PATCH_VERSION = 1;
+const ANCHOR_ME = "const p = this.me();";
+const ME = "const p = sleeping(this.me());";
+/**
+ * Appended to the copy: an import may stand anywhere at a module's top level.
+ * Our sleeping pane gets the program and folder of the agent asleep in it, as
+ * the engine publishes them, so the header draws it as it drew the agent.
+ */
+const PANE_HELPER = [
+    "",
+    "// suspender-pane: a sleeping session's pane shows its agent and folder (Suspender, ADR 20).",
+    'import { shared as suspenderShared } from "herdr";',
+    "function sleeping(p) {",
+    '  const head = p?.mod === "suspender" ? suspenderShared("suspender.paneHeads")?.[p.pane] : null;',
+    "  if (!head) return p;",
+    "  const program = { key: head.key, name: head.name, icon: head.icon ?? null, tint: head.tint === true,",
+    "    tile: null, color: null, shell: false, agent: true };",
+    "  return { ...p, cwd: head.cwd ?? p.cwd, program };",
+    "}",
+    "",
+];
+/**
+ * The pane header copy's main.js for this shipped pane/main.js, or null when
+ * its anchor is missing or not unique, or a `sleeping` is already there.
+ */
+export function patchPane(source, hash) {
+    if (count(source, ANCHOR_ME) !== 1 || source.includes("function sleeping(")) {
+        return null;
+    }
+    const eol = source.includes("\r\n") ? "\r\n" : "\n";
+    const body = source.replace(ANCHOR_ME, ME).replace(/(\r?\n)*$/, "");
+    return `${PANE_MARK}${hash} patch=${PANE_PATCH_VERSION}\n${body}${eol}${PANE_HELPER.join(eol)}`;
+}
+const TABS_SPEC = { source: "tabs", name: CLONE_NAME, mark: CLONE_MARK, patch: patchTabs };
+const PANE_SPEC = { source: "pane", name: PANE_COPY, mark: PANE_MARK, patch: patchPane };
 const count = (text, needle) => text.split(needle).length - 1;
 /**
  * The copy's main.js for this shipped tabs/main.js, or null when an anchor is
@@ -81,14 +118,14 @@ function parse(text) {
         return null;
     }
 }
-/** A copy this mod may write over: one it patched, or Herdr's plain clone of `tabs`. */
-function ours(main, modJson) {
-    if (main.startsWith(CLONE_MARK)) {
+/** A copy this mod may write over: one it patched, or Herdr's plain clone of the shipped mod. */
+function ours(spec, main, modJson) {
+    if (main.startsWith(spec.mark)) {
         return true;
     }
     const meta = parse(modJson);
     const from = typeof meta === "object" && meta !== null ? meta.cloned_from : null;
-    return typeof from === "object" && from !== null && from.name === "tabs";
+    return typeof from === "object" && from !== null && from.name === spec.source;
 }
 /** Puts `text` at `path` unless it is there already; false when that does not stick. */
 async function put(ports, path, text) {
@@ -103,10 +140,10 @@ async function put(ports, path, text) {
  * shipped mod.json into the candidate folder outside `mods/`, and checked
  * there. A check that cannot run does not pass.
  */
-async function candidatePasses(d, main) {
+async function candidatePasses(spec, d, main) {
     const { ports } = d;
-    const dir = [d.appHome, ...CANDIDATE_DIR].join(ports.sep);
-    const modJson = (await ports.readText([d.appHome, "mods", "tabs", "mod.json"].join(ports.sep))) ?? CANDIDATE_MOD_JSON;
+    const dir = [d.appHome, CANDIDATE_DIR[0], CANDIDATE_DIR[1], spec.name].join(ports.sep);
+    const modJson = (await ports.readText([d.appHome, "mods", spec.source, "mod.json"].join(ports.sep))) ?? CANDIDATE_MOD_JSON;
     if (!(await put(ports, [dir, "mod.json"].join(ports.sep), modJson)) ||
         !(await put(ports, [dir, "main.js"].join(ports.sep), main))) {
         return false;
@@ -125,31 +162,41 @@ async function candidatePasses(d, main) {
  * written there. Never throws.
  */
 export async function ensureTabsClone(d) {
+    return ensureCopy(TABS_SPEC, d, d.cloneMod);
+}
+/**
+ * Makes sure `mods/suspender-pane/main.js` is the patch of Herdr's shipped
+ * pane header, checked as the tab bar's copy is (ADR 20). Never throws.
+ */
+export async function ensurePaneCopy(d, clonePane) {
+    return ensureCopy(PANE_SPEC, d, clonePane);
+}
+async function ensureCopy(spec, d, cloneMod) {
     const { ports } = d;
     const path = (...parts) => [d.appHome, ...parts].join(ports.sep);
-    const shipped = await ports.readText(path("mods", "tabs", "main.js"));
+    const shipped = await ports.readText(path("mods", spec.source, "main.js"));
     if (shipped === null) {
         return { mode: "builtin", why: "no-tabs" };
     }
-    const want = patchTabs(shipped, sha256Hex(shipped));
+    const want = spec.patch(shipped, sha256Hex(shipped));
     if (want === null) {
         return { mode: "builtin", why: "anchors" };
     }
-    const cloneDir = path("mods", CLONE_NAME);
+    const cloneDir = path("mods", spec.name);
     const clonePath = [cloneDir, "main.js"].join(ports.sep);
     let current = await ports.readText(clonePath);
     if (current !== null &&
         current !== want &&
-        !ours(current, await ports.readText([cloneDir, "mod.json"].join(ports.sep)))) {
+        !ours(spec, current, await ports.readText([cloneDir, "mod.json"].join(ports.sep)))) {
         return { mode: "builtin", why: "foreign" };
     }
     // Checked before anything under mods/ changes: the live copy only ever gets this text.
-    if (!(await candidatePasses(d, want))) {
+    if (!(await candidatePasses(spec, d, want))) {
         return { mode: "builtin", why: "check-failed" };
     }
     if (current === null) {
         try {
-            d.cloneMod();
+            cloneMod();
         }
         catch {
             return { mode: "builtin", why: "clone-failed" };
@@ -201,6 +248,7 @@ export function tabsKeeper(d) {
     const start = (sleep, toast) => {
         const run = {
             result: Promise.resolve({ mode: "builtin", why: "check-failed" }),
+            header: Promise.resolve("builtin"),
             settled: false,
             aliveUntil: 0,
         };
@@ -235,11 +283,24 @@ export function tabsKeeper(d) {
         run.result = ensureTabsClone({ ports, appHome: d.appHome, cloneMod: d.cloneMod, sleep: step(sleep) })
             .catch(() => ({ mode: "builtin", why: "check-failed" }))
             .then((out) => {
-            run.settled = true;
             if (out.mode === "builtin") {
                 tabsFallbackNotice({ herdrVersion: d.herdrVersion(), toast, warned: d.warned });
             }
             return out;
+        });
+        // The header copy after the tab bar's, in the same run; a header that cannot be used is quiet (Herdr's own stays).
+        const clonePane = d.clonePane;
+        run.header = run.result
+            .then(async () => {
+            if (clonePane === undefined) {
+                return "builtin";
+            }
+            const out = await ensurePaneCopy({ ports, appHome: d.appHome, sleep: step(sleep) }, clonePane);
+            return out.mode === "clone" ? "clone" : "builtin";
+        })
+            .catch(() => "builtin")
+            .finally(() => {
+            run.settled = true;
         });
         return run;
     };
@@ -248,6 +309,7 @@ export function tabsKeeper(d) {
             attempt = start(sleep, toast);
         }
         const out = await attempt.result;
+        const header = await attempt.header;
         try {
             await syncLayout({
                 ports: d.ports,
@@ -256,6 +318,7 @@ export function tabsKeeper(d) {
                 toast,
                 warned: d.warned,
                 tabs: out.mode,
+                header,
             });
         }
         catch {

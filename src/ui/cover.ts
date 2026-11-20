@@ -6,13 +6,15 @@
 // its tab (the tab block's `pane` look: border, focus colour, radius, header).
 
 import { h_flex, v_flex } from "gpui-base";
-import { type Context, div, type Element } from "gpui-kit";
-import { settings, theme } from "herdr";
+import { type Context, div, type Element, image, svg } from "gpui-kit";
+import { home, settings, theme } from "herdr";
+import { PANE_COPY } from "../core/layout.ts";
 import type { SessionKey, SessionRecord } from "../core/model.ts";
 import { reportedSize, scaleOf, type WindowSize, windowPx } from "../core/scale.ts";
 import type { Ports } from "../platform/ports.ts";
 import { COVER_KEY, type Engine, settleCover, type WakeStep } from "../runtime/engine.ts";
 import type { Host } from "../runtime/host.ts";
+import { agentLooks } from "../runtime/looks.ts";
 import { paneSizes, SleepPane } from "./sleepPane.ts";
 
 /** How often the cover looks whether its flow is through: every frame. */
@@ -23,7 +25,8 @@ interface Frame {
   radius: number;
   background: string;
   border: { width: number; color: string };
-  header: { height: number; position: "top" | "bottom" } | null;
+  /** agent: drawn by the pane header copy, which heads our pane with its agent and folder (ADR 20). */
+  header: { height: number; position: "top" | "bottom"; agent: boolean } | null;
 }
 
 const SHIPPED: Frame = {
@@ -31,7 +34,7 @@ const SHIPPED: Frame = {
   background: "background",
   // A pane put to sleep or woken had the focus: its border is the focus one.
   border: { width: 1, color: "accent" },
-  header: { height: 30, position: "top" },
+  header: { height: 30, position: "top", agent: false },
 };
 
 const isObject = (value: unknown): value is Record<string, unknown> =>
@@ -73,9 +76,42 @@ export function frameOf(layout: unknown): Frame {
       spec === null
         ? SHIPPED.header
         : isObject(header)
-          ? { height: num(header["height"], 30), position: header["position"] === "bottom" ? "bottom" : "top" }
+          ? {
+              height: num(header["height"], 30),
+              position: header["position"] === "bottom" ? "bottom" : "top",
+              agent: isObject(header["content"]) && header["content"]["mod"] === PANE_COPY,
+            }
           : null,
   };
+}
+
+/**
+ * Where Herdr's pane header puts a folder: "~" for home, "~/..." under it,
+ * else as it is (Windows paths are not shortened there either).
+ */
+export function headerFolder(cwd: string, homeDir: string): string {
+  if (cwd === "") {
+    return "";
+  }
+  if (homeDir !== "" && cwd === homeDir) {
+    return "~";
+  }
+  return homeDir !== "" && cwd.startsWith(`${homeDir}/`) ? `~${cwd.slice(homeDir.length)}` : cwd;
+}
+
+/** What the pane header copy draws for our pane: the agent's icon and name, then its folder, dim. */
+function agentHead(rec: SessionRecord, name: string, color: (name: string) => never): Element[] {
+  const look = agentLooks.look(rec.agent);
+  const dim = color("dim");
+  const pic =
+    look === null
+      ? []
+      : [look.tint ? svg(look.icon).size(14).flex_none().text_color(dim) : image(look.icon).w(14).h(14).flex_none()];
+  return [
+    ...pic,
+    div().flex_none().truncate().max_w(260).font_medium().text_color(color("foreground")).child(name),
+    div().flex_1().truncate().text_color(dim).child(headerFolder(rec.cwd, home())),
+  ];
 }
 
 export class CoverView {
@@ -173,8 +209,12 @@ export class CoverView {
             .when(frame.header.position === "bottom", (el) => el.border_t(1))
             .border_color(color("border"))
             .text_size(12)
-            // A mod pane's header names the mod (Herdr's `pane` header: the pane's title).
-            .child(div().flex_none().truncate().font_medium().text_color(color("foreground")).child("suspender"));
+            .children(
+              frame.header.agent
+                ? agentHead(held.rec, this.engine.adapter(held.rec.agent).displayName, color)
+                : // A mod pane's header names the mod (Herdr's `pane` header: the pane's title).
+                  [div().flex_none().truncate().font_medium().text_color(color("foreground")).child("suspender")],
+            );
     const body = div().flex_1().min_h(0).relative().child(pane.render(cx));
     return root.child(
       v_flex()

@@ -35,6 +35,10 @@ export const PANEL_ID = "suspender-panel";
 export const PILL_ID = "suspender-pill";
 /** The live copy of Herdr's tab bar with the Sessions button (runtime/tabsClone.ts). */
 export const TABS_CLONE = "suspender-tabs";
+/** The live copy of Herdr's pane header (runtime/tabsClone.ts), which shows a sleeping pane's agent (ADR 20). */
+export const PANE_COPY = "suspender-pane";
+/** Herdr's own pane header, the one the copy stands in for. */
+const SHIPPED_PANE_HEADER = "pane";
 /** The Sessions panel's id among the side panel's children (`panel-body`), and the copy's button id. */
 export const SESSIONS_CHILD = "suspender";
 /** The stack the tab block is put in, and the cover beside it (`insertCover`). */
@@ -47,6 +51,8 @@ export const COVER_ID = "suspender-cover";
  * button left of it and our own hidden column (when the copy cannot be used).
  */
 export type TabsMode = "clone" | "builtin";
+/** Whose pane header the tab block shows: the live copy, or what main.json has. */
+export type HeaderMode = "clone" | "builtin";
 
 const MOD = "suspender";
 /** "Sessions" (it read "Sessions" up to 0.1.9; the width stayed), with room to spare. */
@@ -196,6 +202,20 @@ function useClone(root: LayoutNode): string | null {
   return null;
 }
 
+/**
+ * Every pane's header drawn by the copy, where main.json has Herdr's own pane
+ * header there; any other header (none, or the person's own mod) is left.
+ */
+function useHeaderCopy(root: LayoutNode): void {
+  const content = find(root, (node) => contentOf(node)?.tab === "active")?.node.content;
+  const pane = isObject(content) ? content["pane"] : null;
+  const header = isObject(pane) ? pane["header"] : null;
+  const headerContent = isObject(header) ? header["content"] : null;
+  if (isObject(headerContent) && headerContent["mod"] === SHIPPED_PANE_HEADER) {
+    headerContent["mod"] = PANE_COPY;
+  }
+}
+
 function insertPill(root: LayoutNode): string | null {
   const hit = find(root, (node) => contentOf(node)?.tab === "active");
   if (!hit) {
@@ -285,7 +305,7 @@ function modsById(main: LayoutNode): Record<string, string> {
 }
 
 /** Suspender's own mods: never carried over from the layout on disk, always built as now. */
-const ourMod = (mod: unknown): boolean => mod === MOD || mod === TABS_CLONE;
+const ourMod = (mod: unknown): boolean => mod === MOD || mod === TABS_CLONE || mod === PANE_COPY;
 
 /** `main` with `cloned_from` right after `type`, as Herdr's own clones have it. */
 function withOrigin(
@@ -293,6 +313,7 @@ function withOrigin(
   mainVersion: string,
   hash: string,
   tabs: TabsMode,
+  header: HeaderMode,
   base: Record<string, string>,
 ): LayoutNode {
   const out: LayoutNode = {};
@@ -309,11 +330,16 @@ function withOrigin(
     out.cloned_from = { name: "main", version: mainVersion };
   }
   // `base`: the mods main.json had, so a later build can tell a mod the person put in from Herdr's own change.
-  out.suspender_generated = { from: hash, generator: GENERATOR_VERSION, tabs, base };
+  out.suspender_generated = { from: hash, generator: GENERATOR_VERSION, tabs, header, base };
   return out;
 }
 
-export function buildLivingLayout(main: unknown, mainVersion: string, tabs: TabsMode = "builtin"): BuildResult {
+export function buildLivingLayout(
+  main: unknown,
+  mainVersion: string,
+  tabs: TabsMode = "builtin",
+  header: HeaderMode = "builtin",
+): BuildResult {
   if (!isObject(main) || typeof main.type !== "string" || !Array.isArray(main.children)) {
     return { ok: false, reason: "main.json is not a layout tree" };
   }
@@ -332,7 +358,10 @@ export function buildLivingLayout(main: unknown, mainVersion: string, tabs: Tabs
     return { ok: false, reason: problem };
   }
   insertCover(layout);
-  return { ok: true, layout: withOrigin(layout, mainVersion, layoutHash(main), tabs, modsById(main)) };
+  if (header === "clone") {
+    useHeaderCopy(layout);
+  }
+  return { ok: true, layout: withOrigin(layout, mainVersion, layoutHash(main), tabs, header, modsById(main)) };
 }
 
 /** A block whose mod the person put in and the new main.json has no block for. */
@@ -394,15 +423,22 @@ export function tabsModeOf(current: unknown): TabsMode | null {
   return tabs === "clone" || tabs === "builtin" ? tabs : null;
 }
 
+/** The pane header a living layout was built with: a layout from before the copy records none (Herdr's own). */
+export function headerModeOf(current: unknown): HeaderMode {
+  const generated = isObject(current) && isObject(current.suspender_generated) ? current.suspender_generated : null;
+  return generated?.["header"] === "clone" ? "clone" : "builtin";
+}
+
 /**
  * Whether `current` (the living layout on disk, or null) is out of date for
- * this main.json, Herdr version and tab bar mode.
+ * this main.json, Herdr version, tab bar mode and pane header.
  */
 export function needsRebuild(
   main: unknown,
   mainVersion: string,
   current: unknown | null,
   tabs: TabsMode = "builtin",
+  header: HeaderMode = "builtin",
 ): boolean {
   if (!isObject(current)) {
     return true;
@@ -413,6 +449,7 @@ export function needsRebuild(
     generated?.from !== layoutHash(main) ||
     generated.generator !== GENERATOR_VERSION ||
     tabsModeOf(current) !== tabs ||
+    headerModeOf(current) !== header ||
     origin?.version !== mainVersion
   );
 }

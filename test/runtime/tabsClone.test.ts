@@ -12,6 +12,7 @@ import type { ExecResult } from "../../src/platform/ports.ts";
 import {
   CHECK_TIMEOUT_MS,
   ensureTabsClone,
+  patchPane,
   patchTabs,
   TABS_CHECK_STALE_MS,
   type TabsCloneDeps,
@@ -449,6 +450,63 @@ describe("tabsKeeper (what the shown copies of one window ask)", () => {
     assert.equal(layoutTabs(), "clone");
   });
 
+  describe("with the pane header copy (ADR 20)", () => {
+    const paneCopy = `${appHome}/mods/suspender-pane/main.js`;
+    const living = (): { header?: unknown; mod?: unknown } => {
+      const layout = JSON.parse(ports.files.get(livingPath) ?? "{}") as {
+        suspender_generated?: { header?: unknown };
+        children?: unknown[];
+      };
+      const text = JSON.stringify(layout);
+      return {
+        header: layout.suspender_generated?.header,
+        mod: text.includes('"mod":"suspender-pane"') ? "suspender-pane" : text.includes('"mod":"pane"') ? "pane" : null,
+      };
+    };
+    const withPane = (): typeof keep =>
+      tabsKeeper({
+        ports,
+        appHome,
+        cloneMod: () => {
+          ports.files.set(`${appHome}/mods/suspender-tabs/main.js`, source);
+          ports.files.set(`${appHome}/mods/suspender-tabs/mod.json`, '{ "cloned_from": { "name": "tabs" } }');
+        },
+        clonePane: () => {
+          ports.files.set(paneCopy, PANE);
+          ports.files.set(`${appHome}/mods/suspender-pane/mod.json`, '{ "cloned_from": { "name": "pane" } }');
+        },
+        herdrVersion: () => "0.1.15",
+        warned: new Set(),
+        now: () => now,
+      });
+
+    beforeEach(() => {
+      ports.files.set(`${appHome}/mods/pane/main.js`, PANE);
+      ports.files.set(`${appHome}/mods/pane/mod.json`, '{ "place": "none", "title": "Pane header" }');
+    });
+
+    it("makes the copy, checks it, and draws every pane's header with it", async () => {
+      const out = await withPane()(noSleep, toast);
+      assert.equal(out.mode, "clone");
+      assert.ok(ports.files.get(paneCopy)?.startsWith(paneMark(PANE)), "the patched copy");
+      assert.deepEqual(living(), { header: "clone", mod: "suspender-pane" });
+      assert.equal(checks, 2, "the tab bar's copy and the header's, each checked once");
+      assert.deepEqual(toasts, []);
+    });
+
+    it("a failed check of the header keeps Herdr's own header, quietly, and the tab bar's copy", async () => {
+      checkResult = async () => ({ code: 0, stdout: "ok", stderr: "" });
+      const exec = ports.exec;
+      ports.exec = async (cmd, args, opts) =>
+        args.some((a) => a.includes("suspender-pane")) ? { code: 1, stdout: "", stderr: "bad" } : exec(cmd, args, opts);
+      const out = await withPane()(noSleep, toast);
+      assert.equal(out.mode, "clone");
+      assert.deepEqual(living(), { header: "builtin", mod: "pane" });
+      assert.equal(ports.files.get(paneCopy), undefined, "nothing written under mods/");
+      assert.deepEqual(toasts, []);
+    });
+  });
+
   it("another copy of the mod wrote the same candidate first: still a pass, no toast", async () => {
     const candidateMain = `${appHome}/suspender/tabs-check/suspender-tabs/main.js`;
     const patched = patchTabs(source, sha(source));
@@ -497,6 +555,81 @@ describe("tabsKeeper (what the shown copies of one window ask)", () => {
       assert.equal(checks, 2);
       assert.ok(first);
     });
+  });
+});
+
+// The live copy of Herdr's pane header (ADR 20): the pane it draws goes through `sleeping`, which
+// gives our sleeping pane its agent's name, icon and folder from shared("suspender.paneHeads").
+const PANE = fixture("pane-main-0.1.16.js");
+const ME_BEFORE = "const p = this.me();";
+const ME_AFTER = "const p = sleeping(this.me());";
+const PANE_IMPORT = 'import { shared as suspenderShared } from "herdr";';
+const paneMark = (text: string): string => `// suspender-pane: from pane/main.js sha256=${sha(text)} patch=1`;
+
+describe("patchPane", () => {
+  it("patches Herdr 0.1.16's pane header: the fingerprint, the pane through `sleeping`, the helper at the end", () => {
+    const out = patchPane(PANE, sha(PANE));
+    assert.ok(out !== null);
+    const [first, ...rest] = out.split("\n");
+    assert.equal(first, paneMark(PANE));
+    const body = rest.join("\n");
+    assert.equal(count(body, ME_AFTER), 1);
+    assert.equal(count(body, ME_BEFORE), 0);
+    assert.equal(count(body, PANE_IMPORT), 1);
+    assert.equal(count(body, "function sleeping("), 1);
+    // Undo: what is left is the shipped file, byte for byte.
+    const helper = body.indexOf("\n// suspender-pane:");
+    assert.ok(helper > 0);
+    assert.equal(body.slice(0, helper).replace(ME_AFTER, ME_BEFORE).trimEnd(), PANE.trimEnd());
+  });
+
+  it("patches a shipped file with Windows line endings the same way", () => {
+    const crlf = PANE.replace(/\n/g, "\r\n");
+    const out = patchPane(crlf, sha(crlf));
+    assert.ok(out !== null);
+    assert.equal(count(out, ME_AFTER), 1);
+    assert.equal(count(out, PANE_IMPORT), 1);
+  });
+
+  it("refuses when its anchor is missing or there twice, or the helper is already there", () => {
+    assert.equal(patchPane(PANE.replace(ME_BEFORE, "const p = this.find();"), "x"), null);
+    assert.equal(patchPane(`${PANE}\n// ${ME_BEFORE}\n`, "x"), null);
+    assert.equal(patchPane(`${PANE}\nfunction sleeping(p) { return p; }\n`, "x"), null);
+  });
+});
+
+describe("the sleeping agent in the copy of the pane header", () => {
+  // The helper the patch adds, run on its own with Herdr's shared() faked.
+  const sleeping = (pane: unknown, heads: unknown): unknown => {
+    const out = patchPane(PANE, "x") ?? "";
+    const fn = out.slice(out.indexOf("function sleeping("));
+    const make = new Function("suspenderShared", `${fn}\nreturn sleeping;`);
+    return make((key: string) => (key === "suspender.paneHeads" ? heads : null))(pane);
+  };
+  const HEAD = { key: "claude", name: "Claude Code", icon: "icons/claude.svg", tint: false, cwd: "C:\\work\\repo" };
+
+  it("gives our sleeping pane its agent's name, icon and folder, as Herdr's header draws an agent's", () => {
+    const shown = sleeping({ pane: "p1", mod: "suspender", tab: "tb1", title: "suspender" }, { p1: HEAD }) as {
+      cwd: unknown;
+      program: { name: unknown; icon: unknown; tint: unknown; agent: unknown; key: unknown };
+    };
+    assert.equal(shown.cwd, HEAD.cwd);
+    assert.equal(shown.program.name, "Claude Code");
+    assert.equal(shown.program.icon, HEAD.icon);
+    assert.equal(shown.program.tint, false);
+    assert.equal(shown.program.agent, true, "the header names an agent by its program");
+    assert.equal(shown.program.key, "claude");
+  });
+
+  it("leaves a terminal, another mod's pane, and a pane with nothing published as they are", () => {
+    const term = { pane: "p1", terminal: "t1", tab: "tb1", program: { name: "pwsh", shell: true } };
+    assert.equal(sleeping(term, { p1: HEAD }), term);
+    const files = { pane: "p1", mod: "files", tab: "tb1" };
+    assert.equal(sleeping(files, { p1: HEAD }), files);
+    const ours = { pane: "p2", mod: "suspender", tab: "tb1" };
+    assert.equal(sleeping(ours, { p1: HEAD }), ours);
+    assert.equal(sleeping(ours, null), ours);
+    assert.equal(sleeping(undefined, { p1: HEAD }), undefined);
   });
 });
 

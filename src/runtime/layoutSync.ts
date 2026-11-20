@@ -11,6 +11,8 @@
 
 import {
   buildLivingLayout,
+  type HeaderMode,
+  headerModeOf,
   keepPersonChanges,
   LAYOUT_NAME,
   needsRebuild,
@@ -34,6 +36,8 @@ export interface LayoutSyncDeps {
   warned: Set<string>;
   /** The tab bar to build around; omitted: the one the layout on disk has (none: Herdr's own). */
   tabs?: TabsMode;
+  /** The pane header (ADR 20); omitted: the one the layout on disk has (none: Herdr's own). */
+  header?: HeaderMode;
 }
 
 /**
@@ -80,16 +84,17 @@ export async function syncLayout(d: LayoutSyncDeps): Promise<SyncOutcome> {
     const currentText = await d.ports.readText(livingPath);
     const current = parse(currentText);
     let tabs: TabsMode = d.tabs ?? tabsModeOf(current) ?? "builtin";
-    let built = buildLivingLayout(main, d.herdrVersion, tabs);
+    const header: HeaderMode = d.header ?? headerModeOf(current);
+    let built = buildLivingLayout(main, d.herdrVersion, tabs, header);
     if (!built.ok && tabs === "clone") {
       // No place for Sessions beside Files and Changes: Herdr's own tab bar, our own button.
       tabs = "builtin";
-      built = buildLivingLayout(main, d.herdrVersion, tabs);
+      built = buildLivingLayout(main, d.herdrVersion, tabs, header);
       if (built.ok) {
         tabsFallbackNotice(d);
       }
     }
-    if (!needsRebuild(main, d.herdrVersion, current, tabs)) {
+    if (!needsRebuild(main, d.herdrVersion, current, tabs, header)) {
       return "fresh";
     }
     if (!built.ok) {
