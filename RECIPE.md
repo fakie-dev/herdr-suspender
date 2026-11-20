@@ -27,7 +27,7 @@ forcefully, conversation kept`, `This session is open elsewhere — close it the
 <time> · +N messages`.
 
 **The Sessions button.** The third panel button of the tab bar, right after Files and Changes and before the
-window buttons: `+  Files  Changes  ☾ Sessions · N  ─ □ ×`, N being the number of sleeping sessions. It is drawn
+window buttons: `+  Files  Changes  ☾ Sessions  ─ □ ×`. It is drawn
 by the tab bar's own `panelButton`, so it matches Changes to the pixel: 26 px tall, 8 px padding, 5 px between
 a 14 px moon and the 12 px label, radius 6, `muted` on `chrome`, `foreground` on `selected` while Sessions is the
 open panel, `hover` under the pointer. A click opens the side panel on Sessions, or closes it when Sessions is
@@ -225,7 +225,7 @@ English only; all texts are in `src/i18n/en.ts`.
 - `Forget`, or closing a sleeping tab, removes its entry from `sessions.json`.
 - Sessions groups by space, shows freed memory, and `Resume all in project` skips a session that is open
   elsewhere.
-- The tab bar reads `+ Files Changes ☾ Sessions · N ─ □ ×`; the Sessions button's height, background, text color
+- The tab bar reads `+ Files Changes ☾ Sessions ─ □ ×`; the Sessions button's height, background, text color
   and corners match Changes pixel for pixel; Files, Changes and Sessions switch the same side panel, and each space
   reopens the page it had.
 - After a change to the shipped `tabs/main.js`, the copy's first line carries the new sha; with an anchor

@@ -4,7 +4,7 @@
 // layout. Two ways to show Sessions (TabsMode):
 //
 //  - clone (the usual one): the tabs block shows `suspender-tabs`, the live
-//    copy of Herdr's tab bar with a "Sessions · N" button beside Files and
+//    copy of Herdr's tab bar with a "Sessions" button beside Files and
 //    Changes (runtime/tabsClone.ts), and the Sessions list is the side panel
 //    stack's third child, `suspender`, so it opens, switches and is remembered
 //    per space exactly like Files and Changes;
@@ -49,7 +49,7 @@ export const COVER_ID = "suspender-cover";
 export type TabsMode = "clone" | "builtin";
 
 const MOD = "suspender";
-/** "Sessions · N" for N up to 99 (122.4 px of Geist 12 with its icon and padding), with room to spare. */
+/** "Sessions" (it read "Sessions" up to 0.1.9; the width stayed), with room to spare. */
 export const TOGGLE_WIDTH_PX = 126;
 const PANEL_SIZE = { px: 320 };
 const PANEL_MIN_PX = 200;

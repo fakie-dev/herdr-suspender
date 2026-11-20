@@ -105,7 +105,7 @@ describe("the agent's icon on its tab", () => {
     sim.programsFail = true;
     await engine.tick();
     assert.deepEqual(sim.shared(TAB_ICONS_KEY), {});
-    assert.equal(sim.shared(TAB_LABEL_KEY), "Sessions · 0");
+    assert.equal(sim.shared(TAB_LABEL_KEY), "Sessions");
     await engine.sleep(KEY);
     assert.equal(engine.record(KEY)?.state, "asleep");
   });

@@ -1,4 +1,4 @@
-// "Sessions · N": our own button left of Herdr's tab bar (role "toggle", a block
+// "Sessions": our own button left of Herdr's tab bar (role "toggle", a block
 // of the living layout when the live copy of the tab bar cannot be used; the
 // copy draws its own button beside Files and Changes). N is how many sessions
 // sleep. It opens and closes our right column, drawn like the tab bar's Files
@@ -60,7 +60,7 @@ export class ToggleView {
             run("layout.toggle", { id: PANEL_ID });
           })
           .child(icon("moon", TOGGLE_ICON_PX, color(count > 0 ? "accent" : "muted")))
-          .child(t("toggle.label", { count })),
+          .child(t("toggle.label")),
       );
   }
 }

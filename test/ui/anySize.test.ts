@@ -30,12 +30,10 @@ import { HOME, rec } from "./helpers.ts";
 
 const w = windowPx;
 
-describe('"Sessions · N" in the layout without the tab bar copy', () => {
-  it("fits its block for every N from 0 to 99", () => {
-    for (let n = 0; n <= 99; n++) {
-      const need = toggleWidth(n, uiMeasure);
-      assert.ok(need <= TOGGLE_WIDTH_PX, `N ${n}: ${need.toFixed(1)} px in a ${TOGGLE_WIDTH_PX} px block`);
-    }
+describe('"Sessions" in the layout without the tab bar copy', () => {
+  it("fits its block", () => {
+    const need = toggleWidth(uiMeasure);
+    assert.ok(need <= TOGGLE_WIDTH_PX, `${need.toFixed(1)} px in a ${TOGGLE_WIDTH_PX} px block`);
   });
 });
 

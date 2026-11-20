@@ -1,6 +1,6 @@
 // The live copy of Herdr's tab bar: `mods/suspender-tabs/`, Herdr's shipped
-// `tabs` mod with a third panel button, "Sessions · N", beside Files and
-// Changes, so the strip reads `+ Files Changes Sessions · N  - □ ×`.
+// `tabs` mod with a third panel button, "Sessions", beside Files and
+// Changes, so the strip reads `+ Files Changes Sessions  - □ ×`.
 //
 // The copy is made once with Herdr's own `mod.clone`. Its main.js is then the
 // shipped tabs/main.js plus one patch, and its first line records the sha256

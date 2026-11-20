@@ -33,7 +33,7 @@ const six = (text: string): number => text.length * 6;
 /** Zoom 1: window px and the mod's px are the same (other zooms: scale.test.ts). */
 const ONE = { zoom: 1 };
 
-describe("sleeping count (the N of 'Sessions · N')", () => {
+describe("sleeping count (what lights the Sessions moon)", () => {
   it("counts every state that has a sleeping tab, and no running one", () => {
     const states = [
       "asleep",

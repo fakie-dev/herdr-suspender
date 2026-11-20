@@ -10,7 +10,6 @@ describe("t", () => {
   });
 
   it("fills {placeholders} from params", () => {
-    assert.equal(t("toggle.label", { count: 3 }), "Sessions · 3");
     assert.equal(t("pill.sleep", { agent: "Codex" }), "Sleep · Codex");
   });
 
@@ -22,8 +21,13 @@ describe("t", () => {
   });
 
   it("leaves a placeholder without a param visible", () => {
-    assert.equal(t("toggle.label"), "Sessions · {count}");
-    assert.equal(t("toggle.label", { other: 1 }), "Sessions · {count}");
+    assert.equal(t("pill.sleep"), "Sleep · {agent}");
+    assert.equal(t("pill.sleep", { other: 1 }), "Sleep · {agent}");
+  });
+
+  it("names the Sessions button without a count", () => {
+    assert.equal(t("toggle.label"), "Sessions");
+    assert.equal(t("toggle.label", { count: 3 }), "Sessions");
   });
 
   it("keeps every text in one flat table of strings", () => {

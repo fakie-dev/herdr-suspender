@@ -45,7 +45,6 @@ import {
   subtree,
   treesMemoryMb,
 } from "../platform/proc.ts";
-import { sleepingCount } from "../ui/sessionsModel.ts";
 import {
   type Host,
   type HostPane,
@@ -69,7 +68,7 @@ const COVER_STALE_MS = 5_000;
 export const REV_KEY = "suspender.rev";
 /** Bumped when a wake moves to its next step, so the sleep pane redraws. */
 export const PROGRESS_KEY = "suspender.progress";
-/** "Sessions · N" for the live copy of the tab bar, which reads it with shared() (runtime/tabsClone.ts). */
+/** "Sessions" for the live copy of the tab bar, which reads it with shared() (runtime/tabsClone.ts). */
 export const TAB_LABEL_KEY = "suspender.tabLabel";
 /**
  * Each session's tab with its agent's icon from Herdr's program table, for the
@@ -673,11 +672,11 @@ export class Engine {
   }
 
   /**
-   * "Sessions · N" for the live copy of the tab bar. Setting a shared value
+   * "Sessions" for the live copy of the tab bar. Setting a shared value
    * redraws every mod in the window, so only a changed text is set.
    */
   private publishTabLabel(): void {
-    const label = t("toggle.label", { count: sleepingCount(this.records()) });
+    const label = t("toggle.label");
     if (this.host.shared(TAB_LABEL_KEY) !== label) {
       this.host.setShared(TAB_LABEL_KEY, label);
     }

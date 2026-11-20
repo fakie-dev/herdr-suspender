@@ -1,4 +1,4 @@
-// "Sessions · N" in the live copy of the tab bar: the copy cannot import the
+// "Sessions" in the live copy of the tab bar: the copy cannot import the
 // mod, so the engine publishes the label as `shared("suspender.tabLabel")`.
 // Setting a shared value redraws every mod in the window, so it is set only
 // when the text changes.
@@ -36,13 +36,13 @@ describe("the tab bar's label", () => {
     assert.equal(TAB_LABEL_KEY, "suspender.tabLabel");
   });
 
-  it("says how many sessions sleep, from the first round on", async () => {
+  it("reads Sessions without a count, from the first round on and while a session sleeps", async () => {
     const { sim, engine } = world();
     await engine.tick();
-    assert.equal(sim.shared(TAB_LABEL_KEY), "Sessions · 0");
+    assert.equal(sim.shared(TAB_LABEL_KEY), "Sessions");
     await engine.sleep(KEY);
     assert.equal(engine.record(KEY)?.state, "asleep");
-    assert.equal(sim.shared(TAB_LABEL_KEY), "Sessions · 1", "at once, not at the next round");
+    assert.equal(sim.shared(TAB_LABEL_KEY), "Sessions");
   });
 
   it("is set only when its text changes, however many rounds and copies run", async () => {
@@ -53,10 +53,10 @@ describe("the tab bar's label", () => {
       await other.tick();
       await sim.advance(5_000);
     }
-    assert.deepEqual(sets, ["Sessions · 0"]);
+    assert.deepEqual(sets, ["Sessions"]);
     await engine.sleep(KEY);
     await engine.tick();
     await other.tick();
-    assert.deepEqual(sets, ["Sessions · 0", "Sessions · 1"]);
+    assert.deepEqual(sets, ["Sessions"]);
   });
 });
