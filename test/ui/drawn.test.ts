@@ -566,6 +566,30 @@ describe("the Sleep pill", () => {
       "the moon",
     );
   });
+
+  // Herdr opens the drawer while the pointer is on it and closes it when the pointer leaves. A
+  // drawer that draws nothing under the pointer (its agent just went to sleep from it) is never
+  // left, so it came back open the next time an agent was in focus and stayed open.
+  it("keeps its row under the pointer when its agent leaves focus, and only then draws nothing", async () => {
+    const { PillView } = await import("../../src/ui/pill.ts");
+    const { sim, engine, cx } = await world();
+    const agent = sim.addTerminal({ agent: "claude" });
+    sim.focus = { pane: agent.pane, terminal: agent.address };
+    let hovered = true;
+    const view = new PillView(engine, sim, () => hovered);
+    assert.ok(byId(view.render(cx), "sleep-pill"), "an agent in focus");
+    sim.focus = { pane: "p-sleeping", terminal: null };
+    assert.ok(byId(view.render(cx), "sleep-pill"), "the pointer is still on it: the same row");
+    hovered = false;
+    assert.equal(byId(view.render(cx), "sleep-pill"), undefined, "the pointer left: nothing");
+  });
+
+  it("draws nothing when no agent is in focus and it was not showing one", async () => {
+    const { PillView } = await import("../../src/ui/pill.ts");
+    const { sim, engine, cx } = await world();
+    sim.focus = { pane: "p-none", terminal: null };
+    assert.equal(byId(new PillView(engine, sim, () => true).render(cx), "sleep-pill"), undefined);
+  });
 });
 
 describe("the agent's tile beside the title (user: «иконка агента должна быть напротив заголовка»)", () => {

@@ -15,7 +15,18 @@
 
 import { type AsyncContext, type Context, div, type Element, View } from "gpui-kit";
 import * as herdrModule from "herdr";
-import { appHome, props as herdrProps, keys, layout, nextCommand, notify, run, updates, writeTextFile } from "herdr";
+import {
+  appHome,
+  props as herdrProps,
+  keys,
+  layout,
+  nextCommand,
+  notify,
+  placement,
+  run,
+  updates,
+  writeTextFile,
+} from "herdr";
 import { buildLivingLayout, LAYOUT_NAME, sessionsShown, sessionsToggle } from "./core/layout.ts";
 import type { SessionKey } from "./core/model.ts";
 import { MOD_VERSION } from "./core/release.ts";
@@ -276,7 +287,7 @@ export default class Suspender extends View {
     } else if (props.role === "toggle") {
       this.toggle = new ToggleView(engine);
     } else if (props.role === "pill") {
-      this.pill = new PillView(engine, host);
+      this.pill = new PillView(engine, host, () => placement()?.hovered === true);
     } else if (props.role === "cover") {
       // The other child of the tab block's stack: shown only while a Sleep or a Resume rearranges a tab.
       this.cover = new CoverView(engine, host, ports);
